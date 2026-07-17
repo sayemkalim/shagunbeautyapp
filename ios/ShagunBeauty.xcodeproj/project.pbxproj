@@ -9,9 +9,12 @@
 /* Begin PBXBuildFile section */
 		0C80B921A6F3F58F76C31292 /* libPods-ShagunBeauty.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 5DCACB8F33CDC322A6C60F78 /* libPods-ShagunBeauty.a */; };
 		13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB51A68108700A75B9A /* Images.xcassets */; };
+		1D85F7CFB88846449443BB20 /* GothamRnd-Book.otf in Resources */ = {isa = PBXBuildFile; fileRef = 64F59DE078F64DD7BE672225 /* GothamRnd-Book.otf */; };
 		329DC1979A52B5705A9DC3E1 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */; };
+		6E97F75604E84F6DB39971C5 /* GothamRnd-Medium.otf in Resources */ = {isa = PBXBuildFile; fileRef = 98C713055B3C4E2893D408C7 /* GothamRnd-Medium.otf */; };
 		761780ED2CA45674006654EE /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 761780EC2CA45674006654EE /* AppDelegate.swift */; };
 		81AB9BB82411601600AC10FF /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */; };
+		9C0FD75F9EE14E16B80F8D1C /* GothamRnd-Bold.otf in Resources */ = {isa = PBXBuildFile; fileRef = 2B972AFAA6694C6681CED3E9 /* GothamRnd-Bold.otf */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -19,11 +22,14 @@
 		13B07FB51A68108700A75B9A /* Images.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Images.xcassets; path = ShagunBeauty/Images.xcassets; sourceTree = "<group>"; };
 		13B07FB61A68108700A75B9A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = ShagunBeauty/Info.plist; sourceTree = "<group>"; };
 		13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = PrivacyInfo.xcprivacy; path = ShagunBeauty/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		2B972AFAA6694C6681CED3E9 /* GothamRnd-Bold.otf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "GothamRnd-Bold.otf"; path = "../assets/fonts/GothamRnd-Bold.otf"; sourceTree = "<group>"; };
 		3B4392A12AC88292D35C810B /* Pods-ShagunBeauty.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-ShagunBeauty.debug.xcconfig"; path = "Target Support Files/Pods-ShagunBeauty/Pods-ShagunBeauty.debug.xcconfig"; sourceTree = "<group>"; };
 		5709B34CF0A7D63546082F79 /* Pods-ShagunBeauty.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-ShagunBeauty.release.xcconfig"; path = "Target Support Files/Pods-ShagunBeauty/Pods-ShagunBeauty.release.xcconfig"; sourceTree = "<group>"; };
 		5DCACB8F33CDC322A6C60F78 /* libPods-ShagunBeauty.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-ShagunBeauty.a"; sourceTree = BUILT_PRODUCTS_DIR; };
+		64F59DE078F64DD7BE672225 /* GothamRnd-Book.otf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "GothamRnd-Book.otf"; path = "../assets/fonts/GothamRnd-Book.otf"; sourceTree = "<group>"; };
 		761780EC2CA45674006654EE /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = ShagunBeauty/AppDelegate.swift; sourceTree = "<group>"; };
 		81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = LaunchScreen.storyboard; path = ShagunBeauty/LaunchScreen.storyboard; sourceTree = "<group>"; };
+		98C713055B3C4E2893D408C7 /* GothamRnd-Medium.otf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "GothamRnd-Medium.otf"; path = "../assets/fonts/GothamRnd-Medium.otf"; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
@@ -39,6 +45,17 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		1062FF376D0946EB9D2E10A6 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				2B972AFAA6694C6681CED3E9 /* GothamRnd-Bold.otf */,
+				64F59DE078F64DD7BE672225 /* GothamRnd-Book.otf */,
+				98C713055B3C4E2893D408C7 /* GothamRnd-Medium.otf */,
+			);
+			name = Resources;
+			path = "";
+			sourceTree = "<group>";
+		};
 		13B07FAE1A68108700A75B9A /* ShagunBeauty */ = {
 			isa = PBXGroup;
 			children = (
@@ -75,6 +92,7 @@
 				83CBBA001A601CBA00E9B192 /* Products */,
 				2D16E6871FA4F8E400B85C8A /* Frameworks */,
 				BBD78D7AC51CEA395F1C20DB /* Pods */,
+				1062FF376D0946EB9D2E10A6 /* Resources */,
 			);
 			indentWidth = 2;
 			sourceTree = "<group>";
@@ -161,6 +179,9 @@
 				81AB9BB82411601600AC10FF /* LaunchScreen.storyboard in Resources */,
 				13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */,
 				329DC1979A52B5705A9DC3E1 /* PrivacyInfo.xcprivacy in Resources */,
+				9C0FD75F9EE14E16B80F8D1C /* GothamRnd-Bold.otf in Resources */,
+				1D85F7CFB88846449443BB20 /* GothamRnd-Book.otf in Resources */,
+				6E97F75604E84F6DB39971C5 /* GothamRnd-Medium.otf in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
