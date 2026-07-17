@@ -94,7 +94,7 @@ export default function SignInScreen({ navigation }) {
           
           <View style={styles.logoWrapper}>
             <Image
-              source={require('../../assets/SB.png')}
+              source={require('../../assets/SBL.png')}
               style={styles.logo}
             />
           </View>

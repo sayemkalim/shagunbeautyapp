@@ -13,7 +13,7 @@ const SplashScreen = ({ navigation }) => {
   return (
     <View style={styles.container}>
       <Image
-        source={require('../../assets/SB.png')}
+        source={require('../../assets/SBL.png')}
         style={styles.logo}
       />
     </View>
