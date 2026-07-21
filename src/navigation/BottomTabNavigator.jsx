@@ -1,5 +1,5 @@
 import React from 'react';
-import { StyleSheet, View } from 'react-native';
+import { StyleSheet, View, TouchableOpacity } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import HomeScreen from '../screens/HomeScreen';
 import BrandsScreen from '../screens/BrandsScreen';
@@ -74,6 +74,9 @@ export default function BottomTabNavigator() {
           fontSize: 11,
           marginTop: 2,
         },
+        tabBarButton: (props) => (
+          <TouchableOpacity {...props} activeOpacity={0.9} />
+        ),
       }}>
       <Tab.Screen
         name="Home"

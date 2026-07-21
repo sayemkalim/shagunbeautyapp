@@ -1,13 +1,25 @@
 import React, { useEffect } from 'react';
 import { View, Image, StyleSheet } from 'react-native';
+import { getToken } from '../api/authStorage';
 
 const SplashScreen = ({ navigation }) => {
   useEffect(() => {
-    const timer = setTimeout(() => {
-      navigation.replace('SignIn');
-    }, 3000);
+    let isMounted = true;
 
-    return () => clearTimeout(timer);
+    const goNext = async () => {
+      const token = await getToken();
+      if (!isMounted) {
+        return;
+      }
+      navigation.replace(token ? 'BottomTabs' : 'SignIn');
+    };
+
+    const timer = setTimeout(goNext, 3000);
+
+    return () => {
+      isMounted = false;
+      clearTimeout(timer);
+    };
   }, [navigation]);
 
   return (

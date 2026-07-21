@@ -1,14 +1,23 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
+  ActivityIndicator,
+  Dimensions,
   Image,
+  LayoutAnimation,
+  Platform,
   ScrollView,
   StatusBar,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
+  UIManager,
   View,
 } from 'react-native';
+
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   Search,
@@ -18,12 +27,17 @@ import {
   Award,
   Percent,
 } from 'lucide-react-native';
+import { useIsFocused } from '@react-navigation/native';
+import { useCategories } from '../hooks/useCategories';
 
 import fonts from '../theme/typography';
 import colors from '../theme/colors';
 
-// ─── Primary light shade (tint of colors.primary #4361ee) ────────────────────
-const LAVENDER = colors.primaryLight ?? '#E8EDFD'; // very light blue tint
+const { width: screenWidth } = Dimensions.get('window');
+const BANNER_WIDTH = screenWidth - 32;
+
+// ─── Primary light shade (tint of colors.primary #7209b7) ────────────────────
+const LAVENDER = colors.primaryLight ?? '#865ea6ff'; // light purple tint
 const GRID_LINE = 'rgba(255,255,255,0.6)'; // subtle white grid lines
 const CELL = 26; // px per grid square
 
@@ -59,14 +73,14 @@ const gridStyles = StyleSheet.create({
     position: 'absolute',
     top: 0,
     bottom: 0,
-    width: 1,
+    width: StyleSheet.hairlineWidth,
     backgroundColor: GRID_LINE,
   },
   hLine: {
     position: 'absolute',
     left: 0,
     right: 0,
-    height: 1,
+    height: StyleSheet.hairlineWidth,
     backgroundColor: GRID_LINE,
   },
 });
@@ -91,9 +105,44 @@ const SEARCH_SUGGESTIONS = [
   'Search "Moisturizer"',
 ];
 
+const CATEGORIES = [
+  { id: '1', name: 'Cleanse', image: require('../../assets/cat_cleanse.png') },
+  { id: '2', name: 'Treat', image: require('../../assets/cat_treat.png') },
+  { id: '3', name: 'Moisturize', image: require('../../assets/cat_moisturize.png') },
+  { id: '4', name: 'Protect', image: require('../../assets/cat_protect.png') },
+];
+
 // ─── Screen ────────────────────────────────────────────────────────────────────
-export default function HomeScreen() {
+export default function HomeScreen({ navigation }) {
+  const isFocused = useIsFocused();
   const [searchHint, setSearchHint] = useState(SEARCH_SUGGESTIONS[0]);
+  const [activeSlide, setActiveSlide] = useState(0);
+  const { data: categories = [], isLoading: categoriesLoading } = useCategories();
+  const sliderRef = useRef(null);
+
+  const handleScroll = (event) => {
+    const slideSize = event.nativeEvent.layoutMeasurement.width;
+    const offset = event.nativeEvent.contentOffset.x;
+    const activeIndex = Math.floor((offset + slideSize / 2) / slideSize);
+    setActiveSlide(activeIndex);
+  };
+
+  useEffect(() => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+  }, [activeSlide]);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (sliderRef.current) {
+        sliderRef.current.scrollTo({
+          x: ((activeSlide + 1) % 3) * BANNER_WIDTH,
+          animated: true,
+        });
+      }
+    }, 3000);
+
+    return () => clearInterval(timer);
+  }, [activeSlide]);
 
 
   useEffect(() => {
@@ -107,23 +156,23 @@ export default function HomeScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
-      <StatusBar
-        backgroundColor={LAVENDER}
-        barStyle="dark-content"
-        translucent={false}
-      />
+      {isFocused && (
+        <StatusBar
+          backgroundColor={LAVENDER}
+          barStyle="dark-content"
+          translucent={false}
+        />
+      )}
 
       {/* ── Search Bar ── */}
       <GridBackground style={styles.searchSection}>
-        <View style={styles.searchBar}>
+        <TouchableOpacity
+          style={styles.searchBar}
+          activeOpacity={0.8}
+          onPress={() => navigation.navigate('Search')}>
           <Search size={20} color="#64748B" style={styles.searchIcon} />
-          <TextInput
-            placeholder={searchHint}
-            placeholderTextColor="#94A3B8"
-            style={styles.searchInput}
-            editable={false}
-          />
-        </View>
+          <Text style={styles.searchPlaceholderText}>{searchHint}</Text>
+        </TouchableOpacity>
       </GridBackground>
 
       <ScrollView
@@ -138,7 +187,7 @@ export default function HomeScreen() {
           {/* Weekend Sale Banner */}
           <TouchableOpacity style={styles.saleBannerContainer} activeOpacity={0.9}>
             <Image
-              source={require('../../assets/weekend_sale.png')}
+              source={require('../../assets/top_banner.jpg')}
               style={styles.saleBannerImage}
               resizeMode="cover"
             />
@@ -162,48 +211,93 @@ export default function HomeScreen() {
 
         {/* ── Bottom White Section ── */}
         <View style={styles.bottomWhiteSection}>
-          <View style={styles.adBanner}>
-            <View style={styles.adLeft}>
-              <Text style={styles.adBrandLogo}>mamaearth®</Text>
-              <Text style={styles.adBrandTagline}>goodness inside</Text>
-              <Text style={styles.adTitle}>Remove Tan &{"\n"}Glow Naturally</Text>
-              <Text style={styles.adSubTitle}>with Ubtan Face Wash</Text>
-              <View style={styles.adPromoBox}>
-                <Text style={styles.adPromoTextBold}>Get 2 freebie on ₹299</Text>
-                <Text style={styles.adPromoTextSmall}>3 freebies on ₹349</Text>
-              </View>
-            </View>
-
-            <View style={styles.adRight}>
-              <View style={styles.modelAvatarFrame}>
-                <View style={styles.modelAvatarCircle}>
-                  <Text style={styles.modelAvatarText}>👩</Text>
-                </View>
-              </View>
-              <View style={styles.polaroidFrame}>
-                <View style={styles.polaroidInnerCard}>
-                  <Image
-                    source={require('../../assets/ubtan_wash.png')}
-                    style={styles.polaroidProductImage}
-                    resizeMode="cover"
-                  />
-                  <View style={styles.polaroidFooter}>
-                    <Text style={styles.heartIcon}>❤️</Text>
-                    <Text style={styles.polaroidText}>Most Loved</Text>
-                  </View>
-                </View>
-              </View>
-            </View>
+          {/* New Luxury Ritual Banner Slider */}
+          <View style={styles.luxuryBanner}>
+            <ScrollView
+              ref={sliderRef}
+              horizontal
+              pagingEnabled
+              showsHorizontalScrollIndicator={false}
+              onScroll={handleScroll}
+              scrollEventThrottle={16}>
+          
+              <TouchableOpacity activeOpacity={0.95} style={{ width: BANNER_WIDTH, height: 180 }}>
+                <Image
+                  source={require('../../assets/luxury_banner.png')}
+                  style={styles.luxuryBannerImage}
+                  resizeMode="cover"
+                />
+              </TouchableOpacity>
+              
+              <TouchableOpacity activeOpacity={0.95} style={{ width: BANNER_WIDTH, height: 180 }}>
+                <Image
+                  source={require('../../assets/luxury_banner_3.png')}
+                  style={styles.luxuryBannerImage}
+                  resizeMode="cover"
+                />
+              </TouchableOpacity>
+            
+              <TouchableOpacity activeOpacity={0.95} style={{ width: BANNER_WIDTH, height: 180 }}>
+                <Image
+                  source={require('../../assets/luxury_banner_6.png')}
+                  style={styles.luxuryBannerImage}
+                  resizeMode="cover"
+                />
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+          
+          {/* Carousel Dots below the banner */}
+          <View style={styles.luxuryBannerDots}>
+            <View style={[styles.luxuryDot, activeSlide === 0 && styles.luxuryDotActive]} />
+            <View style={[styles.luxuryDot, activeSlide === 1 && styles.luxuryDotActive]} />
+            <View style={[styles.luxuryDot, activeSlide === 2 && styles.luxuryDotActive]} />
           </View>
 
-          {/* Carousel Dots */}
-          <View style={styles.carouselDots}>
-            {[0, 1, 2, 3, 4].map((dot, index) => (
-              <View
-                key={dot}
-                style={[styles.carouselDot, index === 4 && styles.carouselDotActive]}
-              />
-            ))}
+          {/* Categories Section */}
+          <View style={styles.categoriesSection}>
+            <View style={styles.categoriesHeader}>
+              <Text style={styles.categoriesTitle}>Categories</Text>
+              {/* <TouchableOpacity activeOpacity={0.7}>
+                <Text style={styles.seeAllText}>See All</Text>
+              </TouchableOpacity> */}
+            </View>
+
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.categoriesScroll}>
+              {categoriesLoading ? (
+                <View style={styles.categoriesLoadingContainer}>
+                  <ActivityIndicator size="small" color={colors.primary} />
+                </View>
+              ) : categories.length === 0 ? (
+                CATEGORIES.map((cat) => (
+                  <TouchableOpacity
+                    key={cat.id}
+                    style={styles.categoryItem}
+                    activeOpacity={0.95}
+                    onPress={() => navigation.navigate('Products', { categoryId: cat.id, categoryName: cat.name })}>
+                    <Image source={cat.image} style={styles.categoryItemImage} />
+                    <Text style={styles.categoryItemLabel}>{cat.name}</Text>
+                  </TouchableOpacity>
+                ))
+              ) : (
+                categories.map((cat) => {
+                  const imageSource = cat.images?.[0] ? { uri: cat.images[0] } : require('../../assets/dummy_product.png');
+                  return (
+                    <TouchableOpacity
+                      key={cat._id}
+                      style={styles.categoryItem}
+                      activeOpacity={0.85}
+                      onPress={() => navigation.navigate('Products', { categoryId: cat._id, categoryName: cat.name })}>
+                      <Image source={imageSource} style={styles.categoryItemImage} />
+                      <Text style={styles.categoryItemLabel}>{cat.name}</Text>
+                    </TouchableOpacity>
+                  );
+                })
+              )}
+            </ScrollView>
           </View>
         </View>
       </ScrollView>
@@ -259,38 +353,16 @@ const styles = StyleSheet.create({
     fontFamily: fonts.medium,
     color: '#64748B',
   },
+  searchPlaceholderText: {
+    flex: 1,
+    fontSize: 14,
+    fontFamily: fonts.medium,
+    color: '#94A3B8',
+  },
   scrollContent: {
     paddingBottom: 24,
   },
-  categoryScroll: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    gap: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.4)',
-  },
-  categoryItem: {
-    alignItems: 'center',
-    paddingHorizontal: 4,
-    paddingBottom: 6,
-  },
-  categoryLabel: {
-    fontSize: 10,
-    fontFamily: fonts.big,
-    color: '#64748B',
-    marginTop: 6,
-    letterSpacing: 0.5,
-  },
-  categoryLabelActive: {
-    color: '#000000',
-  },
-  activeUnderline: {
-    position: 'absolute',
-    bottom: -12,
-    width: '120%',
-    height: 3,
-    backgroundColor: '#000000',
-  },
+
   saleBannerContainer: {
     margin: 16,
     borderRadius: 16,
@@ -336,143 +408,80 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 12,
   },
-  adBanner: {
+  luxuryBanner: {
     marginHorizontal: 16,
     borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#FEF08A',
-    backgroundColor: '#FFFDF5',
-    flexDirection: 'row',
-    padding: 16,
+    backgroundColor: '#E4E4E1', // premium warm light grey/beige
     height: 180,
-  },
-  adLeft: {
-    flex: 1.3,
-    justifyContent: 'center',
-  },
-  adBrandLogo: {
-    fontSize: 16,
-    fontFamily: fonts.big,
-    color: '#15803D',
-  },
-  adBrandTagline: {
-    fontSize: 8,
-    fontFamily: fonts.medium,
-    color: '#16A34A',
-    marginTop: -2,
-    marginBottom: 8,
-  },
-  adTitle: {
-    fontSize: 13,
-    fontFamily: fonts.big,
-    color: '#7C2D12',
-    lineHeight: 17,
-  },
-  adSubTitle: {
-    fontSize: 11,
-    fontFamily: fonts.medium,
-    color: '#7C2D12',
-    marginTop: 2,
-    marginBottom: 12,
-  },
-  adPromoBox: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    borderRadius: 8,
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    alignSelf: 'flex-start',
-  },
-  adPromoTextBold: {
-    fontSize: 9,
-    fontFamily: fonts.big,
-    color: '#0F172A',
-  },
-  adPromoTextSmall: {
-    fontSize: 8,
-    fontFamily: fonts.medium,
-    color: '#64748B',
-    marginTop: 1,
-  },
-  adRight: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    justifyContent: 'center',
-  },
-  modelAvatarFrame: {
-    width: 60,
-    height: 80,
-    borderRadius: 30,
+    position: 'relative',
     overflow: 'hidden',
-    backgroundColor: '#E2E8F0',
-    justifyContent: 'flex-end',
-    marginRight: 24,
   },
-  modelAvatarCircle: {
-    width: '100%',
+  luxuryBannerImage: {
+    width: BANNER_WIDTH,
     height: '100%',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#FEF08A',
   },
-  modelAvatarText: {
-    fontSize: 32,
-  },
-  polaroidFrame: {
-    position: 'absolute',
-    right: 12,
-    bottom: 20,
-    width: 72,
-    height: 104,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 8,
-    padding: 6,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 4,
-    transform: [{ rotate: '-6deg' }],
-  },
-  polaroidInnerCard: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  polaroidProductImage: {
-    width: 60,
-    height: 68,
-    borderRadius: 4,
-  },
-  polaroidFooter: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 4,
-    gap: 2,
-  },
-  heartIcon: {
-    fontSize: 7,
-  },
-  polaroidText: {
-    fontSize: 6,
-    fontFamily: fonts.big,
-    color: '#334155',
-  },
-  carouselDots: {
+  luxuryBannerDots: {
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    marginTop: 12,
     gap: 6,
+    marginTop: 12,
   },
-  carouselDot: {
+  luxuryDot: {
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: '#CBD5E1',
+    backgroundColor: '#CBD5E1', // light neutral grey inactive dot
   },
-  carouselDotActive: {
-    backgroundColor: '#78350F',
+  luxuryDotActive: {
+    width: 20,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: colors.primary, // active dot uses theme primary color
+  },
+  categoriesSection: {
+    marginTop: 24,
+  },
+  categoriesHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    marginBottom: 12,
+  },
+  categoriesTitle: {
+    fontSize: 18,
+    fontFamily: fonts.big,
+    color: '#000000',
+  },
+  seeAllText: {
+    fontSize: 14,
+    fontFamily: fonts.medium,
+    color: '#94A3B8',
+  },
+  categoriesScroll: {
+    paddingHorizontal: 16,
+    gap: 16,
+    paddingBottom: 16,
+  },
+  categoryItem: {
+    alignItems: 'center',
+  },
+  categoryItemImage: {
+    width: 106,
+    height: 106,
+    borderRadius: 22,
+  },
+  categoryItemLabel: {
+    marginTop: 8,
+    fontSize: 15,
+    fontFamily: fonts.medium,
+    color: '#000000',
+  },
+  categoriesLoadingContainer: {
+    height: 100,
+    width: BANNER_WIDTH,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

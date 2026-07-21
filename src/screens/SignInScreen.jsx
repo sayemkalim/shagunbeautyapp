@@ -1,5 +1,6 @@
 import React, { useState, useRef } from 'react';
 import {
+  ActivityIndicator,
   Image,
   KeyboardAvoidingView,
   Platform,
@@ -14,15 +15,32 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import colors from '../theme/colors';
 import fonts from '../theme/typography';
 import { GoogleIcon, EyeIcon, EyeOffIcon } from '../components/icons';
+import { loginWithPhone, verifyLogin, registerUser } from '../api/auth';
+import { saveSession } from '../api/authStorage';
 
-export default function SignInScreen({ navigation }) {
-  const [phone, setPhone] = useState('');
+const isValidEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+
+export default function SignInScreen({ navigation, route }) {
+  const [phone, setPhone] = useState(route?.params?.phone || '');
   const [pin, setPin] = useState(['', '', '', '']);
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [pincode, setPincode] = useState('');
   const [step, setStep] = useState('phone'); // 'phone' | 'pin'
+  const [mode, setMode] = useState('login'); // 'login' | 'register' — which endpoint the PIN step calls
   const [isPhoneFocused, setIsPhoneFocused] = useState(false);
+  const [isNameFocused, setIsNameFocused] = useState(false);
+  const [isEmailFocused, setIsEmailFocused] = useState(false);
+  const [isPincodeFocused, setIsPincodeFocused] = useState(false);
   const [focusedPinIndex, setFocusedPinIndex] = useState(null);
   const [showPin, setShowPin] = useState(false);
+  const [isCheckingPhone, setIsCheckingPhone] = useState(false);
+  const [isSubmittingPin, setIsSubmittingPin] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
   const phoneInputRef = useRef(null);
+  const nameInputRef = useRef(null);
+  const emailInputRef = useRef(null);
+  const pincodeInputRef = useRef(null);
 
   const pinRefs = [
     useRef(null),
@@ -34,14 +52,38 @@ export default function SignInScreen({ navigation }) {
   const handleBackPress = () => {
     setStep('phone');
     setPin(['', '', '', '']);
+    setName('');
+    setEmail('');
+    setPincode('');
+    setErrorMessage('');
   };
 
-  const handlePhoneSubmit = () => {
-    if (phone.length >= 10) {
+  const handlePhoneSubmit = async () => {
+    if (!isPhoneValid || isCheckingPhone) {
+      return;
+    }
+    setErrorMessage('');
+    setIsCheckingPhone(true);
+    try {
+      const data = await loginWithPhone(`+91${phone}`);
+      const isNewUser = !!data.is_new_user;
+      setMode(isNewUser ? 'register' : 'login');
       setStep('pin');
-      setTimeout(() => {
-        pinRefs[0].current?.focus();
-      }, 100);
+      if (isNewUser) {
+        setTimeout(() => {
+          nameInputRef.current?.focus();
+        }, 100);
+      } else {
+        setTimeout(() => {
+          pinRefs[0].current?.focus();
+        }, 100);
+      }
+    } catch (err) {
+      setErrorMessage(
+        err?.message || 'Something went wrong.',
+      );
+    } finally {
+      setIsCheckingPhone(false);
     }
   };
 
@@ -74,11 +116,44 @@ export default function SignInScreen({ navigation }) {
 
   const isPhoneValid = phone.length >= 10;
   const isPinComplete = pin.every(digit => digit !== '');
+  const isNameValid = name.trim().length > 0;
+  const isEmailValid = isValidEmail(email);
+  const isPincodeValid = /^\d{6}$/.test(pincode);
+  const isRegisterFormValid =
+    mode !== 'register' || (isNameValid && isEmailValid && isPincodeValid);
+  const canSubmit = isPinComplete && isRegisterFormValid && !isSubmittingPin;
 
-  const handleLogin = () => {
-    if (isPinComplete) {
-      console.log('Logging in with phone:', phone, 'and PIN:', pin.join(''));
+  const handleLogin = async () => {
+    if (!canSubmit) {
+      return;
+    }
+    setErrorMessage('');
+    setIsSubmittingPin(true);
+    const fullPhone = `+91${phone}`;
+    const pinValue = pin.join('');
+    try {
+      const data =
+        mode === 'register'
+          ? await registerUser({
+              phoneNumber: fullPhone,
+              pin: pinValue,
+              name: name.trim(),
+              email: email.trim(),
+            })
+          : await verifyLogin(fullPhone, pinValue);
+      await saveSession(data.token, {
+        id: data.id,
+        name: data.name,
+        email: data.email,
+        phone: data.phone,
+      });
       navigation.replace('BottomTabs');
+    } catch (err) {
+      setErrorMessage(
+        err?.message || 'Something went wrong.',
+      );
+    } finally {
+      setIsSubmittingPin(false);
     }
   };
 
@@ -124,7 +199,10 @@ export default function SignInScreen({ navigation }) {
                   placeholder="98765 43210"
                   placeholderTextColor={colors.inputPlaceholder}
                   value={phone}
-                  onChangeText={(val) => setPhone(val.replace(/[^0-9]/g, ''))}
+                  onChangeText={(val) => {
+                    setPhone(val.replace(/[^0-9]/g, ''));
+                    setErrorMessage('');
+                  }}
                   keyboardType="number-pad"
                   maxLength={10}
                   onFocus={() => setIsPhoneFocused(true)}
@@ -132,12 +210,21 @@ export default function SignInScreen({ navigation }) {
                 />
               </TouchableOpacity>
 
+              {!!errorMessage && <Text style={styles.errorText}>{errorMessage}</Text>}
+
               <TouchableOpacity
-                style={[styles.primaryButton, !isPhoneValid && styles.disabledButton]}
+                style={[
+                  styles.primaryButton,
+                  (!isPhoneValid || isCheckingPhone) && styles.disabledButton,
+                ]}
                 activeOpacity={0.8}
                 onPress={handlePhoneSubmit}
-                disabled={!isPhoneValid}>
-                <Text style={styles.primaryButtonText}>Continue</Text>
+                disabled={!isPhoneValid || isCheckingPhone}>
+                {isCheckingPhone ? (
+                  <ActivityIndicator color={colors.white} />
+                ) : (
+                  <Text style={styles.primaryButtonText}>Continue</Text>
+                )}
               </TouchableOpacity>
 
               <View style={styles.dividerRow}>
@@ -153,13 +240,102 @@ export default function SignInScreen({ navigation }) {
             </View>
           ) : (
             <View style={styles.container}>
-              <Text style={styles.title}>Enter PIN</Text>
+              <Text style={styles.title}>
+                {mode === 'register' ? 'Create PIN' : 'Enter PIN'}
+              </Text>
               <Text style={styles.subtitle}>
-                Please enter your 4-digit security PIN to login or signup
+                {mode === 'register'
+                  ? 'Tell us a bit about you and set a 4-digit security PIN'
+                  : 'Please enter your 4-digit security PIN to login'}
               </Text>
 
+              {mode === 'register' && (
+                <>
+                  <Text style={styles.label}>
+                    Full Name <Text style={styles.required}>*</Text>
+                  </Text>
+                  <TouchableOpacity
+                    activeOpacity={1}
+                    onPress={() => nameInputRef.current?.focus()}
+                    style={[
+                      styles.phoneInputContainer,
+                      isNameFocused && styles.phoneInputContainerActive,
+                    ]}>
+                    <TextInput
+                      ref={nameInputRef}
+                      style={styles.phoneInput}
+                      placeholder="Your full name"
+                      placeholderTextColor={colors.inputPlaceholder}
+                      value={name}
+                      onChangeText={(val) => {
+                        setName(val);
+                        setErrorMessage('');
+                      }}
+                      autoCapitalize="words"
+                      onFocus={() => setIsNameFocused(true)}
+                      onBlur={() => setIsNameFocused(false)}
+                    />
+                  </TouchableOpacity>
+
+                  <Text style={styles.label}>
+                    Email <Text style={styles.required}>*</Text>
+                  </Text>
+                  <TouchableOpacity
+                    activeOpacity={1}
+                    onPress={() => emailInputRef.current?.focus()}
+                    style={[
+                      styles.phoneInputContainer,
+                      isEmailFocused && styles.phoneInputContainerActive,
+                    ]}>
+                    <TextInput
+                      ref={emailInputRef}
+                      style={styles.phoneInput}
+                      placeholder="example@email.com"
+                      placeholderTextColor={colors.inputPlaceholder}
+                      value={email}
+                      onChangeText={(val) => {
+                        setEmail(val);
+                        setErrorMessage('');
+                      }}
+                      keyboardType="email-address"
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      onFocus={() => setIsEmailFocused(true)}
+                      onBlur={() => setIsEmailFocused(false)}
+                    />
+                  </TouchableOpacity>
+
+                  <Text style={styles.label}>
+                    Pincode <Text style={styles.required}>*</Text>
+                  </Text>
+                  <TouchableOpacity
+                    activeOpacity={1}
+                    onPress={() => pincodeInputRef.current?.focus()}
+                    style={[
+                      styles.phoneInputContainer,
+                      isPincodeFocused && styles.phoneInputContainerActive,
+                    ]}>
+                    <TextInput
+                      ref={pincodeInputRef}
+                      style={styles.phoneInput}
+                      placeholder="e.g. 400001"
+                      placeholderTextColor={colors.inputPlaceholder}
+                      value={pincode}
+                      onChangeText={(val) => {
+                        setPincode(val.replace(/[^0-9]/g, ''));
+                        setErrorMessage('');
+                      }}
+                      keyboardType="number-pad"
+                      maxLength={6}
+                      onFocus={() => setIsPincodeFocused(true)}
+                      onBlur={() => setIsPincodeFocused(false)}
+                    />
+                  </TouchableOpacity>
+                </>
+              )}
+
               <Text style={styles.label}>Enter PIN</Text>
-              
+
               <View style={styles.pinSection}>
                 <View style={styles.pinRow}>
                   {pin.map((digit, index) => (
@@ -174,7 +350,10 @@ export default function SignInScreen({ navigation }) {
                       keyboardType="number-pad"
                       maxLength={1}
                       value={digit}
-                      onChangeText={(text) => handlePinChange(text, index)}
+                      onChangeText={(text) => {
+                        handlePinChange(text, index);
+                        setErrorMessage('');
+                      }}
                       onKeyPress={(e) => handleKeyPress(e, index)}
                       secureTextEntry={!showPin}
                       selectTextOnFocus={true}
@@ -191,12 +370,23 @@ export default function SignInScreen({ navigation }) {
                 </TouchableOpacity>
               </View>
 
+              {!!errorMessage && <Text style={styles.errorText}>{errorMessage}</Text>}
+
               <TouchableOpacity
-                style={[styles.primaryButton, !isPinComplete && styles.disabledButton]}
+                style={[
+                  styles.primaryButton,
+                  !canSubmit && styles.disabledButton,
+                ]}
                 activeOpacity={0.8}
                 onPress={handleLogin}
-                disabled={!isPinComplete}>
-                <Text style={styles.primaryButtonText}>Login or Signup</Text>
+                disabled={!canSubmit}>
+                {isSubmittingPin ? (
+                  <ActivityIndicator color={colors.white} />
+                ) : (
+                  <Text style={styles.primaryButtonText}>
+                    {mode === 'register' ? 'Create Account' : 'Login'}
+                  </Text>
+                )}
               </TouchableOpacity>
 
               <View style={styles.linksRow}>
@@ -210,7 +400,7 @@ export default function SignInScreen({ navigation }) {
                 <TouchableOpacity
                   activeOpacity={0.7}
                   onPress={() => {
-                    console.log('Forgot PIN pressed');
+                    navigation.navigate('ForgotPin');
                   }}
                   style={styles.linkButton}>
                   <Text style={styles.linkText}>Forgot PIN?</Text>
@@ -291,6 +481,13 @@ const styles = StyleSheet.create({
     color: colors.primary,
     textDecorationLine: 'underline',
   },
+  errorText: {
+    color: '#EF4444',
+    fontSize: 13,
+    fontFamily: fonts.medium,
+    marginTop: 12,
+    textAlign: 'center',
+  },
   label: {
     marginTop: 36,
     marginBottom: 10,
@@ -298,6 +495,9 @@ const styles = StyleSheet.create({
     fontFamily: fonts.medium,
     color: colors.text,
     letterSpacing: 0.5,
+  },
+  required: {
+    color: '#EF4444',
   },
   phoneInputContainer: {
     height: 56,

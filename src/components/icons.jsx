@@ -1,6 +1,6 @@
 import React from 'react';
 import Svg, { Circle, Path } from 'react-native-svg';
-import { Home, Tag, ShoppingBag, User } from 'lucide-react-native';
+import { Home, Tag, UserRound, Handbag } from 'lucide-react-native';
 
 export function GoogleIcon({ size = 20 }) {
   return (
@@ -89,11 +89,11 @@ export function BrandTabIcon({ size = 24, color }) {
 }
 
 export function BagTabIcon({ size = 24, color }) {
-  return <ShoppingBag size={size} color={color} strokeWidth={2} />;
+  return <Handbag size={size} color={color} strokeWidth={2} />;
 }
 
 export function ProfileTabIcon({ size = 24, color }) {
-  return <User size={size} color={color} strokeWidth={2} />;
+  return <UserRound size={size} color={color} strokeWidth={2} />;
 }
 
 // ── Category icons (cosmetic product line-art) ────────────────────────────────

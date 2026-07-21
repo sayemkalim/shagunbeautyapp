@@ -9,6 +9,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import colors from '../theme/colors';
 import fonts from '../theme/typography';
+import { clearSession } from '../api/authStorage';
 
 const MENU_ITEMS = [
   { id: '1', title: 'Account Settings', subtitle: 'Manage personal profile, email & number' },
@@ -19,7 +20,8 @@ const MENU_ITEMS = [
 ];
 
 export default function SettingsScreen({ navigation }) {
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await clearSession();
     navigation.replace('SignIn');
   };
 
