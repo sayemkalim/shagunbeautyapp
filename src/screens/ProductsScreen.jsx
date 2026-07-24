@@ -15,7 +15,6 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   ChevronLeft,
-  Heart,
   Star,
   ArrowUpDown,
   Users,
@@ -229,17 +228,6 @@ export default function ProductsScreen({ route, navigation }) {
             <Text style={styles.badgeText}>Rising Star</Text>
           </View>
           <Image source={imageSource} style={styles.productImage} resizeMode="contain" />
-          
-          <TouchableOpacity
-            style={styles.heartButton}
-            activeOpacity={0.8}
-            onPress={() => toggleFavorite(item._id)}>
-            <Heart
-              size={20}
-              color={isFav ? '#FF4B5C' : '#64748B'}
-              fill={isFav ? '#FF4B5C' : 'transparent'}
-            />
-          </TouchableOpacity>
         </View>
 
         <View style={styles.ratingRow}>

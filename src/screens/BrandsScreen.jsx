@@ -46,7 +46,7 @@ export default function BrandsScreen({ navigation }) {
     <SafeAreaView style={styles.safeArea} edges={['top']}>
       {isFocused && <StatusBar backgroundColor="#FFFFFF" barStyle="dark-content" />}
 
-      {/* Search Bar */}
+      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity
           style={styles.backButton}
@@ -55,16 +55,9 @@ export default function BrandsScreen({ navigation }) {
           <ChevronLeft size={24} color="#1A1C1E" />
         </TouchableOpacity>
         
-        <View style={styles.searchBarContainer}>
-          <Search size={18} color="#94A3B8" style={styles.searchIcon} />
-          <TextInput
-            placeholder="Search for Brands"
-            placeholderTextColor="#94A3B8"
-            style={styles.searchInput}
-            value={search}
-            onChangeText={setSearch}
-          />
-        </View>
+        <Text style={styles.headerTitle}>All Brands</Text>
+        
+        <View style={{ width: 24 }} />
       </View>
 
       {isLoading ? (
@@ -96,8 +89,17 @@ export default function BrandsScreen({ navigation }) {
             />
           }>
 
-          {/* Heading */}
-          <Text style={styles.sectionTitle}>Brands in Focus</Text>
+          {/* Sleek Search bar at the top of scrollable content */}
+          <View style={styles.searchBarContainerInside}>
+            <Search size={16} color="#94A3B8" style={styles.searchIcon} />
+            <TextInput
+              placeholder="Search for Brands"
+              placeholderTextColor="#94A3B8"
+              style={styles.searchInput}
+              value={search}
+              onChangeText={setSearch}
+            />
+          </View>
 
           {filtered.length === 0 ? (
             <Text style={styles.emptyText}>
@@ -124,9 +126,6 @@ export default function BrandsScreen({ navigation }) {
                       style={styles.brandImage}
                       resizeMode="contain"
                     />
-                    <Text style={styles.brandName} numberOfLines={2}>
-                      {brand.name}
-                    </Text>
                     {brand.newly_launched ? (
                       <View style={styles.newBadge}>
                         <Text style={styles.newBadgeText}>New</Text>
@@ -156,6 +155,7 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
@@ -164,18 +164,23 @@ const styles = StyleSheet.create({
   },
   backButton: {
     padding: 4,
-    marginRight: 8,
   },
-  searchBarContainer: {
-    flex: 1,
+  headerTitle: {
+    fontSize: 18,
+    fontFamily: fonts.big,
+    color: '#1A1C1E',
+  },
+  searchBarContainerInside: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#F4F6FA',
     borderWidth: 0.8,
     borderColor: '#E2E8F0',
-    borderRadius: 12,
-    height: 44,
+    borderRadius: 6,
+    height: 40,
     paddingHorizontal: 12,
+    marginTop: 10,
+    marginBottom: 16,
   },
   searchIcon: {
     marginRight: 8,
@@ -185,14 +190,14 @@ const styles = StyleSheet.create({
     height: '100%',
     fontSize: 14,
     fontFamily: fonts.medium,
-    color: '#1A1A1A',
+    color: '#1A1C1E',
   },
   scrollView: {
     flex: 1,
     backgroundColor: '#FFFFFF',
   },
   scrollContent: {
-    paddingHorizontal: 14,
+    paddingHorizontal: 16,
     paddingBottom: 32,
   },
   centerState: {
@@ -211,7 +216,7 @@ const styles = StyleSheet.create({
   retryButton: {
     paddingHorizontal: 24,
     paddingVertical: 12,
-    borderRadius: 10,
+    borderRadius: 6,
     backgroundColor: colors.primary,
   },
   retryButtonText: {
@@ -226,48 +231,31 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 40,
   },
-  sectionTitle: {
-    fontSize: 20,
-    fontFamily: fonts.big,
-    color: colors.text,
-    marginTop: 18,
-    marginBottom: 16,
-  },
   row: {
     flexDirection: 'row',
-    gap: 10,
-    marginBottom: 10,
+    gap: 12,
+    marginBottom: 12,
   },
   brandCard: {
     flex: 1,
-    borderRadius: 16,
-    padding: 12,
-    minHeight: 140,
+    aspectRatio: 1,
+    borderRadius: 4,
+    padding: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#F8F8FA',
-    borderWidth: 1,
-    borderColor: '#EEF1F3',
+    backgroundColor: '#F0ECFF',
     overflow: 'hidden',
   },
   brandImage: {
     width: '100%',
-    height: 72,
-  },
-  brandName: {
-    fontSize: 12,
-    fontFamily: fonts.big,
-    lineHeight: 15,
-    color: colors.text,
-    textAlign: 'center',
-    marginTop: 10,
+    height: '100%',
   },
   newBadge: {
     position: 'absolute',
-    top: 8,
-    right: 8,
+    top: 6,
+    right: 6,
     backgroundColor: colors.primary,
-    borderRadius: 8,
+    borderRadius: 4,
     paddingHorizontal: 6,
     paddingVertical: 2,
   },

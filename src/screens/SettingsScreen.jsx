@@ -1,67 +1,289 @@
-import React from 'react';
+import React, { useState, useCallback } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import {
+  Alert,
   ScrollView,
+  StatusBar,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useDispatch } from 'react-redux';
+import {
+  User,
+  MapPin,
+  Lock,
+  ShoppingBag,
+  Truck,
+  HelpCircle,
+  PhoneCall,
+  AlertTriangle,
+  ShieldCheck,
+  FileText,
+  RotateCcw,
+  LogOut,
+  ChevronRight,
+  CheckCircle2,
+} from 'lucide-react-native';
+
 import colors from '../theme/colors';
 import fonts from '../theme/typography';
-import { clearSession } from '../api/authStorage';
-
-const MENU_ITEMS = [
-  { id: '1', title: 'Account Settings', subtitle: 'Manage personal profile, email & number' },
-  { id: '2', title: 'Saved Addresses', subtitle: 'Manage delivery and service locations' },
-  { id: '3', title: 'Payment Details', subtitle: 'Manage saved UPI accounts and cards' },
-  { id: '4', title: 'App Notifications', subtitle: 'Adjust promotional & order notifications' },
-  { id: '5', title: 'Privacy & Security', subtitle: 'Change PIN or manage account access' },
-];
+import { clearSession, getUser } from '../api/authStorage';
+import { clearCart } from '../redux/cartSlice';
 
 export default function SettingsScreen({ navigation }) {
+  const dispatch = useDispatch();
+  const [user, setUser] = useState(null);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadUser();
+    }, [])
+  );
+
+  const loadUser = async () => {
+    const currentUser = await getUser();
+    if (currentUser) {
+      setUser(currentUser);
+    }
+  };
+
   const handleLogout = async () => {
-    await clearSession();
-    navigation.replace('SignIn');
+    Alert.alert('Log Out', 'Are you sure you want to log out of your account?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Log Out',
+        style: 'destructive',
+        onPress: async () => {
+          await clearSession();
+          dispatch(clearCart());
+          navigation.replace('SignIn');
+        },
+      },
+    ]);
   };
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Settings</Text>
-      </View>
+      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
 
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* User Badge */}
-        <View style={styles.userCard}>
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}>
+
+        {/* ── User Header Profile Card ── */}
+        <View style={styles.userHeaderCard}>
           <View style={styles.avatarCircle}>
-            <Text style={styles.avatarText}>S</Text>
+            <Text style={styles.avatarText}>
+              {user?.name ? user.name.substring(0, 2).toUpperCase() : 'SK'}
+            </Text>
           </View>
-          <View>
-            <Text style={styles.userName}>Sayem Kalim</Text>
-            <Text style={styles.userPhone}>+91 98765 43210</Text>
+          <View style={styles.userInfo}>
+            <View style={styles.nameRow}>
+              <Text style={styles.userName}>{user?.name || 'Sayem Kalim'}</Text>
+            </View>
+            <Text style={styles.userEmail}>{user?.email || 'sayem@shagunbeauty.com'}</Text>
           </View>
         </View>
 
-        {/* Menu Items */}
-        <View style={styles.menuContainer}>
-          {MENU_ITEMS.map((item) => (
-            <TouchableOpacity key={item.id} style={styles.menuItem} activeOpacity={0.7}>
-              <View>
-                <Text style={styles.menuTitle}>{item.title}</Text>
-                <Text style={styles.menuSubtitle}>{item.subtitle}</Text>
+        {/* ── Section: Account ── */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeaderRow}>
+            <View style={styles.redAccentBar} />
+            <Text style={styles.sectionTitle}>Account</Text>
+          </View>
+
+          <View style={styles.sectionCardGroup}>
+            <TouchableOpacity 
+              style={styles.menuItem} 
+              activeOpacity={0.7}
+              onPress={() => navigation.navigate('EditProfile')}>
+              <View style={styles.menuLeft}>
+                <View style={styles.iconBox}>
+                  <User size={19} color="#1E293B" />
+                </View>
+                <Text style={styles.menuText}>Your Profile</Text>
               </View>
-              <Text style={styles.arrow}>›</Text>
+              <ChevronRight size={18} color="#CBD5E1" />
             </TouchableOpacity>
-          ))}
+
+            <TouchableOpacity
+              style={styles.menuItem}
+              activeOpacity={0.7}
+              onPress={() => navigation.navigate('Address')}>
+              <View style={styles.menuLeft}>
+                <View style={styles.iconBox}>
+                  <MapPin size={19} color="#1E293B" />
+                </View>
+                <Text style={styles.menuText}>Manage Address</Text>
+              </View>
+              <ChevronRight size={18} color="#CBD5E1" />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.menuItem, styles.noBorderItem]}
+              activeOpacity={0.7}>
+              <View style={styles.menuLeft}>
+                <View style={styles.iconBox}>
+                  <Lock size={19} color="#1E293B" />
+                </View>
+                <Text style={styles.menuText}>Change Password</Text>
+              </View>
+              <ChevronRight size={18} color="#CBD5E1" />
+            </TouchableOpacity>
+          </View>
         </View>
 
-        {/* Logout */}
-        <TouchableOpacity style={styles.logoutButton} activeOpacity={0.8} onPress={handleLogout}>
-          <Text style={styles.logoutButtonText}>Log Out</Text>
+        {/* ── Section: Orders ── */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeaderRow}>
+            <View style={styles.redAccentBar} />
+            <Text style={styles.sectionTitle}>Orders</Text>
+          </View>
+
+          <View style={styles.sectionCardGroup}>
+            <TouchableOpacity
+              style={styles.menuItem}
+              activeOpacity={0.7}
+              onPress={() => navigation.navigate('BottomTabs', { screen: 'Bag' })}>
+              <View style={styles.menuLeft}>
+                <View style={styles.iconBox}>
+                  <ShoppingBag size={19} color="#1E293B" />
+                </View>
+                <Text style={styles.menuText}>My Orders</Text>
+              </View>
+              <ChevronRight size={18} color="#CBD5E1" />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.menuItem, styles.noBorderItem]}
+              activeOpacity={0.7}>
+              <View style={styles.menuLeft}>
+                <View style={styles.iconBox}>
+                  <Truck size={19} color="#1E293B" />
+                </View>
+                <Text style={styles.menuText}>Track Order</Text>
+              </View>
+              <ChevronRight size={18} color="#CBD5E1" />
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* ── Section: Support & Help ── */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeaderRow}>
+            <View style={styles.redAccentBar} />
+            <Text style={styles.sectionTitle}>Support & Help</Text>
+          </View>
+
+          <View style={styles.sectionCardGroup}>
+            <TouchableOpacity style={styles.menuItem} activeOpacity={0.7}>
+              <View style={styles.menuLeft}>
+                <View style={styles.iconBox}>
+                  <HelpCircle size={19} color="#1E293B" />
+                </View>
+                <Text style={styles.menuText}>FAQs</Text>
+              </View>
+              <ChevronRight size={18} color="#CBD5E1" />
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.menuItem} activeOpacity={0.7}>
+              <View style={styles.menuLeft}>
+                <View style={styles.iconBox}>
+                  <PhoneCall size={19} color="#1E293B" />
+                </View>
+                <Text style={styles.menuText}>Contact Us</Text>
+              </View>
+              <ChevronRight size={18} color="#CBD5E1" />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.menuItem, styles.noBorderItem]}
+              activeOpacity={0.7}>
+              <View style={styles.menuLeft}>
+                <View style={styles.iconBox}>
+                  <AlertTriangle size={19} color="#1E293B" />
+                </View>
+                <Text style={styles.menuText}>Report a Problem</Text>
+              </View>
+              <ChevronRight size={18} color="#CBD5E1" />
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* ── Section: Legal ── */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeaderRow}>
+            <Text style={styles.sectionTitleNoAccent}>Legal</Text>
+          </View>
+
+          <View style={styles.sectionCardGroup}>
+            <TouchableOpacity style={styles.menuItem} activeOpacity={0.7}>
+              <View style={styles.menuLeft}>
+                <View style={styles.iconBox}>
+                  <ShieldCheck size={19} color="#1E293B" />
+                </View>
+                <Text style={styles.menuText}>Privacy Policy</Text>
+              </View>
+              <ChevronRight size={18} color="#CBD5E1" />
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.menuItem} activeOpacity={0.7}>
+              <View style={styles.menuLeft}>
+                <View style={styles.iconBox}>
+                  <FileText size={19} color="#1E293B" />
+                </View>
+                <Text style={styles.menuText}>Terms & Conditions</Text>
+              </View>
+              <ChevronRight size={18} color="#CBD5E1" />
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.menuItem} activeOpacity={0.7}>
+              <View style={styles.menuLeft}>
+                <View style={styles.iconBox}>
+                  <RotateCcw size={19} color="#1E293B" />
+                </View>
+                <Text style={styles.menuText}>Refund & Cancellation</Text>
+              </View>
+              <ChevronRight size={18} color="#CBD5E1" />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.menuItem, styles.noBorderItem]}
+              activeOpacity={0.7}>
+              <View style={styles.menuLeft}>
+                <View style={styles.iconBox}>
+                  <Truck size={19} color="#1E293B" />
+                </View>
+                <Text style={styles.menuText}>Shipping & Delivery</Text>
+              </View>
+              <ChevronRight size={18} color="#CBD5E1" />
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* ── Log Out Item Card ── */}
+        <TouchableOpacity
+          style={styles.logoutCard}
+          activeOpacity={0.75}
+          onPress={handleLogout}>
+          <View style={styles.menuLeft}>
+            <View style={styles.logoutIconBox}>
+              <LogOut size={19} color="#EF4444" />
+            </View>
+            <Text style={styles.logoutText}>Log out</Text>
+          </View>
+          <ChevronRight size={18} color="#F87171" />
         </TouchableOpacity>
 
-        <Text style={styles.versionText}>Version 1.0.0 (3) • Shagun Beauty</Text>
+        {/* Version Footer */}
+        <View style={styles.footerInfo}>
+          <Text style={styles.footerTitle}>SHAGUN BEAUTY B2B</Text>
+          <Text style={styles.footerVersion}>Version 1.2.0 • Premium Edition</Text>
+        </View>
+
       </ScrollView>
     </SafeAreaView>
   );
@@ -72,108 +294,193 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F8FAFC',
   },
-  header: {
-    paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderColor: '#E2E8F0',
-    backgroundColor: colors.white,
-  },
-  title: {
-    fontSize: 20,
-    fontFamily: fonts.big,
-    color: colors.text,
-  },
   scrollContent: {
-    padding: 20,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 40,
   },
-  userCard: {
+
+  /* User Header Profile Card */
+  userHeaderCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.white,
+    backgroundColor: '#FFFFFF',
     borderRadius: 20,
-    padding: 20,
+    padding: 16,
     marginBottom: 24,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
     gap: 16,
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
+    shadowColor: '#64748B',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.04,
+    shadowRadius: 10,
+    elevation: 2,
   },
   avatarCircle: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: colors.primary,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: colors.primary + '15',
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: colors.primary,
   },
   avatarText: {
-    color: colors.white,
+    fontSize: 21,
     fontFamily: fonts.big,
-    fontSize: 20,
+    color: colors.primary,
+  },
+  userInfo: {
+    flex: 1,
+  },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   userName: {
-    fontSize: 16,
+    fontSize: 18,
     fontFamily: fonts.big,
-    color: colors.text,
+    color: '#0F172A',
   },
-  userPhone: {
+  verifiedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: '#FAF5FF',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E9D5FF',
+  },
+  verifiedText: {
+    fontSize: 9,
+    fontFamily: fonts.big,
+    color: colors.primary,
+  },
+  userEmail: {
     fontSize: 13,
-    fontFamily: fonts.small,
+    fontFamily: fonts.medium,
     color: '#64748B',
     marginTop: 2,
   },
-  menuContainer: {
-    backgroundColor: colors.white,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    overflow: 'hidden',
-    marginBottom: 24,
+
+  /* Section Styling */
+  section: {
+    marginBottom: 20,
   },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+    marginLeft: 4,
+  },
+  redAccentBar: {
+    width: 3.5,
+    height: 15,
+    backgroundColor: colors.primary,
+    borderRadius: 3,
+    marginRight: 8,
+  },
+  sectionTitle: {
+    fontSize: 15,
+    fontFamily: fonts.big,
+    color: '#0F172A',
+    letterSpacing: 0.2,
+  },
+  sectionTitleNoAccent: {
+    fontSize: 15,
+    fontFamily: fonts.big,
+    color: '#0F172A',
+    letterSpacing: 0.2,
+    marginLeft: 2,
+  },
+  sectionCardGroup: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.02,
+    shadowRadius: 8,
+    elevation: 1,
+  },
+
+  /* Menu Items */
   menuItem: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 16,
+    justifyContent: 'space-between',
+    paddingVertical: 14,
     borderBottomWidth: 1,
-    borderBottomColor: '#EEF2F6',
+    borderBottomColor: '#F8FAFC',
   },
-  menuTitle: {
-    fontSize: 15,
-    fontFamily: fonts.medium,
-    color: colors.text,
+  noBorderItem: {
+    borderBottomWidth: 0,
   },
-  menuSubtitle: {
-    fontSize: 12,
-    fontFamily: fonts.small,
-    color: '#64748B',
-    marginTop: 2,
+  menuLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
   },
-  arrow: {
-    fontSize: 20,
-    color: '#94A3B8',
-    fontFamily: fonts.medium,
-  },
-  logoutButton: {
-    height: 52,
-    borderRadius: 12,
-    backgroundColor: '#FEF2F2',
-    borderWidth: 1.2,
-    borderColor: '#FEE2E2',
+  iconBox: {
+    width: 32,
+    height: 32,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 28,
   },
-  logoutButtonText: {
+  menuText: {
+    fontSize: 15,
+    fontFamily: fonts.medium,
+    color: '#0F172A',
+  },
+
+  /* Logout Item Card */
+  logoutCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#FEF2F2',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#FEE2E2',
+    paddingHorizontal: 16,
+    paddingVertical: 13,
+    marginTop: 6,
+    marginBottom: 20,
+  },
+  logoutIconBox: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  logoutText: {
     fontSize: 15,
     fontFamily: fonts.big,
     color: '#EF4444',
   },
-  versionText: {
-    textAlign: 'center',
-    fontSize: 12,
-    fontFamily: fonts.small,
+
+  /* Version Footer */
+  footerInfo: {
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  footerTitle: {
+    fontSize: 11,
+    fontFamily: fonts.big,
     color: '#94A3B8',
+    letterSpacing: 1.5,
+  },
+  footerVersion: {
+    fontSize: 11,
+    fontFamily: fonts.medium,
+    color: '#CBD5E1',
+    marginTop: 2,
   },
 });

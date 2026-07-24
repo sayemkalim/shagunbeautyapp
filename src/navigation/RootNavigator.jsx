@@ -8,6 +8,10 @@ import BottomTabNavigator from './BottomTabNavigator';
 import ProductsScreen from '../screens/ProductsScreen';
 import SearchScreen from '../screens/SearchScreen';
 import ProductDetailScreen from '../screens/ProductDetailScreen';
+import AddressScreen from '../screens/AddressScreen';
+import ProfileScreen from '../screens/ProfileScreen';
+import CheckoutScreen from '../screens/CheckoutScreen';
+import PaymentScreen from '../screens/PaymentScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -24,6 +28,10 @@ export default function RootNavigator() {
         <Stack.Screen name="Products" component={ProductsScreen} />
         <Stack.Screen name="Search" component={SearchScreen} />
         <Stack.Screen name="ProductDetail" component={ProductDetailScreen} />
+        <Stack.Screen name="Address" component={AddressScreen} />
+        <Stack.Screen name="EditProfile" component={ProfileScreen} />
+        <Stack.Screen name="Checkout" component={CheckoutScreen} />
+        <Stack.Screen name="Payment" component={PaymentScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   );

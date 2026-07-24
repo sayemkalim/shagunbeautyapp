@@ -5,6 +5,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  StatusBar,
   StyleSheet,
   Text,
   TextInput,
@@ -12,15 +13,18 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useDispatch } from 'react-redux';
 import colors from '../theme/colors';
 import fonts from '../theme/typography';
 import { GoogleIcon, EyeIcon, EyeOffIcon } from '../components/icons';
 import { loginWithPhone, verifyLogin, registerUser } from '../api/auth';
 import { saveSession } from '../api/authStorage';
+import { clearCart, initializeCart } from '../redux/cartSlice';
 
 const isValidEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 
 export default function SignInScreen({ navigation, route }) {
+  const dispatch = useDispatch();
   const [phone, setPhone] = useState(route?.params?.phone || '');
   const [pin, setPin] = useState(['', '', '', '']);
   const [name, setName] = useState('');
@@ -147,6 +151,8 @@ export default function SignInScreen({ navigation, route }) {
         email: data.email,
         phone: data.phone,
       });
+      dispatch(clearCart());
+      await dispatch(initializeCart());
       navigation.replace('BottomTabs');
     } catch (err) {
       setErrorMessage(
@@ -159,6 +165,7 @@ export default function SignInScreen({ navigation, route }) {
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
+      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" translucent={false} />
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}

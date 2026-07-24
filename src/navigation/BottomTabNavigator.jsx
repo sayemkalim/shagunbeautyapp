@@ -1,6 +1,8 @@
 import React from 'react';
 import { StyleSheet, View, TouchableOpacity } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { useSelector } from 'react-redux';
+import { selectCartTotalQuantity } from '../redux/cartSlice';
 import HomeScreen from '../screens/HomeScreen';
 import BrandsScreen from '../screens/BrandsScreen';
 import CartScreen from '../screens/CartScreen';
@@ -48,6 +50,8 @@ const ProfileTabBarIcon = ({ color, size, focused }) => (
 );
 
 export default function BottomTabNavigator() {
+  const cartTotalQuantity = useSelector(selectCartTotalQuantity);
+
   return (
     <Tab.Navigator
       screenOptions={{
@@ -100,6 +104,12 @@ export default function BottomTabNavigator() {
         options={{
           tabBarLabel: 'Bag',
           tabBarIcon: BagTabBarIcon,
+          tabBarBadge: cartTotalQuantity > 0 ? cartTotalQuantity : undefined,
+          tabBarBadgeStyle: {
+            backgroundColor: colors.primary,
+            fontSize: 10,
+            fontFamily: fonts.big,
+          },
         }}
       />
       <Tab.Screen

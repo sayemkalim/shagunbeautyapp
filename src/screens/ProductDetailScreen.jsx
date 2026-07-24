@@ -17,7 +17,6 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   ChevronLeft,
-  Heart,
   Search,
   Handbag,
   Star,
@@ -34,8 +33,13 @@ import {
   Check,
 } from 'lucide-react-native';
 
+import { useDispatch, useSelector } from 'react-redux';
+import { addToCart, selectCartItems, selectCartTotalQuantity } from '../redux/cartSlice';
+import { addToCartApi } from '../api/cart';
+
 import { useProductDetail } from '../hooks/useProducts';
 import { useBrands } from '../hooks/useBrands';
+import BottomSheetModal from '../components/BottomSheetModal';
 import colors from '../theme/colors';
 import fonts from '../theme/typography';
 
@@ -53,17 +57,21 @@ export default function ProductDetailScreen({ route, navigation }) {
 
   const { data: brands = [] } = useBrands();
 
-  const product = fetchedProduct || initialProduct || {};
+  const product = useMemo(() => {
+    return fetchedProduct || initialProduct || {};
+  }, [fetchedProduct, initialProduct]);
 
   // Active UI States
   const [activeImageIndex, setActiveImageIndex] = useState(0);
   const [selectedVariantIndex, setSelectedVariantIndex] = useState(null); // null = base product selected by default
-  const [isFav, setIsFav] = useState(false);
   const [quantity, setQuantity] = useState(1);
+  const [tempQty, setTempQty] = useState(1);
+  const [selectedTierQty, setSelectedTierQty] = useState(1);
   const [showFullSpecs, setShowFullSpecs] = useState(true);
   const [showToast, setShowToast] = useState(false);
   const [showQtyModal, setShowQtyModal] = useState(false);
   const [isImageModalOpen, setIsImageModalOpen] = useState(false);
+  const [isQtyChanged, setIsQtyChanged] = useState(false);
 
   // Scroll View Refs
   const mainCarouselRef = useRef(null);
@@ -109,7 +117,7 @@ export default function ProductDetailScreen({ route, navigation }) {
   // Parse bulk price tiers if available (main product only, not variants)
   const activePriceTiers = useMemo(() => {
     if (currentVariant) return []; // Tiers apply to main base product only
-    let raw = product?.price_tiers;
+    let raw = product?.price_tiers || product?.priceTiers;
     if (typeof raw === 'string') {
       try {
         raw = JSON.parse(raw);
@@ -121,62 +129,75 @@ export default function ProductDetailScreen({ route, navigation }) {
     return raw
       .filter((t) => t && typeof t.quantity === 'number' && t.quantity >= 2)
       .sort((a, b) => a.quantity - b.quantity);
-  }, [product?.price_tiers, currentVariant]);
+  }, [product?.price_tiers, product?.priceTiers, currentVariant]);
 
-  // Generate quantity options for Modal (lists quantities up to 100 with no inventory limit cap)
+  // Generate quantity options for Modal (derived directly from price_tiers, not bound to inventory count)
   const quantityOptions = useMemo(() => {
-    const maxCount = 100;
     const options = [];
 
-    for (let q = 1; q <= maxCount; q++) {
-      let uPrice = discountedPrice;
-      let tPrice = discountedPrice * q;
-      let badge = null;
-      let isTierBreakpoint = false;
-
-      if (activePriceTiers.length > 0) {
-        const matchedTiers = activePriceTiers.filter((t) => t.quantity <= q);
-        if (matchedTiers.length > 0) {
-          const latestTier = matchedTiers[matchedTiers.length - 1];
-          const rawP = Number(latestTier.price) || discountedPrice;
-          let tierUnitPrice = rawP;
-
-          if (rawP > price && rawP >= discountedPrice * 1.5) {
-            tierUnitPrice = rawP / latestTier.quantity;
-          }
-
-          if (q === latestTier.quantity && rawP > price) {
-            tPrice = rawP;
-            uPrice = Math.round(rawP / q);
-            isTierBreakpoint = true;
-          } else {
-            uPrice = Math.round(tierUnitPrice);
-            tPrice = Math.round(tierUnitPrice * q);
-            if (q === latestTier.quantity) isTierBreakpoint = true;
-          }
-
-          const baseTot = price * q;
-          const savingsPercent = baseTot > tPrice ? Math.round(((baseTot - tPrice) / baseTot) * 100) : 0;
-
-          if (isTierBreakpoint) {
-            badge = savingsPercent > 0 ? `SAVE ${savingsPercent}%` : 'BULK TIER';
-          } else {
-            badge = savingsPercent > 0 ? `BULK RATE (${savingsPercent}% OFF)` : 'BULK RATE';
-          }
-        }
-      }
+    if (activePriceTiers.length > 0) {
+      // 1) Base unit option (Qty 1)
+      const baseUnitPrice = discountedPrice;
+      const baseTotalPrice = discountedPrice;
+      const baseSavings = hasDiscount ? discountPercent : 0;
 
       options.push({
-        qty: q,
-        unitPrice: uPrice,
-        totalPrice: tPrice,
-        badge,
-        isTier: isTierBreakpoint,
+        qty: 1,
+        unitPrice: baseUnitPrice,
+        totalPrice: baseTotalPrice,
+        badge: baseSavings > 0 ? `${baseSavings}% OFF` : null,
+        isTier: false,
       });
+
+      // 2) Tier options from price_tiers array
+      activePriceTiers.forEach((tier) => {
+        const q = tier.quantity;
+        if (q <= 1) return;
+
+        const rawPrice = Number(tier.price) || 0;
+        let unitP = discountedPrice;
+        let totalP = discountedPrice * q;
+
+        if (rawPrice > 0) {
+          if (rawPrice > price) {
+            // rawPrice is the total package price for q units (e.g. 1200 for 3 items)
+            totalP = rawPrice;
+            unitP = Math.round(rawPrice / q);
+          } else {
+            // rawPrice is the per-unit price (e.g. 400)
+            unitP = rawPrice;
+            totalP = rawPrice * q;
+          }
+        }
+
+        const baseTot = (price > 0 ? price : discountedPrice) * q;
+        const savingsPercent = baseTot > totalP ? Math.round(((baseTot - totalP) / baseTot) * 100) : 0;
+
+        options.push({
+          qty: q,
+          unitPrice: unitP,
+          totalPrice: totalP,
+          badge: savingsPercent > 0 ? `SAVE ${savingsPercent}%` : 'BULK TIER',
+          isTier: true,
+        });
+      });
+    } else {
+      // Standard quantity options (1 to 5) when no price_tiers exist
+      for (let q = 1; q <= 5; q++) {
+        const uPrice = discountedPrice;
+        const tPrice = discountedPrice * q;
+        options.push({
+          qty: q,
+          unitPrice: uPrice,
+          totalPrice: tPrice,
+          badge: null,
+          isTier: false,
+        });
+      }
     }
 
     return options;
-  }, [activePriceTiers, discountedPrice, price]);
+  }, [activePriceTiers, discountedPrice, price, hasDiscount, discountPercent]);
 
   const currentQuantityPricing = useMemo(() => {
     const matchedOpt = quantityOptions.find((o) => o.qty === quantity);
@@ -186,11 +207,29 @@ export default function ProductDetailScreen({ route, navigation }) {
         totalPrice: matchedOpt.totalPrice,
       };
     }
+
+    if (activePriceTiers.length > 0) {
+      const matchedTiers = activePriceTiers.filter((t) => t.quantity <= quantity);
+      if (matchedTiers.length > 0) {
+        const latestTier = matchedTiers[matchedTiers.length - 1];
+        const rawP = Number(latestTier.price) || discountedPrice;
+        let tierUnitPrice = rawP;
+        if (rawP > price) {
+          tierUnitPrice = rawP / latestTier.quantity;
+        }
+        const unitP = Math.round(tierUnitPrice);
+        return {
+          unitPrice: unitP,
+          totalPrice: unitP * quantity,
+        };
+      }
+    }
+
     return {
       unitPrice: discountedPrice,
       totalPrice: discountedPrice * quantity,
     };
-  }, [quantityOptions, quantity, discountedPrice]);
+  }, [quantityOptions, quantity, activePriceTiers, discountedPrice, price]);
 
   // Brand Name resolution (converts Mongo ObjectId to Brand Name)
   const brandName = useMemo(() => {
@@ -226,14 +265,78 @@ export default function ProductDetailScreen({ route, navigation }) {
     }
   }, [product?.expiry_date]);
 
+  const [isAdding, setIsAdding] = useState(false);
+
+  const dispatch = useDispatch();
+  const cartItems = useSelector(selectCartItems);
+  const cartTotalQuantity = useSelector(selectCartTotalQuantity);
+
+  // Check if current product / variant is already in cart
+  const isInCart = useMemo(() => {
+    const pId = product._id || productId;
+    const vSku = currentVariant?.sku;
+    return cartItems.some((item) => {
+      if (item.productId !== pId) return false;
+      if (vSku) return item.variant?.sku === vSku;
+      return !item.variant;
+    });
+  }, [cartItems, product._id, productId, currentVariant]);
+
+  // Display Title: completely replaced by selected variant's name if selected
+  const displayTitle = useMemo(() => {
+    if (currentVariant?.name) {
+      return currentVariant.name;
+    }
+    return product?.name || '';
+  }, [product?.name, currentVariant]);
+
   // Handlers
-  const handleAddToCart = () => {
-    setShowToast(true);
-    setTimeout(() => setShowToast(false), 2500);
+  const handleAddToCart = async () => {
+    if (isInCart && !isQtyChanged) {
+      navigation.navigate('BottomTabs', { screen: 'Bag' });
+      return;
+    }
+
+    const pId = product._id || productId;
+    const itemToAdd = {
+      productId: pId,
+      name: displayTitle || product.name,
+      brandName: brandName || '',
+      image: images[0] || null,
+      variant: currentVariant || null,
+      variantName: currentVariant?.name || null,
+      unitPrice: currentQuantityPricing.unitPrice,
+      totalPrice: currentQuantityPricing.totalPrice,
+      quantity: quantity,
+      price: price,
+      discountedPrice: discountedPrice,
+    };
+
+    try {
+      setIsAdding(true);
+      // Backend Cart API call
+      await addToCartApi({
+        type: 'product',
+        productId: pId,
+        quantity,
+        variantSku: currentVariant?.sku,
+      });
+    } catch (err) {
+      // Non-blocking fallback to local Redux state for guest/offline scenarios
+    } finally {
+      dispatch(addToCart(itemToAdd));
+      setIsAdding(false);
+      setIsQtyChanged(false);
+      setShowToast(true);
+      setTimeout(() => setShowToast(false), 2500);
+    }
   };
 
   const selectQuantityOption = (selectedQty) => {
-    setQuantity(selectedQty);
+    if (selectedQty !== quantity) {
+      setQuantity(selectedQty);
+      setIsQtyChanged(true);
+    }
     setShowQtyModal(false);
   };
 
@@ -273,18 +376,15 @@ export default function ProductDetailScreen({ route, navigation }) {
           <TouchableOpacity
             style={styles.headerIconButton}
             activeOpacity={0.7}
-            onPress={() => setIsFav(!isFav)}>
-            <Heart
-              size={22}
-              color={isFav ? colors.primary : '#1A1C1E'}
-              fill={isFav ? colors.primary : 'transparent'}
-            />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.headerIconButton}
-            activeOpacity={0.7}
             onPress={() => navigation.navigate('BottomTabs', { screen: 'Bag' })}>
-            <Handbag size={22} color="#1A1C1E" />
+            <View style={styles.cartIconWrapper}>
+              <Handbag size={22} color="#1A1C1E" />
+              {cartTotalQuantity > 0 && (
+                <View style={styles.cartHeaderBadge}>
+                  <Text style={styles.cartHeaderBadgeText}>{cartTotalQuantity}</Text>
+                </View>
+              )}
+            </View>
           </TouchableOpacity>
         </View>
       </View>
@@ -342,7 +442,7 @@ export default function ProductDetailScreen({ route, navigation }) {
         {/* ── Product Title & Price Info Section ── */}
         <View style={styles.mainInfoSection}>
           {brandName ? <Text style={styles.brandTitle}>{brandName}</Text> : null}
-          {product.name ? <Text style={styles.productName}>{product.name}</Text> : null}
+          {displayTitle ? <Text style={styles.productName}>{displayTitle}</Text> : null}
 
           {/* Optional Product Rating (Only if exists) */}
           {product.rating ? (
@@ -380,7 +480,11 @@ export default function ProductDetailScreen({ route, navigation }) {
               <View>
                 <Text style={styles.bulkBannerTitle}>Bulk Pricing Available</Text>
                 <Text style={styles.bulkBannerSub}>
-                  Buy in bulk and save up to {Math.max(...activePriceTiers.map(t => Math.round(((price * t.quantity - t.price * t.quantity) / (price * t.quantity)) * 100)))}%!
+                  {activePriceTiers.map((t) => {
+                    const rawP = Number(t.price);
+                    const unitP = rawP > price ? Math.round(rawP / t.quantity) : rawP;
+                    return `Buy ${t.quantity}+ @ ₹${unitP}/unit`;
+                  }).join('  •  ')}
                 </Text>
               </View>
             </View>
@@ -391,7 +495,9 @@ export default function ProductDetailScreen({ route, navigation }) {
         {/* ── Product Variants / Sizes (ONLY if variants exist) ── */}
         {product?.variants && product.variants.length > 0 && (
           <View style={styles.sectionContainer}>
-            <Text style={styles.sectionTitle}>Select Option</Text>
+            <Text style={styles.sectionTitle}>
+              Select Option{currentVariant?.name ? `: ${currentVariant.name}` : ''}
+            </Text>
             <View style={styles.variantsRow}>
               {product.variants.map((v, idx) => {
                 const isSelected = selectedVariantIndex === idx;
@@ -446,12 +552,12 @@ export default function ProductDetailScreen({ route, navigation }) {
           </View>
 
           <View style={styles.serviceFeatureRow}>
-            <ShieldCheck size={18} color="#10B981" />
+            <ShieldCheck size={18} color={colors.green || '#2d6a4f'} />
             <Text style={styles.serviceFeatureTitle}>100% Authentic Product</Text>
           </View>
 
           <View style={styles.serviceFeatureRow}>
-            <RotateCcw size={18} color="#10B981" />
+            <RotateCcw size={18} color={colors.green || '#2d6a4f'} />
             <Text style={styles.serviceFeatureTitle}>Easy Returns & Exchanges</Text>
           </View>
         </View>
@@ -639,74 +745,156 @@ export default function ProductDetailScreen({ route, navigation }) {
         </SafeAreaView>
       </Modal>
 
-      {/* ── Bottom Sheet Backdrop Overlay for Quantity Selection ── */}
-      {showQtyModal && (
-        <TouchableOpacity
-          style={styles.modalBackdrop}
-          activeOpacity={1}
-          onPress={() => setShowQtyModal(false)}
-        />
-      )}
-
-      {/* ── Bottom Sheet Quantity & Bulk Pricing Selector ── */}
-      {showQtyModal && (
-        <View style={styles.qtyBottomSheet}>
-          <View style={styles.sheetHeader}>
-            <View>
-              <Text style={styles.sheetTitle}>
-                {activePriceTiers.length > 0 ? 'Select Quantity & Bulk Pack' : 'Select Quantity'}
-              </Text>
-
+      {/* ── Bottom Sheet Quantity & Bulk Pricing Selector (Matching Cart UI) ── */}
+      <BottomSheetModal
+        visible={showQtyModal}
+        showHandle={true}
+        onClose={() => setShowQtyModal(false)}>
+        {/* Sheet Header */}
+        <View style={styles.sheetHeader}>
+          <View>
+            <Text style={styles.sheetTitle}>
+              {activePriceTiers.length > 0 ? 'Select Quantity / Pack' : 'Select Quantity'}
+            </Text>
+            {activePriceTiers.length > 0 && (
               <Text style={styles.sheetSubTitle}>
-                Choose desired quantity for your order
+                Choose a bulk tier option for extra savings
               </Text>
-            </View>
-            <TouchableOpacity onPress={() => setShowQtyModal(false)} style={styles.closeBtn}>
-              <X size={20} color="#64748B" />
-            </TouchableOpacity>
+            )}
           </View>
+          <TouchableOpacity
+            style={styles.closeBtn}
+            activeOpacity={0.7}
+            onPress={() => setShowQtyModal(false)}>
+            <X size={22} color="#1A1C1E" />
+          </TouchableOpacity>
+        </View>
 
+        {activePriceTiers.length > 0 ? (
           <ScrollView style={styles.sheetOptionsList} showsVerticalScrollIndicator={false}>
             {quantityOptions.map((opt) => {
-              const isSelected = quantity === opt.qty;
+              const isSelected = selectedTierQty === opt.qty;
+              const rowQty = isSelected ? tempQty : opt.qty;
+              const rowTotalPrice = Math.round(rowQty * opt.unitPrice);
+
+              return (
+                <View
+                  key={opt.qty}
+                  style={[styles.sheetOptionRow, isSelected && styles.sheetOptionRowActive]}>
+                  <TouchableOpacity
+                    style={styles.optionClickArea}
+                    activeOpacity={0.8}
+                    onPress={() => {
+                      setSelectedTierQty(opt.qty);
+                      setTempQty(opt.qty);
+                    }}>
+                    <View style={styles.optionLeft}>
+                      <View style={[styles.radioCircle, isSelected && styles.radioCircleActive]}>
+                        {isSelected && <View style={styles.radioInner} />}
+                      </View>
+                      <View>
+                        <View style={styles.qtyTitleRow}>
+                          <Text style={styles.optionQtyText}>Qty: {rowQty}</Text>
+                          {opt.badge ? (
+                            <View style={styles.tierBadge}>
+                              <Text style={styles.tierBadgeText}>{opt.badge}</Text>
+                            </View>
+                          ) : null}
+                        </View>
+
+                        <Text style={styles.optionUnitPriceText}>
+                          ₹{opt.unitPrice}/unit
+                        </Text>
+                      </View>
+                    </View>
+                  </TouchableOpacity>
+
+                  {/* Stepper on the right side if the row is selected */}
+                  {isSelected ? (
+                    <View style={styles.rowStepperWrapper}>
+                      <View style={styles.rowStepperContainer}>
+                        <TouchableOpacity
+                          style={styles.rowStepperBtn}
+                          activeOpacity={0.7}
+                          onPress={() => {
+                            const next = tempQty - opt.qty;
+                            if (next >= opt.qty) {
+                              setTempQty(next);
+                            }
+                          }}>
+                          <Minus size={12} color={colors.primary} strokeWidth={2.5} />
+                        </TouchableOpacity>
+                        
+                        <View style={styles.rowStepperTextContainer}>
+                          <Text style={styles.rowStepperText}>{tempQty}</Text>
+                        </View>
+
+                        <TouchableOpacity
+                          style={styles.rowStepperBtn}
+                          activeOpacity={0.7}
+                          onPress={() => {
+                            const next = tempQty + opt.qty;
+                            if (next <= maxStock) {
+                              setTempQty(next);
+                            } else {
+                              Alert.alert('Stock Limit', `Only ${maxStock} items available in stock.`);
+                            }
+                          }}>
+                          <Plus size={12} color={colors.primary} strokeWidth={2.5} />
+                        </TouchableOpacity>
+                      </View>
+                      
+                      <Text style={styles.rowTotalPriceText}>₹{rowTotalPrice}</Text>
+                    </View>
+                  ) : (
+                    <View style={styles.optionRight}>
+                      <Text style={styles.optionTotalPriceText}>₹{rowTotalPrice}</Text>
+                    </View>
+                  )}
+                </View>
+              );
+            })}
+          </ScrollView>
+        ) : (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.qtyCircleContainer}>
+            {[1, 2, 3, 4, 5].map((q) => {
+              const isSelected = tempQty === q;
               return (
                 <TouchableOpacity
-                  key={opt.qty}
-                  style={[styles.sheetOptionRow, isSelected && styles.sheetOptionRowActive]}
-                  activeOpacity={0.8}
-                  onPress={() => selectQuantityOption(opt.qty)}>
-                  <View style={styles.optionLeft}>
-                    <View style={[styles.radioCircle, isSelected && styles.radioCircleActive]}>
-                      {isSelected && <View style={styles.radioInner} />}
-                    </View>
-                    <View>
-                      <View style={styles.qtyTitleRow}>
-                        <Text style={styles.optionQtyText}>Qty: {opt.qty}</Text>
-                        {opt.badge ? (
-                          <View style={styles.tierBadge}>
-                            <Text style={styles.tierBadgeText}>{opt.badge}</Text>
-                          </View>
-                        ) : null}
-                      </View>
-
-                      <Text style={styles.optionUnitPriceText}>
-                        ₹{opt.unitPrice}/unit
-                      </Text>
-                    </View>
-                  </View>
-
-                  <View style={styles.optionRight}>
-                    <Text style={styles.optionTotalPriceText}>₹{opt.totalPrice}</Text>
-                    {isSelected && (
-                      <Check size={18} color={colors.primary} style={{ marginTop: 2 }} />
-                    )}
-                  </View>
+                  key={q}
+                  activeOpacity={0.85}
+                  style={[
+                    styles.qtyCirclePill,
+                    isSelected && styles.qtyCirclePillActive,
+                  ]}
+                  onPress={() => setTempQty(q)}>
+                  <Text
+                    style={[
+                      styles.qtyCircleText,
+                      isSelected && styles.qtyCircleTextActive,
+                    ]}>
+                    {q}
+                  </Text>
                 </TouchableOpacity>
               );
             })}
           </ScrollView>
-        </View>
-      )}
+        )}
+
+        {/* Solid Primary Confirm Button */}
+        <TouchableOpacity
+          style={styles.confirmQtyBtn}
+          activeOpacity={0.85}
+          onPress={() => {
+            selectQuantityOption(tempQty);
+            setShowQtyModal(false);
+          }}>
+          <Text style={styles.confirmQtyBtnText}>Confirm</Text>
+        </TouchableOpacity>
+      </BottomSheetModal>
 
       {/* ── Fixed Bottom Action Bar (Quantity Trigger + Add to Bag) ── */}
       <View style={styles.bottomBar}>
@@ -714,21 +902,41 @@ export default function ProductDetailScreen({ route, navigation }) {
         <TouchableOpacity
           style={styles.quantityContainer}
           activeOpacity={0.8}
-          onPress={() => setShowQtyModal(true)}>
+          onPress={() => {
+            setTempQty(quantity);
+            if (quantity % 6 === 0) {
+              setSelectedTierQty(6);
+            } else if (quantity % 3 === 0) {
+              setSelectedTierQty(3);
+            } else {
+              setSelectedTierQty(1);
+            }
+            setShowQtyModal(true);
+          }}>
           <Text style={styles.qtyBtnText}>Qty: {quantity}</Text>
           <ChevronDown size={16} color={colors.primary} />
         </TouchableOpacity>
 
-        {/* Primary Color Add to Bag Button */}
+        {/* Primary Color Add to Bag / Go to Bag Button */}
         <TouchableOpacity
           style={[styles.addToBagBtn, maxStock === 0 && styles.addToBagBtnDisabled]}
           activeOpacity={0.85}
-          disabled={maxStock === 0}
+          disabled={maxStock === 0 || isAdding}
           onPress={handleAddToCart}>
-          <Handbag size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
-          <Text style={styles.addToBagBtnText}>
-            {maxStock === 0 ? 'OUT OF STOCK' : 'Add to Bag'}
-          </Text>
+          {isAdding ? (
+            <ActivityIndicator size="small" color="#FFFFFF" />
+          ) : (
+            <>
+              <Handbag size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
+              <Text style={styles.addToBagBtnText}>
+                {maxStock === 0
+                  ? 'OUT OF STOCK'
+                  : (isInCart && !isQtyChanged)
+                  ? 'Go to Bag'
+                  : 'Add to Bag'}
+              </Text>
+            </>
+          )}
         </TouchableOpacity>
       </View>
     </SafeAreaView>
@@ -757,6 +965,26 @@ const styles = StyleSheet.create({
   },
   headerIconButton: {
     padding: 6,
+  },
+  cartIconWrapper: {
+    position: 'relative',
+  },
+  cartHeaderBadge: {
+    position: 'absolute',
+    top: -5,
+    right: -7,
+    backgroundColor: colors.primary,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 3,
+  },
+  cartHeaderBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 9,
+    fontFamily: fonts.big,
   },
   headerRightGroup: {
     flexDirection: 'row',
@@ -894,7 +1122,7 @@ const styles = StyleSheet.create({
   ratingPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#10B981',
+    backgroundColor: '#2d6a4f',
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 4,
@@ -1186,15 +1414,13 @@ const styles = StyleSheet.create({
   sheetHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     paddingBottom: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F1F5F9',
   },
   sheetTitle: {
-    fontSize: 17,
+    fontSize: 18,
     fontFamily: fonts.big,
-    color: '#1A1C1E',
+    color: '#1E1B4B',
   },
   sheetSubTitle: {
     fontSize: 12,
@@ -1204,6 +1430,89 @@ const styles = StyleSheet.create({
   },
   closeBtn: {
     padding: 4,
+  },
+  qtyCircleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 18,
+    paddingHorizontal: 2,
+    gap: 16,
+  },
+  qtyCirclePill: {
+    width: 62,
+    height: 62,
+    borderRadius: 31,
+    borderWidth: 1.5,
+    borderColor: '#CBD5E1',
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  qtyCirclePillActive: {
+    borderColor: colors.primary,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 2.5,
+  },
+  qtyCircleText: {
+    fontSize: 22,
+    fontFamily: fonts.big,
+    color: '#1E1B4B',
+  },
+  qtyCircleTextActive: {
+    color: colors.primary,
+  },
+  confirmQtyBtn: {
+    height: 48,
+    borderRadius: 12,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 16,
+    marginBottom: 4,
+  },
+  confirmQtyBtnText: {
+    fontSize: 16,
+    fontFamily: fonts.big,
+    color: '#FFFFFF',
+  },
+  pillRowContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 18,
+    paddingHorizontal: 2,
+    gap: 12,
+  },
+  qtyPillWrapper: {
+    padding: 3,
+    borderRadius: 20,
+    borderWidth: 2,
+    borderColor: 'transparent',
+  },
+  qtyPillWrapperActive: {
+    borderColor: '#9333EA',
+    backgroundColor: '#FAF5FF',
+  },
+  qtyPill: {
+    width: 58,
+    height: 58,
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  qtyPillActive: {
+    borderColor: '#0D0814',
+    backgroundColor: '#0D0814',
+  },
+  qtyPillText: {
+    fontSize: 20,
+    fontFamily: fonts.big,
+    color: '#1E1B4B',
+  },
+  qtyPillTextActive: {
+    color: '#FFFFFF',
   },
   sheetOptionsList: {
     marginVertical: 10,
@@ -1258,7 +1567,7 @@ const styles = StyleSheet.create({
     color: '#1A1C1E',
   },
   tierBadge: {
-    backgroundColor: '#10B981',
+    backgroundColor: '#2d6a4f',
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 4,
@@ -1293,6 +1602,58 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: '#F1F5F9',
     gap: 12,
+  },
+  optionClickArea: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 4,
+  },
+  rowStepperWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  rowStepperContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    height: 32,
+    borderRadius: 8,
+    borderWidth: 1.5,
+    borderColor: colors.primary,
+    backgroundColor: '#FAF5FF',
+    overflow: 'hidden',
+  },
+  rowStepperBtn: {
+    width: 28,
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FAF5FF',
+  },
+  rowStepperTextContainer: {
+    paddingHorizontal: 10,
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    borderColor: '#E9D5FF',
+    backgroundColor: '#FFFFFF',
+  },
+  rowStepperText: {
+    fontSize: 13,
+    fontFamily: fonts.big,
+    color: colors.primary,
+    minWidth: 16,
+    textAlign: 'center',
+  },
+  rowTotalPriceText: {
+    fontSize: 16,
+    fontFamily: fonts.big,
+    color: colors.primary,
+    minWidth: 52,
+    textAlign: 'right',
   },
   quantityContainer: {
     flex: 1,
