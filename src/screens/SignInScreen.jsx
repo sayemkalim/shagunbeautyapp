@@ -20,6 +20,7 @@ import { GoogleIcon, EyeIcon, EyeOffIcon } from '../components/icons';
 import { loginWithPhone, verifyLogin, registerUser } from '../api/auth';
 import { saveSession } from '../api/authStorage';
 import { clearCart, initializeCart } from '../redux/cartSlice';
+import { moderateScale } from '../theme/responsive';
 
 const isValidEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 
@@ -458,17 +459,17 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   title: {
-    fontSize: 28,
+    fontSize: moderateScale(28),
     fontFamily: fonts.big,
     color: colors.text,
     textAlign: 'center',
   },
   subtitle: {
     marginTop: 10,
-    fontSize: 14,
+    fontSize: moderateScale(14),
     fontFamily: fonts.small,
     color: '#334155',
-    lineHeight: 20,
+    lineHeight: moderateScale(20),
     textAlign: 'center',
     paddingHorizontal: 10,
   },
@@ -483,14 +484,14 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   linkText: {
-    fontSize: 14,
+    fontSize: moderateScale(14),
     fontFamily: fonts.medium,
     color: colors.primary,
     textDecorationLine: 'underline',
   },
   errorText: {
     color: '#EF4444',
-    fontSize: 13,
+    fontSize: moderateScale(13),
     fontFamily: fonts.medium,
     marginTop: 12,
     textAlign: 'center',
@@ -498,7 +499,7 @@ const styles = StyleSheet.create({
   label: {
     marginTop: 36,
     marginBottom: 10,
-    fontSize: 14,
+    fontSize: moderateScale(14),
     fontFamily: fonts.medium,
     color: colors.text,
     letterSpacing: 0.5,
@@ -529,7 +530,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   countryCodeText: {
-    fontSize: 16,
+    fontSize: moderateScale(16),
     fontFamily: fonts.medium,
     color: colors.text,
   },
@@ -542,7 +543,7 @@ const styles = StyleSheet.create({
   phoneInput: {
     flex: 1,
     height: '100%',
-    fontSize: 16,
+    fontSize: moderateScale(16),
     color: colors.text,
     fontFamily: fonts.medium,
   },
@@ -575,7 +576,7 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: '#E2E8F0',
     textAlign: 'center',
-    fontSize: 22,
+    fontSize: moderateScale(22),
     fontFamily: fonts.big,
     color: colors.text,
   },
@@ -611,7 +612,7 @@ const styles = StyleSheet.create({
     elevation: 0,
   },
   primaryButtonText: {
-    fontSize: 16,
+    fontSize: moderateScale(16),
     fontFamily: fonts.big,
     color: colors.white,
     letterSpacing: 0.5,
@@ -627,7 +628,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(49, 83, 232, 0.3)',
   },
   dividerText: {
-    fontSize: 14,
+    fontSize: moderateScale(14),
     color: '#334155',
     marginHorizontal: 16,
     fontFamily: fonts.medium,
@@ -649,7 +650,7 @@ const styles = StyleSheet.create({
     elevation: 1,
   },
   googleButtonText: {
-    fontSize: 15,
+    fontSize: moderateScale(15),
     fontFamily: fonts.medium,
     color: '#475569',
   },
@@ -661,11 +662,11 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
   termsText: {
-    fontSize: 12,
+    fontSize: moderateScale(12),
     fontFamily: fonts.small,
     color: '#475569',
     textAlign: 'center',
-    lineHeight: 18,
+    lineHeight: moderateScale(18),
   },
   termsLink: {
     color: colors.primary,

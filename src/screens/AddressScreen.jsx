@@ -28,12 +28,44 @@ import {
 import colors from '../theme/colors';
 import fonts from '../theme/typography';
 import { getUser } from '../api/authStorage';
+import { Skeleton } from '../components/Skeleton';
+import { moderateScale } from '../theme/responsive';
 import {
   getUserAddresses,
   createAddress,
   updateAddress,
   deleteAddress,
 } from '../api/address';
+
+function AddressListSkeleton() {
+  return (
+    <View style={{ paddingHorizontal: 16, paddingTop: 16 }}>
+      {[0, 1, 2].map((i) => (
+        <View
+          key={i}
+          style={{
+            backgroundColor: '#FFFFFF',
+            borderRadius: 6,
+            padding: 16,
+            marginBottom: 16,
+            borderWidth: 1,
+            borderColor: '#E2E8F0',
+          }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Skeleton width={120} height={14} radius={5} />
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              <Skeleton width={30} height={30} radius={15} />
+              <Skeleton width={30} height={30} radius={15} />
+            </View>
+          </View>
+          <Skeleton width="90%" height={12} radius={5} style={{ marginTop: 12 }} />
+          <Skeleton width="60%" height={12} radius={5} style={{ marginTop: 6 }} />
+          <Skeleton width="45%" height={12} radius={5} style={{ marginTop: 10 }} />
+        </View>
+      ))}
+    </View>
+  );
+}
 
 export default function AddressScreen({ route, navigation }) {
   const [user, setUser] = useState(null);
@@ -413,10 +445,10 @@ export default function AddressScreen({ route, navigation }) {
       </View>
 
       {loading ? (
-        <View style={styles.loaderContainer}>
-          <ActivityIndicator size="large" color={colors.primary} />
-          <Text style={styles.loaderText}>Loading addresses...</Text>
-        </View>
+        <ScrollView showsVerticalScrollIndicator={false}>
+          <AddressListSkeleton />
+           <AddressListSkeleton />
+        </ScrollView>
       ) : isFormOpen ? (
         /* ── Create / Edit Form Layout ── */
         <KeyboardAvoidingView
@@ -635,7 +667,7 @@ const styles = StyleSheet.create({
   },
   loaderText: {
     marginTop: 12,
-    fontSize: 14,
+    fontSize: moderateScale(14),
     fontFamily: fonts.medium,
     color: '#64748B',
   },
@@ -644,7 +676,6 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     backgroundColor: '#FFFFFF',
     height: 56,
     paddingHorizontal: 16,
@@ -664,7 +695,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   headerTitle: {
-    fontSize: 18,
+    fontSize: moderateScale(18),
     fontFamily: fonts.big,
     color: '#0F172A',
   },
@@ -697,17 +728,17 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   emptyTitle: {
-    fontSize: 20,
+    fontSize: moderateScale(20),
     fontFamily: fonts.big,
     color: '#0F172A',
     marginBottom: 8,
   },
   emptyDescription: {
-    fontSize: 14,
+    fontSize: moderateScale(14),
     fontFamily: fonts.small,
     color: '#64748B',
     textAlign: 'center',
-    lineHeight: 20,
+    lineHeight: moderateScale(20),
     marginBottom: 24,
   },
   emptyAddButton: {
@@ -724,7 +755,7 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   emptyAddButtonText: {
-    fontSize: 15,
+    fontSize: moderateScale(15),
     fontFamily: fonts.big,
     color: '#FFFFFF',
   },
@@ -742,7 +773,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   listSubtitle: {
-    fontSize: 14,
+    fontSize: moderateScale(14),
     fontFamily: fonts.medium,
     color: '#1E293B',
   },
@@ -775,7 +806,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   nameText: {
-    fontSize: 16,
+    fontSize: moderateScale(16),
     fontFamily: fonts.big,
     color: '#0F172A',
   },
@@ -791,7 +822,7 @@ const styles = StyleSheet.create({
     borderColor: '#A7F3D0',
   },
   primaryBadgeText: {
-    fontSize: 10,
+    fontSize: moderateScale(10),
     fontFamily: fonts.big,
     color: '#047857',
   },
@@ -814,14 +845,14 @@ const styles = StyleSheet.create({
     backgroundColor: '#FEF2F2',
   },
   addressText: {
-    fontSize: 14,
+    fontSize: moderateScale(14),
     fontFamily: fonts.medium,
     color: '#0F172A',
-    lineHeight: 20,
+    lineHeight: moderateScale(20),
     marginBottom: 4,
   },
   cityStateText: {
-    fontSize: 13,
+    fontSize: moderateScale(13),
     fontFamily: fonts.small,
     color: '#1E293B',
     marginBottom: 12,
@@ -838,12 +869,12 @@ const styles = StyleSheet.create({
     paddingTop: 10,
   },
   mobileLabel: {
-    fontSize: 13,
+    fontSize: moderateScale(13),
     fontFamily: fonts.small,
     color: '#1E293B',
   },
   mobileValue: {
-    fontSize: 13,
+    fontSize: moderateScale(13),
     fontFamily: fonts.medium,
     color: '#0F172A',
   },
@@ -865,7 +896,7 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   cardTitle: {
-    fontSize: 16,
+    fontSize: moderateScale(16),
     fontFamily: fonts.big,
     color: '#0F172A',
     marginBottom: 16,
@@ -879,7 +910,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     color: '#0F172A',
     fontFamily: fonts.medium,
-    fontSize: 14,
+    fontSize: moderateScale(14),
     marginBottom: 16,
   },
   multilineInput: {
@@ -889,7 +920,7 @@ const styles = StyleSheet.create({
     textAlignVertical: 'top',
   },
   orangeHelperText: {
-    fontSize: 12,
+    fontSize: moderateScale(12),
     fontFamily: fonts.small,
     color: '#D97706',
     marginTop: -8,
@@ -910,7 +941,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   locText: {
-    fontSize: 14,
+    fontSize: moderateScale(14),
     fontFamily: fonts.medium,
     color: colors.primary,
     marginLeft: 8,
@@ -950,16 +981,16 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   checkboxTitle: {
-    fontSize: 14,
+    fontSize: moderateScale(14),
     fontFamily: fonts.big,
     color: '#0F172A',
     marginBottom: 2,
   },
   checkboxDesc: {
-    fontSize: 12,
+    fontSize: moderateScale(12),
     fontFamily: fonts.small,
     color: '#64748B',
-    lineHeight: 16,
+    lineHeight: moderateScale(16),
   },
   formFooter: {
     flexDirection: 'row',
@@ -982,7 +1013,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   cancelBtnText: {
-    fontSize: 15,
+    fontSize: moderateScale(15),
     fontFamily: fonts.big,
     color: '#0F172A',
   },
@@ -1000,7 +1031,7 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   saveBtnText: {
-    fontSize: 15,
+    fontSize: moderateScale(15),
     fontFamily: fonts.big,
     color: '#FFFFFF',
   },
@@ -1022,7 +1053,7 @@ const styles = StyleSheet.create({
     borderRadius: 6,
   },
   bottomAddButtonText: {
-    fontSize: 15,
+    fontSize: moderateScale(15),
     fontFamily: fonts.big,
     color: colors.primary,
   },

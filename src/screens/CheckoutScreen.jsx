@@ -8,7 +8,6 @@ import {
   ScrollView,
   StatusBar,
   Alert,
-  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
@@ -18,8 +17,10 @@ import { selectCartItems } from '../redux/cartSlice';
 import colors from '../theme/colors';
 import fonts from '../theme/typography';
 import BottomSheetModal from '../components/BottomSheetModal';
+import { AddressCardSkeleton } from '../components/Skeleton';
 import { getUserAddresses } from '../api/address';
 import { getUser } from '../api/authStorage';
+import { moderateScale } from '../theme/responsive';
 
 const DUMMY_IMG = require('../../assets/dummy_product.png');
 
@@ -118,7 +119,10 @@ export default function CheckoutScreen({ navigation, route }) {
       return;
     }
     // Navigate to Payment Options Screen
-    navigation.navigate('Payment');
+    navigation.navigate('Payment', {
+      addressId: selectedAddr._id || selectedAddr.id,
+      address: selectedAddr,
+    });
   };
 
   return (
@@ -134,7 +138,6 @@ export default function CheckoutScreen({ navigation, route }) {
           <ChevronLeft size={24} color="#1A1C1E" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Checkout</Text>
-        <View style={{ width: 24 }} />
       </View>
 
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={true}>
@@ -220,7 +223,10 @@ export default function CheckoutScreen({ navigation, route }) {
 
         {/* Saved Addresses List */}
         {loadingAddresses ? (
-          <ActivityIndicator size="small" color={colors.primary} style={{ marginVertical: 20 }} />
+          <View>
+            <AddressCardSkeleton />
+            <AddressCardSkeleton />
+          </View>
         ) : (
           <ScrollView style={{ maxHeight: 340 }} showsVerticalScrollIndicator={false}>
             {addressesList.length === 0 ? (
@@ -320,7 +326,6 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
@@ -331,9 +336,10 @@ const styles = StyleSheet.create({
     padding: 4,
   },
   headerTitle: {
-    fontSize: 18,
+    fontSize: moderateScale(18),
     fontFamily: fonts.big,
     color: '#1A1C1E',
+    marginLeft: 12,
   },
   scrollView: {
     flex: 1,
@@ -357,13 +363,13 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   nameText: {
-    fontSize: 15,
+    fontSize: moderateScale(15),
     fontFamily: fonts.big,
     color: '#1E293B',
     marginRight: 6,
   },
   defaultLabel: {
-    fontSize: 12,
+    fontSize: moderateScale(12),
     fontFamily: fonts.medium,
     color: '#64748B',
     marginRight: 6,
@@ -376,19 +382,19 @@ const styles = StyleSheet.create({
     paddingVertical: 1,
   },
   tagBadgeText: {
-    fontSize: 9,
+    fontSize: moderateScale(9),
     fontFamily: fonts.big,
     color: '#10B981',
   },
   addressText: {
-    fontSize: 13,
+    fontSize: moderateScale(13),
     fontFamily: fonts.medium,
     color: '#475569',
-    lineHeight: 18,
+    lineHeight: moderateScale(18),
     marginBottom: 6,
   },
   mobileText: {
-    fontSize: 13,
+    fontSize: moderateScale(13),
     fontFamily: fonts.big,
     color: '#1E293B',
   },
@@ -396,7 +402,7 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   changeButtonText: {
-    fontSize: 14,
+    fontSize: moderateScale(14),
     fontFamily: fonts.big,
     color: colors.primary,
   },
@@ -407,7 +413,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   noAddressText: {
-    fontSize: 14,
+    fontSize: moderateScale(14),
     fontFamily: fonts.medium,
     color: '#64748B',
     marginBottom: 12,
@@ -419,7 +425,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary,
   },
   selectAddressBtnText: {
-    fontSize: 13,
+    fontSize: moderateScale(13),
     fontFamily: fonts.big,
     color: '#FFFFFF',
   },
@@ -429,7 +435,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   estimatesTitle: {
-    fontSize: 12,
+    fontSize: moderateScale(12),
     fontFamily: fonts.big,
     color: '#64748B',
     letterSpacing: 0.5,
@@ -454,7 +460,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   estimateText: {
-    fontSize: 14,
+    fontSize: moderateScale(14),
     fontFamily: fonts.medium,
     color: '#1E293B',
   },
@@ -473,7 +479,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   continueBtnText: {
-    fontSize: 14,
+    fontSize: moderateScale(14),
     fontFamily: fonts.big,
     color: '#FFFFFF',
     letterSpacing: 0.5,
@@ -488,7 +494,7 @@ const styles = StyleSheet.create({
     borderBottomColor: '#F1F5F9',
   },
   sheetTitle: {
-    fontSize: 16,
+    fontSize: moderateScale(16),
     fontFamily: fonts.big,
     color: '#1A1C1E',
   },
@@ -515,7 +521,7 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   activeAddressTitleText: {
-    fontSize: 14,
+    fontSize: moderateScale(14),
     fontFamily: fonts.big,
     color: '#0F172A',
   },
@@ -527,14 +533,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   activeAddressDetailText: {
-    fontSize: 13,
+    fontSize: moderateScale(13),
     fontFamily: fonts.medium,
     color: '#1E293B',
-    lineHeight: 18,
+    lineHeight: moderateScale(18),
     marginBottom: 4,
   },
   activeAddressMobText: {
-    fontSize: 12,
+    fontSize: moderateScale(12),
     fontFamily: fonts.big,
     color: '#0F172A',
     marginBottom: 12,
@@ -553,7 +559,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
   },
   editAddressTextBtnText: {
-    fontSize: 12,
+    fontSize: moderateScale(12),
     fontFamily: fonts.big,
     color: colors.primary,
   },
@@ -573,11 +579,11 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   simplifiedAddressText: {
-    fontSize: 13,
+    fontSize: moderateScale(13),
     fontFamily: fonts.medium,
     color: '#1E293B',
     flex: 1,
-    lineHeight: 18,
+    lineHeight: moderateScale(18),
   },
   simplifiedRadioCircle: {
     width: 18,
@@ -608,7 +614,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
   },
   addNewAddressOutlineBtnText: {
-    fontSize: 14,
+    fontSize: moderateScale(14),
     fontFamily: fonts.big,
     color: colors.primary,
   },
@@ -617,7 +623,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   noAddressItemText: {
-    fontSize: 13,
+    fontSize: moderateScale(13),
     fontFamily: fonts.medium,
     color: '#475569',
   },

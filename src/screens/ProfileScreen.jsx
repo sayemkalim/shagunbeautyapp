@@ -17,6 +17,22 @@ import colors from '../theme/colors';
 import fonts from '../theme/typography';
 import { getUser, saveSession, getToken } from '../api/authStorage';
 import { updateUserProfile } from '../api/auth';
+import { Skeleton } from '../components/Skeleton';
+import { moderateScale } from '../theme/responsive';
+
+function ProfileFormSkeleton() {
+  return (
+    <View style={styles.content}>
+      <Skeleton width="45%" height={16} radius={5} style={{ marginBottom: 24 }} />
+      {[0, 1, 2].map((i) => (
+        <View key={i} style={styles.inputGroup}>
+          <Skeleton width="35%" height={12} radius={5} style={{ marginBottom: 8 }} />
+          <Skeleton width="100%" height={50} radius={6} />
+        </View>
+      ))}
+    </View>
+  );
+}
 
 export default function ProfileScreen({ navigation }) {
   const [loading, setLoading] = useState(true);
@@ -81,8 +97,17 @@ export default function ProfileScreen({ navigation }) {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={colors.primary} />
+      <SafeAreaView style={styles.safeArea} edges={['top']}>
+        <View style={styles.header}>
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() => navigation.goBack()}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+            <ChevronLeft size={24} color="#0F172A" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Edit Profile</Text>
+        </View>
+        <ProfileFormSkeleton />
       </SafeAreaView>
     );
   }
@@ -180,7 +205,7 @@ const styles = StyleSheet.create({
   },
   backButton: { padding: 4 },
   headerTitle: { 
-    fontSize: 18, 
+    fontSize: moderateScale(18), 
     fontFamily: fonts.big, 
     color: '#0F172A',
     marginLeft: 12,
@@ -205,7 +230,7 @@ const styles = StyleSheet.create({
     borderColor: colors.primary,
   },
   avatarText: {
-    fontSize: 32,
+    fontSize: moderateScale(32),
     fontFamily: fonts.big,
     color: colors.primary,
   },
@@ -223,25 +248,25 @@ const styles = StyleSheet.create({
     borderColor: '#FFFFFF',
   },
   avatarName: {
-    fontSize: 20,
+    fontSize: moderateScale(20),
     fontFamily: fonts.big,
     color: '#0F172A',
     marginBottom: 4,
   },
   avatarEmail: {
-    fontSize: 14,
+    fontSize: moderateScale(14),
     fontFamily: fonts.medium,
     color: '#64748B',
   },
   sectionTitle: {
-    fontSize: 16,
+    fontSize: moderateScale(16),
     fontFamily: fonts.big,
     color: '#0F172A',
     marginBottom: 20,
   },
   inputGroup: { marginBottom: 20 },
   inputLabel: {
-    fontSize: 13,
+    fontSize: moderateScale(13),
     fontFamily: fonts.medium,
     color: '#0F172A',
     marginBottom: 8,
@@ -265,7 +290,7 @@ const styles = StyleSheet.create({
   textInputWithIcon: {
     flex: 1,
     height: 50,
-    fontSize: 15,
+    fontSize: moderateScale(15),
     fontFamily: fonts.medium,
     color: '#0F172A',
   },
@@ -291,7 +316,7 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   saveButtonText: {
-    fontSize: 15,
+    fontSize: moderateScale(15),
     fontFamily: fonts.big,
     color: '#FFFFFF',
   },

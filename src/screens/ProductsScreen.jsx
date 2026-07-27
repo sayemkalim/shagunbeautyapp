@@ -27,10 +27,16 @@ import {
   Handbag,
 } from 'lucide-react-native';
 
+import { useDispatch, useSelector } from 'react-redux';
+import LinearGradient from 'react-native-linear-gradient';
 import { useProducts } from '../hooks/useProducts';
 import { useBrands } from '../hooks/useBrands';
+import { addToCart } from '../redux/cartSlice';
+import { addToCartApi } from '../api/cart';
+import { ProductCardSkeleton } from '../components/Skeleton';
 import colors from '../theme/colors';
 import fonts from '../theme/typography';
+import { moderateScale } from '../theme/responsive';
 
 const { width, height } = Dimensions.get('window');
 const COLUMN_WIDTH = (width - 40) / 2; // two-column grid with padding
@@ -58,6 +64,65 @@ export default function ProductsScreen({ route, navigation }) {
   );
   const [brandSearch, setBrandSearch] = useState('');
   const [favorites, setFavorites] = useState({});
+
+  const dispatch = useDispatch();
+  const cartItems = useSelector((state) => state.cart.items || []);
+  const [loadingProductId, setLoadingProductId] = useState(null);
+
+  const handleAddToCart = async (product) => {
+    const pId = product._id || product.id;
+    const isInCart = cartItems.some((ci) => (ci.productId || ci.id) === pId);
+
+    if (isInCart) {
+      navigation.navigate('BottomTabs', { screen: 'Bag' });
+      return;
+    }
+
+    setLoadingProductId(pId);
+
+    const originalPrice = product.price || 0;
+    const finalPrice = product.discounted_price || product.price || 999;
+    
+    let bName = '';
+    if (typeof product.brand === 'object' && product.brand?.name) {
+      bName = product.brand.name;
+    } else if (product.brandName) {
+      bName = product.brandName;
+    } else if (typeof product.brand === 'string') {
+      if (/^[0-9a-fA-F]{24}$/.test(product.brand)) {
+        const found = brands.find((b) => b._id === product.brand);
+        bName = found ? found.name : '';
+      } else {
+        bName = product.brand;
+      }
+    }
+
+    const imageUri = product.images?.[0] || product.image || product.banner_image;
+
+    dispatch(
+      addToCart({
+        productId: pId,
+        name: product.name,
+        brandName: bName,
+        price: originalPrice > 0 ? originalPrice : finalPrice,
+        discountedPrice: finalPrice,
+        image: imageUri,
+        quantity: 1,
+      })
+    );
+
+    try {
+      await addToCartApi({
+        type: 'product',
+        productId: pId,
+        quantity: 1,
+      });
+    } catch (e) {
+      console.log('Add to cart API error:', e);
+    } finally {
+      setLoadingProductId(null);
+    }
+  };
 
   useEffect(() => {
     if (brandId) {
@@ -224,17 +289,16 @@ export default function ProductsScreen({ route, navigation }) {
           })
         }>
         <View style={styles.imageContainer}>
-          <View style={styles.badge}>
-            <Text style={styles.badgeText}>Rising Star</Text>
-          </View>
-          <Image source={imageSource} style={styles.productImage} resizeMode="contain" />
-        </View>
-
-        <View style={styles.ratingRow}>
-          <Star size={13} color="#EAB308" fill="#EAB308" />
-          <Text style={styles.ratingText}>4.5</Text>
-          <Text style={styles.reviewDivider}>|</Text>
-          <Text style={styles.reviewText}>12.8k</Text>
+          {(item.is_best_seller || item.isBestSeller || item.is_bestseller || item.tag === 'bestseller') && (
+            <LinearGradient
+              colors={['#A78BFA', colors.primary]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.gradientBadge}>
+              <Text style={styles.gradientBadgeText}>BESTSELLER</Text>
+            </LinearGradient>
+          )}
+          <Image source={imageSource} style={styles.productImage} resizeMode="cover" />
         </View>
 
         <View style={styles.detailsContainer}>
@@ -255,21 +319,26 @@ export default function ProductsScreen({ route, navigation }) {
             )}
           </View>
 
-          <Text style={styles.bestPriceText}>
-            Best Price <Text style={styles.bestPriceAmount}>₹{Math.round(finalPrice * 0.9)}</Text> with coupon
-          </Text>
+          {(() => {
+            const isInCart = cartItems.some((ci) => (ci.productId || ci.id) === item._id);
+            const isLoadingThis = loadingProductId === item._id;
 
-          <TouchableOpacity
-            style={styles.addToBagButton}
-            activeOpacity={0.85}
-            onPress={() =>
-              navigation.navigate('ProductDetail', {
-                productId: item._id,
-                product: item,
-              })
-            }>
-            <Text style={styles.addToBagText}>ADD TO BAG</Text>
-          </TouchableOpacity>
+            return (
+              <TouchableOpacity
+                style={[styles.addToBagButton, isInCart && styles.goToBagButton]}
+                activeOpacity={0.85}
+                disabled={isLoadingThis}
+                onPress={() => handleAddToCart(item)}>
+                {isLoadingThis ? (
+                  <ActivityIndicator size="small" color={isInCart ? '#FFFFFF' : colors.primary} />
+                ) : (
+                  <Text style={[styles.addToBagText, isInCart && styles.goToBagText]}>
+                    {isInCart ? 'GO TO BAG' : 'ADD TO BAG'}
+                  </Text>
+                )}
+              </TouchableOpacity>
+            );
+          })()}
         </View>
       </TouchableOpacity>
     );
@@ -309,8 +378,10 @@ export default function ProductsScreen({ route, navigation }) {
 
       {/* Main product list */}
       {isProductsLoading ? (
-        <View style={styles.centerContainer}>
-          <ActivityIndicator size="large" color={colors.primary} />
+        <View style={[styles.listContent, styles.skeletonGrid]}>
+          {Array.from({ length: 6 }).map((_, i) => (
+            <ProductCardSkeleton key={i} cardWidth={COLUMN_WIDTH} />
+          ))}
         </View>
       ) : processedProducts.length === 0 ? (
         <View style={styles.centerContainer}>
@@ -516,7 +587,7 @@ const styles = StyleSheet.create({
     marginLeft: -4,
   },
   headerTitle: {
-    fontSize: 19,
+    fontSize: moderateScale(19),
     fontFamily: fonts.big,
     color: '#1A1C1E',
   },
@@ -527,7 +598,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 32,
   },
   emptyText: {
-    fontSize: 15,
+    fontSize: moderateScale(15),
     fontFamily: fonts.medium,
     color: '#64748B',
     textAlign: 'center',
@@ -540,6 +611,11 @@ const styles = StyleSheet.create({
   columnWrapper: {
     justifyContent: 'space-between',
     marginBottom: 16,
+  },
+  skeletonGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
   },
   productCard: {
     width: COLUMN_WIDTH,
@@ -555,24 +631,29 @@ const styles = StyleSheet.create({
     position: 'relative',
     overflow: 'hidden',
   },
-  badge: {
+  gradientBadge: {
     position: 'absolute',
     top: 10,
-    left: 10,
-    backgroundColor: colors.primary,
-    borderRadius: 4,
-    paddingVertical: 3,
-    paddingHorizontal: 6,
+    right: 10,
+    borderRadius: 6,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
     zIndex: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 3,
   },
-  badgeText: {
+  gradientBadgeText: {
     color: '#FFFFFF',
-    fontSize: 9,
+    fontSize: moderateScale(9),
     fontFamily: fonts.big,
+    letterSpacing: 0.5,
   },
   productImage: {
-    width: '80%',
-    height: '80%',
+    width: '100%',
+    height: '100%',
   },
   heartButton: {
     position: 'absolute',
@@ -597,18 +678,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   ratingText: {
-    fontSize: 12,
+    fontSize: moderateScale(12),
     fontFamily: fonts.big,
     color: '#1A1C1E',
     marginLeft: 4,
   },
   reviewDivider: {
-    fontSize: 12,
+    fontSize: moderateScale(12),
     color: '#CBD5E1',
     marginHorizontal: 6,
   },
   reviewText: {
-    fontSize: 12,
+    fontSize: moderateScale(12),
     fontFamily: fonts.medium,
     color: '#64748B',
   },
@@ -617,10 +698,10 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   productTitle: {
-    fontSize: 14,
+    fontSize: moderateScale(14),
     fontFamily: fonts.small,
     color: '#475569',
-    lineHeight: 18,
+    lineHeight: moderateScale(18),
   },
   brandText: {
     fontFamily: fonts.big,
@@ -633,25 +714,25 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
   },
   finalPrice: {
-    fontSize: 15,
+    fontSize: moderateScale(15),
     fontFamily: fonts.big,
     color: '#1A1C1E',
   },
   originalPrice: {
-    fontSize: 13,
+    fontSize: moderateScale(13),
     fontFamily: fonts.medium,
     color: '#94A3B8',
     textDecorationLine: 'line-through',
     marginRight: 6,
   },
   discountText: {
-    fontSize: 12,
+    fontSize: moderateScale(12),
     fontFamily: fonts.big,
     color: '#FD3A2D',
     marginLeft: 6,
   },
   bestPriceText: {
-    fontSize: 11,
+    fontSize: moderateScale(11),
     fontFamily: fonts.medium,
     color: '#059669', // green for discount offers
     marginTop: 4,
@@ -671,7 +752,16 @@ const styles = StyleSheet.create({
   },
   addToBagText: {
     color: colors.primary,
-    fontSize: 13,
+    fontSize: moderateScale(13),
+    fontFamily: fonts.big,
+  },
+  goToBagButton: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  goToBagText: {
+    color: '#FFFFFF',
+    fontSize: moderateScale(13),
     fontFamily: fonts.big,
   },
   floatingFilterBar: {
@@ -703,7 +793,7 @@ const styles = StyleSheet.create({
     height: '100%',
   },
   filterTabText: {
-    fontSize: 13,
+    fontSize: moderateScale(13),
     fontFamily: fonts.medium,
     color: '#475569',
   },
@@ -760,7 +850,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   sheetTitle: {
-    fontSize: 18,
+    fontSize: moderateScale(18),
     fontFamily: fonts.big,
     color: '#1A1C1E',
   },
@@ -773,7 +863,7 @@ const styles = StyleSheet.create({
     borderBottomColor: '#F8FAFC',
   },
   sortOptionText: {
-    fontSize: 15,
+    fontSize: moderateScale(15),
     fontFamily: fonts.medium,
     color: '#475569',
   },
@@ -797,7 +887,7 @@ const styles = StyleSheet.create({
   },
   brandSearchInput: {
     flex: 1,
-    fontSize: 14,
+    fontSize: moderateScale(14),
     fontFamily: fonts.medium,
     color: '#1A1C1E',
   },
@@ -815,12 +905,12 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   brandActionText: {
-    fontSize: 14,
+    fontSize: moderateScale(14),
     fontFamily: fonts.medium,
     color: '#475569',
   },
   clearFiltersText: {
-    fontSize: 14,
+    fontSize: moderateScale(14),
     fontFamily: fonts.medium,
     color: '#64748B',
   },
@@ -832,7 +922,7 @@ const styles = StyleSheet.create({
     marginTop: 16,
   },
   brandSectionHeader: {
-    fontSize: 11,
+    fontSize: moderateScale(11),
     fontFamily: fonts.big,
     color: '#94A3B8',
     letterSpacing: 0.5,
@@ -851,12 +941,12 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   brandNameText: {
-    fontSize: 15,
+    fontSize: moderateScale(15),
     fontFamily: fonts.medium,
     color: '#475569',
   },
   emptyBrandsText: {
-    fontSize: 14,
+    fontSize: moderateScale(14),
     fontFamily: fonts.medium,
     color: '#94A3B8',
     textAlign: 'center',
@@ -878,7 +968,7 @@ const styles = StyleSheet.create({
   },
   checkboxCheckmark: {
     color: '#FFFFFF',
-    fontSize: 12,
+    fontSize: moderateScale(12),
     fontWeight: 'bold',
   },
 });

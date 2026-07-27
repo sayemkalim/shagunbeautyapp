@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import colors from '../theme/colors';
 import fonts from '../theme/typography';
+import { moderateScale } from '../theme/responsive';
 
 let globalShowAlert = null;
 const nativeAlert = Alert.alert;
@@ -153,16 +154,16 @@ const styles = StyleSheet.create({
     elevation: 5,
   },
   titleText: {
-    fontSize: 16,
+    fontSize: moderateScale(16),
     fontFamily: fonts.big,
     color: '#0F172A',
     marginBottom: 8,
   },
   messageText: {
-    fontSize: 14,
+    fontSize: moderateScale(14),
     fontFamily: fonts.medium,
     color: '#1E293B',
-    lineHeight: 20,
+    lineHeight: moderateScale(20),
     marginBottom: 20,
   },
   buttonContainer: {
@@ -180,7 +181,7 @@ const styles = StyleSheet.create({
     borderRadius: 6,
   },
   primaryButtonText: {
-    fontSize: 14,
+    fontSize: moderateScale(14),
     fontFamily: fonts.big,
     color: '#FFFFFF',
   },
@@ -194,7 +195,7 @@ const styles = StyleSheet.create({
     borderRadius: 6,
   },
   cancelButtonText: {
-    fontSize: 14,
+    fontSize: moderateScale(14),
     fontFamily: fonts.big,
     color: '#0F172A',
   },
@@ -208,7 +209,7 @@ const styles = StyleSheet.create({
     borderRadius: 6,
   },
   destructiveButtonText: {
-    fontSize: 14,
+    fontSize: moderateScale(14),
     fontFamily: fonts.big,
     color: '#FFFFFF',
   },

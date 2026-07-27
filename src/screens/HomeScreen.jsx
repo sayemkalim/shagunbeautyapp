@@ -41,12 +41,46 @@ import { useProducts } from '../hooks/useProducts';
 import { useBrands } from '../hooks/useBrands';
 import { addToCart } from '../redux/cartSlice';
 import { addToCartApi } from '../api/cart';
+import { Skeleton } from '../components/Skeleton';
 
 import fonts from '../theme/typography';
 import colors from '../theme/colors';
+import { moderateScale } from '../theme/responsive';
 
 const { width: screenWidth } = Dimensions.get('window');
 const BANNER_WIDTH = screenWidth - 32;
+const DEALS_GAP = 14;
+const DEAL_CARD_WIDTH = (screenWidth - 16 * 2 - DEALS_GAP) / 2;
+const DEALS_SNAP_INTERVAL = (DEAL_CARD_WIDTH + DEALS_GAP) * 2;
+
+function CategorySkeleton() {
+  return (
+    <View style={{ alignItems: 'center' }}>
+      <Skeleton width={106} height={106} radius={22} />
+      <Skeleton width={60} height={10} radius={4} style={{ marginTop: 8 }} />
+    </View>
+  );
+}
+
+function DealCardSkeleton() {
+  return (
+    <View
+      style={{
+        width: DEAL_CARD_WIDTH,
+        backgroundColor: '#FFFFFF',
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: '#F1F5F9',
+        padding: 8,
+      }}>
+      <Skeleton width="100%" height={150} radius={12} />
+      <Skeleton width="90%" height={11} radius={5} style={{ marginTop: 10 }} />
+      <Skeleton width="60%" height={11} radius={5} style={{ marginTop: 6 }} />
+      <Skeleton width="50%" height={14} radius={5} style={{ marginTop: 8 }} />
+      <Skeleton width="100%" height={30} radius={8} style={{ marginTop: 8 }} />
+    </View>
+  );
+}
 
 // ─── Header background shade ────────────────────
 const BG_HEADER = '#FFFFFF';
@@ -128,6 +162,7 @@ export default function HomeScreen({ navigation }) {
   const isFocused = useIsFocused();
   const dispatch = useDispatch();
   const [activeSlide, setActiveSlide] = useState(0);
+  const [dealsActivePage, setDealsActivePage] = useState(0);
   const [searchHint, setSearchHint] = useState(SEARCH_SUGGESTIONS[0]);
   const { data: categories = [], isLoading: categoriesLoading } = useCategories();
   const { data: realProducts = [], isLoading: productsLoading } = useProducts({ per_page: 12 });
@@ -199,6 +234,12 @@ export default function HomeScreen({ navigation }) {
     setActiveSlide(activeIndex);
   };
 
+  const handleDealsScroll = (event) => {
+    const offset = event.nativeEvent.contentOffset.x;
+    const pageIndex = Math.round(offset / DEALS_SNAP_INTERVAL);
+    setDealsActivePage(pageIndex);
+  };
+
   useEffect(() => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
   }, [activeSlide]);
@@ -237,13 +278,22 @@ export default function HomeScreen({ navigation }) {
 
       {/* ── Search Bar ── */}
       <GridBackground style={styles.searchSection}>
-        <TouchableOpacity
-          style={styles.searchBar}
-          activeOpacity={0.8}
-          onPress={() => navigation.navigate('Search')}>
-          <Search size={20} color="#64748B" style={styles.searchIcon} />
-          <Text style={styles.searchPlaceholderText}>{searchHint}</Text>
-        </TouchableOpacity>
+        <View style={styles.logoSearchRow}>
+          <View style={styles.logoWrapper}>
+            <Image
+              source={require('../../assets/SBL.png')}
+              style={styles.headerLogoImage}
+              resizeMode="contain"
+            />
+          </View>
+          <TouchableOpacity
+            style={styles.searchBar}
+            activeOpacity={0.8}
+            onPress={() => navigation.navigate('Search')}>
+            <Search size={20} color="#64748B" style={styles.searchIcon} />
+            <Text numberOfLines={1} style={styles.searchPlaceholderText}>{searchHint}</Text>
+          </TouchableOpacity>
+        </View>
       </GridBackground>
 
       <ScrollView
@@ -334,9 +384,11 @@ export default function HomeScreen({ navigation }) {
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.categoriesScroll}>
               {categoriesLoading ? (
-                <View style={styles.categoriesLoadingContainer}>
-                  <ActivityIndicator size="small" color={colors.primary} />
-                </View>
+                Array.from({ length: 6 }).map((_, i) => (
+                  <View key={i} style={styles.categoryItem}>
+                    <CategorySkeleton />
+                  </View>
+                ))
               ) : categories.length === 0 ? (
                 CATEGORIES.map((cat) => (
                   <TouchableOpacity
@@ -379,13 +431,26 @@ export default function HomeScreen({ navigation }) {
             </View>
 
             {productsLoading ? (
-              <View style={styles.productsLoadingBox}>
-                <ActivityIndicator size="small" color={colors.primary} />
-              </View>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                snapToInterval={DEALS_SNAP_INTERVAL}
+                decelerationRate="fast"
+                snapToAlignment="start"
+                contentContainerStyle={styles.dealsSwiperContent}>
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <DealCardSkeleton key={i} />
+                ))}
+              </ScrollView>
             ) : realProducts.length > 0 ? (
               <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
+                snapToInterval={DEALS_SNAP_INTERVAL}
+                decelerationRate="fast"
+                snapToAlignment="start"
+                onScroll={handleDealsScroll}
+                scrollEventThrottle={16}
                 contentContainerStyle={styles.dealsSwiperContent}>
                 {realProducts.map((item) => {
                   const itemId = item._id || item.id;
@@ -438,31 +503,42 @@ export default function HomeScreen({ navigation }) {
                       }>
                       {/* Image Box */}
                       <View style={styles.imageContainer}>
+                        {(item.is_best_seller || item.isBestSeller || item.is_bestseller || item.tag === 'bestseller') && (
+                          <LinearGradient
+                            colors={['#A78BFA', colors.primary]}
+                            start={{ x: 0, y: 0 }}
+                            end={{ x: 1, y: 0 }}
+                            style={styles.gradientBadge}>
+                            <Text style={styles.gradientBadgeText}>BESTSELLER</Text>
+                          </LinearGradient>
+                        )}
                         <Image
                           source={imageSource}
                           style={styles.productImage}
-                          resizeMode="contain"
+                          resizeMode="cover"
                         />
                       </View>
 
                       {/* Details Container */}
                       <View style={styles.detailsContainer}>
-                        <Text numberOfLines={2} style={styles.productTitle}>
-                          {brandNameStr ? <Text style={styles.brandText}>{brandNameStr} </Text> : null}
-                          {titleText}
-                        </Text>
+                        <View>
+                          <Text numberOfLines={2} style={styles.productTitle}>
+                            {brandNameStr ? <Text style={styles.brandText}>{brandNameStr} </Text> : null}
+                            {titleText}
+                          </Text>
 
-                        {/* Price Row */}
-                        <View style={styles.priceRow}>
-                          {discount > 0 ? (
-                            <>
-                              <Text style={styles.originalPrice}>₹{originalPrice}</Text>
+                          {/* Price Row */}
+                          <View style={styles.priceRow}>
+                            {discount > 0 ? (
+                              <>
+                                <Text style={styles.originalPrice}>₹{originalPrice}</Text>
+                                <Text style={styles.finalPrice}>₹{finalPrice}</Text>
+                                <Text style={styles.discountText}>{discount}% OFF</Text>
+                              </>
+                            ) : (
                               <Text style={styles.finalPrice}>₹{finalPrice}</Text>
-                              <Text style={styles.discountText}>{discount}% OFF</Text>
-                            </>
-                          ) : (
-                            <Text style={styles.finalPrice}>₹{finalPrice}</Text>
-                          )}
+                            )}
+                          </View>
                         </View>
 
                         {/* ADD TO BAG / GO TO BAG Button with Spinner */}
@@ -486,6 +562,17 @@ export default function HomeScreen({ navigation }) {
               </ScrollView>
             ) : null}
 
+            {!productsLoading && realProducts.length > 2 && (
+              <View style={styles.dealsDotsRow}>
+                {Array.from({ length: Math.ceil(realProducts.length / 2) }).map((_, i) => (
+                  <View
+                    key={i}
+                    style={[styles.dealsDot, dealsActivePage === i && styles.dealsDotActive]}
+                  />
+                ))}
+              </View>
+            )}
+
             {/* Bottom Soft Purple Fade */}
             <LinearGradient
               colors={['rgba(255, 255, 255, 0)', '#FAF5FF', '#F3E8FF']}
@@ -505,14 +592,31 @@ const styles = StyleSheet.create({
   topLavenderSection: { paddingBottom: 16 },
   bottomWhiteSection: { backgroundColor: '#FFFFFF', paddingTop: 16, paddingBottom: 24 },
   searchSection: { paddingHorizontal: 14, paddingTop: 14, paddingBottom: 10, backgroundColor: '#FFFFFF' },
+  logoSearchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  logoWrapper: {
+    width: 75,
+    height: 50,
+    overflow: 'hidden',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 6,
+  },
+  headerLogoImage: {
+    width: 155,
+    height: 155,
+  },
   searchBar: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#F8FAFC',
     borderWidth: 1,
     borderColor: '#E2E8F0',
     borderRadius: 12,
-    height: 50,
+    minHeight: moderateScale(50),
     paddingHorizontal: 16,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
@@ -521,14 +625,14 @@ const styles = StyleSheet.create({
     elevation: 1,
   },
   searchIcon: { marginRight: 10 },
-  searchPlaceholderText: { flex: 1, fontSize: 14, fontFamily: fonts.medium, color: '#94A3B8' },
+  searchPlaceholderText: { flex: 1, fontSize: moderateScale(14), fontFamily: fonts.medium, color: '#94A3B8' },
   scrollContent: { paddingBottom: 24 },
   saleBannerContainer: { margin: 16, borderRadius: 16, overflow: 'hidden', height: 180, backgroundColor: '#F3E8FF', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 3 },
   saleBannerImage: { width: '100%', height: '100%' },
   dealChipsScroll: { paddingHorizontal: 16, gap: 12, paddingBottom: 16 },
   dealChipCard: { width: 90, backgroundColor: '#FFFFFF', borderRadius: 12, borderWidth: 1, borderColor: '#E2E8F0', padding: 10, alignItems: 'center' },
   chipIconContainer: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', marginBottom: 8 },
-  dealChipTitle: { fontSize: 9, fontFamily: fonts.medium, color: '#334155', textAlign: 'center', lineHeight: 12 },
+  dealChipTitle: { fontSize: moderateScale(9), fontFamily: fonts.medium, color: '#334155', textAlign: 'center', lineHeight: moderateScale(12) },
   luxuryBanner: { marginHorizontal: 16, borderRadius: 16, backgroundColor: '#E4E4E1', height: 180, position: 'relative', overflow: 'hidden' },
   luxuryBannerImage: { width: BANNER_WIDTH, height: '100%' },
   luxuryBannerDots: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 6, marginTop: 12 },
@@ -536,11 +640,11 @@ const styles = StyleSheet.create({
   luxuryDotActive: { width: 20, height: 6, borderRadius: 3, backgroundColor: colors.primary },
   categoriesSection: { marginTop: 24 },
   categoriesHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, marginBottom: 12 },
-  categoriesTitle: { fontSize: 18, fontFamily: fonts.big, color: '#000000' },
+  categoriesTitle: { fontSize: moderateScale(18), fontFamily: fonts.big, color: '#000000' },
   categoriesScroll: { paddingHorizontal: 16, gap: 16, paddingBottom: 16 },
   categoryItem: { alignItems: 'center' },
   categoryItemImage: { width: 106, height: 106, borderRadius: 22 },
-  categoryItemLabel: { marginTop: 8, fontSize: 12, fontFamily: fonts.medium, color: '#1E1B4B', textAlign: 'center' },
+  categoryItemLabel: { marginTop: 8, fontSize: moderateScale(12), fontFamily: fonts.medium, color: '#1E1B4B', textAlign: 'center' },
   categoriesLoadingContainer: { height: 100, width: BANNER_WIDTH, alignItems: 'center', justifyContent: 'center' },
   /* Deals Of The Day Section (LinearGradient Background) */
   dealsLinearSection: {
@@ -569,13 +673,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   dealsTitle: {
-    fontSize: 22,
+    fontSize: moderateScale(22),
     fontFamily: fonts.big,
     color: colors.primary,
     letterSpacing: 0.2,
   },
   dealsSubtitle: {
-    fontSize: 13,
+    fontSize: moderateScale(13),
     fontFamily: fonts.medium,
     color: '#475569',
     marginTop: 2,
@@ -585,13 +689,22 @@ const styles = StyleSheet.create({
     gap: 14,
     paddingBottom: 8,
   },
+  dealsDotsRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 12,
+  },
+  dealsDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#D8B4FE' },
+  dealsDotActive: { width: 20, height: 6, borderRadius: 3, backgroundColor: colors.primary },
   productsLoadingBox: {
     height: 140,
     alignItems: 'center',
     justifyContent: 'center',
   },
   swiperProductCard: {
-    width: 170,
+    width: DEAL_CARD_WIDTH,
     backgroundColor: '#FFFFFF',
     borderRadius: 12,
     borderWidth: 1,
@@ -608,20 +721,25 @@ const styles = StyleSheet.create({
     position: 'relative',
     overflow: 'hidden',
   },
-  badge: {
+  gradientBadge: {
     position: 'absolute',
     top: 10,
-    left: 10,
-    backgroundColor: colors.primary,
-    borderRadius: 4,
-    paddingVertical: 3,
-    paddingHorizontal: 6,
+    right: 10,
+    borderRadius: 6,
+    paddingVertical: 2.5,
+    paddingHorizontal: 5.5,
     zIndex: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 3,
   },
-  badgeText: {
+  gradientBadgeText: {
     color: '#FFFFFF',
-    fontSize: 9,
+    fontSize: moderateScale(9),
     fontFamily: fonts.big,
+    letterSpacing: 0.5,
   },
   productImage: {
     width: '100%',
@@ -634,31 +752,33 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   ratingText: {
-    fontSize: 12,
+    fontSize: moderateScale(12),
     fontFamily: fonts.big,
     color: '#1A1C1E',
     marginLeft: 4,
   },
   reviewDivider: {
-    fontSize: 12,
+    fontSize: moderateScale(12),
     color: '#CBD5E1',
     marginHorizontal: 6,
   },
   reviewText: {
-    fontSize: 12,
+    fontSize: moderateScale(12),
     fontFamily: fonts.medium,
     color: '#64748B',
   },
   detailsContainer: {
+    flex: 1,
     paddingHorizontal: 4,
     marginTop: 4,
+    justifyContent: 'space-between',
   },
   productTitle: {
-    fontSize: 14,
+    fontSize: moderateScale(13),
     fontFamily: fonts.small,
     color: '#475569',
-    lineHeight: 18,
-    height: 36,
+    lineHeight: moderateScale(18),
+    minHeight: moderateScale(36),
   },
   brandText: {
     fontFamily: fonts.big,
@@ -668,28 +788,28 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginTop: 6,
-    flexWrap: 'wrap',
+    flexWrap: 'nowrap',
   },
   finalPrice: {
-    fontSize: 15,
+    fontSize: moderateScale(14),
     fontFamily: fonts.big,
     color: '#1A1C1E',
   },
   originalPrice: {
-    fontSize: 13,
+    fontSize: moderateScale(12),
     fontFamily: fonts.medium,
     color: '#94A3B8',
     textDecorationLine: 'line-through',
     marginRight: 6,
   },
   discountText: {
-    fontSize: 12,
+    fontSize: moderateScale(10),
     fontFamily: fonts.big,
     color: '#FD3A2D',
-    marginLeft: 6,
+    marginLeft: 4,
   },
   bestPriceText: {
-    fontSize: 11,
+    fontSize: moderateScale(11),
     fontFamily: fonts.medium,
     color: '#059669',
     marginTop: 4,
@@ -709,7 +829,7 @@ const styles = StyleSheet.create({
   },
   addToBagText: {
     color: colors.primary,
-    fontSize: 13,
+    fontSize: moderateScale(13),
     fontFamily: fonts.big,
   },
   goToBagButton: {
@@ -718,7 +838,7 @@ const styles = StyleSheet.create({
   },
   goToBagText: {
     color: '#FFFFFF',
-    fontSize: 13,
+    fontSize: moderateScale(13),
     fontFamily: fonts.big,
   },
   bottomGradientFade: {
@@ -736,12 +856,12 @@ const styles = StyleSheet.create({
     borderBottomColor: '#F1F5F9',
   },
   variantSheetTitle: {
-    fontSize: 18,
+    fontSize: moderateScale(18),
     fontFamily: fonts.big,
     color: '#1A1C1E',
   },
   variantSheetSubTitle: {
-    fontSize: 12,
+    fontSize: moderateScale(12),
     fontFamily: fonts.medium,
     color: '#64748B',
     marginTop: 2,
@@ -793,12 +913,12 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary,
   },
   variantOptionName: {
-    fontSize: 14,
+    fontSize: moderateScale(14),
     fontFamily: fonts.big,
     color: '#1A1C1E',
   },
   variantSkuText: {
-    fontSize: 11,
+    fontSize: moderateScale(11),
     fontFamily: fonts.medium,
     color: '#94A3B8',
     marginTop: 2,
@@ -807,12 +927,12 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
   },
   variantFinalPrice: {
-    fontSize: 15,
+    fontSize: moderateScale(15),
     fontFamily: fonts.big,
     color: '#1E1B4B',
   },
   variantMrpPrice: {
-    fontSize: 12,
+    fontSize: moderateScale(12),
     fontFamily: fonts.medium,
     color: '#94A3B8',
     textDecorationLine: 'line-through',
@@ -827,7 +947,7 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   confirmVariantBtnText: {
-    fontSize: 16,
+    fontSize: moderateScale(16),
     fontFamily: fonts.big,
     color: '#FFFFFF',
   },

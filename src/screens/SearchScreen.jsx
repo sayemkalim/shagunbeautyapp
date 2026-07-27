@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
-  ActivityIndicator,
   Dimensions,
   FlatList,
   Image,
@@ -11,21 +10,27 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import LinearGradient from 'react-native-linear-gradient';
 import {
   ChevronLeft,
   Search,
   X,
-  Star,
   ArrowUpLeft,
 } from 'lucide-react-native';
+import { useDispatch, useSelector } from 'react-redux';
 
 import { useProducts } from '../hooks/useProducts';
 import { useCategories } from '../hooks/useCategories';
 import { useBrands } from '../hooks/useBrands';
+import { ProductCardSkeleton } from '../components/Skeleton';
 import colors from '../theme/colors';
 import fonts from '../theme/typography';
+import { moderateScale } from '../theme/responsive';
+import { addToCart } from '../redux/cartSlice';
+import { addToCartApi } from '../api/cart';
 
 const { width } = Dimensions.get('window');
 const COLUMN_WIDTH = (width - 40) / 2;
@@ -47,6 +52,10 @@ export default function SearchScreen({ navigation }) {
   const [showResults, setShowResults] = useState(false);
   const [recentSearches, setRecentSearches] = useState([]);
   const [favorites, setFavorites] = useState({});
+
+  const dispatch = useDispatch();
+  const cartItems = useSelector((state) => state.cart.items || []);
+  const [loadingProductId, setLoadingProductId] = useState(null);
 
   // Load recent searches from local storage on mount
   useEffect(() => {
@@ -83,6 +92,7 @@ export default function SearchScreen({ navigation }) {
   });
 
   const { data: categories = [] } = useCategories();
+  const { data: brands = [] } = useBrands();
 
   // Reset results display state when typing, to show suggestions
   const handleTextChange = (text) => {
@@ -99,7 +109,7 @@ export default function SearchScreen({ navigation }) {
   const suggestions = useMemo(() => {
     if (!inputText.trim() || showResults) return [];
 
-    const query = inputText.toLowerCase().replace(/\s+/g, '');
+    const query = inputText.toLowerCase().replace(/&/g, 'and').replace(/\s+/g, '');
     const list = new Set();
 
     // 1. Common cosmetic keywords
@@ -115,45 +125,67 @@ export default function SearchScreen({ navigation }) {
     ];
 
     commonKeywords.forEach((keyword) => {
-      if (keyword.toLowerCase().replace(/\s+/g, '').includes(query)) {
+      if (keyword.toLowerCase().replace(/&/g, 'and').replace(/\s+/g, '').includes(query)) {
         list.add(keyword);
       }
     });
 
     // 2. Category names matching
     categories.forEach((cat) => {
-      if (cat.name.toLowerCase().replace(/\s+/g, '').includes(query)) {
+      if (cat.name.toLowerCase().replace(/&/g, 'and').replace(/\s+/g, '').includes(query)) {
         list.add(cat.name);
       }
     });
 
-    // 3. Product names matching
+    // 3. Brand names matching
+    brands.forEach((brand) => {
+      if (brand.name.toLowerCase().replace(/&/g, 'and').replace(/\s+/g, '').includes(query)) {
+        list.add(brand.name);
+      }
+    });
+
+    // 4. Product names matching
     let count = 0;
     allProducts.forEach((p) => {
-      if (count < 8 && p.name.toLowerCase().replace(/\s+/g, '').includes(query)) {
+      if (count < 8 && p.name.toLowerCase().replace(/&/g, 'and').replace(/\s+/g, '').includes(query)) {
         list.add(p.name);
         count++;
       }
     });
 
     return Array.from(list).slice(0, 10);
-  }, [inputText, showResults, categories, allProducts]);
+  }, [inputText, showResults, categories, brands, allProducts]);
 
-  // Perform frontend fuzzy space-ignoring match filtering
+  // Match every word of the query (AND logic) against the combined
+  // name + brand + sku text, so word order/adjacency doesn't matter.
   const filteredProducts = useMemo(() => {
     if (!searchQuery.trim()) return [];
 
-    const normalizedQuery = searchQuery.toLowerCase().replace(/\s+/g, '');
+    const queryWords = searchQuery
+      .toLowerCase()
+      .trim()
+      .replace(/&/g, ' and ')
+      .split(/\s+/)
+      .filter(Boolean);
 
     return allProducts.filter((p) => {
-      const nameMatch = p.name.toLowerCase().replace(/\s+/g, '').includes(normalizedQuery);
-      const skuMatch = p.sku ? p.sku.toLowerCase().replace(/\s+/g, '').includes(normalizedQuery) : false;
-      const brandName = p.brand ? (typeof p.brand === 'object' ? p.brand.name : String(p.brand)) : '';
-      const brandMatch = brandName.toLowerCase().replace(/\s+/g, '').includes(normalizedQuery);
+      let brandName = '';
+      if (typeof p.brand === 'object' && p.brand?.name) {
+        brandName = p.brand.name;
+      } else if (typeof p.brand === 'string') {
+        // p.brand is usually just a Mongo ObjectId — resolve it to the real name
+        const found = brands.find((b) => b._id === p.brand);
+        brandName = found ? found.name : p.brand;
+      }
 
-      return nameMatch || skuMatch || brandMatch;
+      const combined = [p.name, brandName, p.sku || '']
+        .join(' ')
+        .toLowerCase()
+        .replace(/&/g, ' and ');
+
+      return queryWords.every((word) => combined.includes(word));
     });
-  }, [allProducts, searchQuery]);
+  }, [allProducts, searchQuery, brands]);
 
   const handleSearchSubmit = () => {
     if (inputText.trim()) {
@@ -215,7 +247,60 @@ export default function SearchScreen({ navigation }) {
     }));
   };
 
-  const { data: brands = [] } = useBrands();
+  const handleAddToCart = async (product) => {
+    const pId = product._id || product.id;
+    const isInCart = cartItems.some((ci) => (ci.productId || ci.id) === pId);
+
+    if (isInCart) {
+      navigation.navigate('BottomTabs', { screen: 'Bag' });
+      return;
+    }
+
+    setLoadingProductId(pId);
+
+    const originalPrice = product.price || 0;
+    const finalPrice = product.discounted_price || product.price || 999;
+    
+    let bName = '';
+    if (typeof product.brand === 'object' && product.brand?.name) {
+      bName = product.brand.name;
+    } else if (product.brandName) {
+      bName = product.brandName;
+    } else if (typeof product.brand === 'string') {
+      if (/^[0-9a-fA-F]{24}$/.test(product.brand)) {
+        const found = brands.find((b) => b._id === product.brand);
+        bName = found ? found.name : '';
+      } else {
+        bName = product.brand;
+      }
+    }
+
+    const imageUri = product.images?.[0] || product.image || product.banner_image;
+
+    dispatch(
+      addToCart({
+        productId: pId,
+        name: product.name,
+        brandName: bName,
+        price: originalPrice > 0 ? originalPrice : finalPrice,
+        discountedPrice: finalPrice,
+        image: imageUri,
+        quantity: 1,
+      })
+    );
+
+    try {
+      await addToCartApi({
+        type: 'product',
+        productId: pId,
+        quantity: 1,
+      });
+    } catch (e) {
+      console.log('Add to cart API error:', e);
+    } finally {
+      setLoadingProductId(null);
+    }
+  };
 
   const renderProductItem = ({ item }) => {
     const originalPrice = item.price || 0;
@@ -258,52 +343,58 @@ export default function SearchScreen({ navigation }) {
           })
         }>
         <View style={styles.imageContainer}>
-          <View style={styles.badge}>
-            <Text style={styles.badgeText}>Rising Star</Text>
-          </View>
-          <Image source={imageSource} style={styles.productImage} resizeMode="contain" />
-        </View>
-
-        <View style={styles.ratingRow}>
-          <Star size={13} color="#EAB308" fill="#EAB308" />
-          <Text style={styles.ratingText}>4.5</Text>
-          <Text style={styles.reviewDivider}>|</Text>
-          <Text style={styles.reviewText}>12.8k</Text>
+          {(item.is_best_seller || item.isBestSeller || item.is_bestseller || item.tag === 'bestseller') && (
+            <LinearGradient
+              colors={['#A78BFA', colors.primary]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.gradientBadge}>
+              <Text style={styles.gradientBadgeText}>BESTSELLER</Text>
+            </LinearGradient>
+          )}
+          <Image source={imageSource} style={styles.productImage} resizeMode="cover" />
         </View>
 
         <View style={styles.detailsContainer}>
-          <Text numberOfLines={2} style={styles.productTitle}>
-            {brandNameStr ? <Text style={styles.brandText}>{brandNameStr} </Text> : null}
-            {titleText}
-          </Text>
+          <View>
+            <Text numberOfLines={2} style={styles.productTitle}>
+              {brandNameStr ? <Text style={styles.brandText}>{brandNameStr} </Text> : null}
+              {titleText}
+            </Text>
 
-          <View style={styles.priceRow}>
-            {discount > 0 ? (
-              <>
-                <Text style={styles.originalPrice}>₹{originalPrice}</Text>
+            <View style={styles.priceRow}>
+              {discount > 0 ? (
+                <>
+                  <Text style={styles.originalPrice}>₹{originalPrice}</Text>
+                  <Text style={styles.finalPrice}>₹{finalPrice}</Text>
+                  <Text style={styles.discountText}>{discount}% OFF</Text>
+                </>
+              ) : (
                 <Text style={styles.finalPrice}>₹{finalPrice}</Text>
-                <Text style={styles.discountText}>{discount}% OFF</Text>
-              </>
-            ) : (
-              <Text style={styles.finalPrice}>₹{finalPrice}</Text>
-            )}
+              )}
+            </View>
           </View>
 
-          <Text style={styles.bestPriceText}>
-            Best Price <Text style={styles.bestPriceAmount}>₹{Math.round(finalPrice * 0.9)}</Text> with coupon
-          </Text>
+          {(() => {
+            const isInCart = cartItems.some((ci) => (ci.productId || ci.id) === item._id);
+            const isLoadingThis = loadingProductId === item._id;
 
-          <TouchableOpacity
-            style={styles.addToBagButton}
-            activeOpacity={0.85}
-            onPress={() =>
-              navigation.navigate('ProductDetail', {
-                productId: item._id,
-                product: item,
-              })
-            }>
-            <Text style={styles.addToBagText}>ADD TO BAG</Text>
-          </TouchableOpacity>
+            return (
+              <TouchableOpacity
+                style={[styles.addToBagButton, isInCart && styles.goToBagButton]}
+                activeOpacity={0.85}
+                disabled={isLoadingThis}
+                onPress={() => handleAddToCart(item)}>
+                {isLoadingThis ? (
+                  <ActivityIndicator size="small" color={isInCart ? '#FFFFFF' : colors.primary} />
+                ) : (
+                  <Text style={[styles.addToBagText, isInCart && styles.goToBagText]}>
+                    {isInCart ? 'GO TO BAG' : 'ADD TO BAG'}
+                  </Text>
+                )}
+              </TouchableOpacity>
+            );
+          })()}
         </View>
       </TouchableOpacity>
     );
@@ -398,6 +489,24 @@ export default function SearchScreen({ navigation }) {
               ))}
             </View>
           </View>
+
+          {/* Top Brands */}
+          {brands.length > 0 && (
+            <View style={[styles.section, { marginTop: 24 }]}>
+              <Text style={styles.sectionTitle}>Top Brands</Text>
+              <View style={styles.tagsContainer}>
+                {brands.slice(0, 10).map((brand) => (
+                  <TouchableOpacity
+                    key={brand._id}
+                    style={styles.tag}
+                    activeOpacity={0.7}
+                    onPress={() => handleRecentPress(brand.name)}>
+                    <Text style={styles.tagText}>{brand.name}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          )}
         </View>
       ) : !showResults ? (
         <FlatList
@@ -410,8 +519,10 @@ export default function SearchScreen({ navigation }) {
           keyboardShouldPersistTaps="handled"
         />
       ) : isProductsLoading ? (
-        <View style={styles.centerContainer}>
-          <ActivityIndicator size="large" color={colors.primary} />
+        <View style={[styles.listContent, styles.skeletonGrid]}>
+          {Array.from({ length: 6 }).map((_, i) => (
+            <ProductCardSkeleton key={i} cardWidth={COLUMN_WIDTH} />
+          ))}
         </View>
       ) : filteredProducts.length === 0 ? (
         <View style={styles.centerContainer}>
@@ -469,7 +580,7 @@ const styles = StyleSheet.create({
   },
   searchInput: {
     flex: 1,
-    fontSize: 14,
+    fontSize: moderateScale(14),
     fontFamily: fonts.medium,
     color: '#1A1C1E',
   },
@@ -491,13 +602,13 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   sectionTitle: {
-    fontSize: 15,
+    fontSize: moderateScale(15),
     fontFamily: fonts.big,
     color: '#1A1C1E',
     marginBottom: 8,
   },
   clearAllText: {
-    fontSize: 13,
+    fontSize: moderateScale(13),
     fontFamily: fonts.medium,
     color: '#64748B',
   },
@@ -514,7 +625,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
   },
   tagText: {
-    fontSize: 13,
+    fontSize: moderateScale(13),
     fontFamily: fonts.medium,
     color: '#475569',
   },
@@ -534,7 +645,7 @@ const styles = StyleSheet.create({
   },
   suggestionText: {
     flex: 1,
-    fontSize: 15,
+    fontSize: moderateScale(15),
     fontFamily: fonts.medium,
     color: '#334155',
   },
@@ -548,7 +659,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 32,
   },
   emptyText: {
-    fontSize: 15,
+    fontSize: moderateScale(15),
     fontFamily: fonts.medium,
     color: '#64748B',
     textAlign: 'center',
@@ -561,6 +672,11 @@ const styles = StyleSheet.create({
   columnWrapper: {
     justifyContent: 'space-between',
     marginBottom: 16,
+  },
+  skeletonGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
   },
   productCard: {
     width: COLUMN_WIDTH,
@@ -588,12 +704,12 @@ const styles = StyleSheet.create({
   },
   badgeText: {
     color: '#FFFFFF',
-    fontSize: 9,
+    fontSize: moderateScale(9),
     fontFamily: fonts.big,
   },
   productImage: {
-    width: '80%',
-    height: '80%',
+    width: '100%',
+    height: '100%',
   },
   heartButton: {
     position: 'absolute',
@@ -618,30 +734,32 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   ratingText: {
-    fontSize: 12,
+    fontSize: moderateScale(12),
     fontFamily: fonts.big,
     color: '#1A1C1E',
     marginLeft: 4,
   },
   reviewDivider: {
-    fontSize: 12,
+    fontSize: moderateScale(12),
     color: '#CBD5E1',
     marginHorizontal: 6,
   },
   reviewText: {
-    fontSize: 12,
+    fontSize: moderateScale(12),
     fontFamily: fonts.medium,
     color: '#64748B',
   },
   detailsContainer: {
+    flex: 1,
     paddingHorizontal: 4,
     marginTop: 4,
+    justifyContent: 'space-between',
   },
   productTitle: {
-    fontSize: 14,
+    fontSize: moderateScale(14),
     fontFamily: fonts.small,
     color: '#475569',
-    lineHeight: 18,
+    lineHeight: moderateScale(18),
   },
   brandText: {
     fontFamily: fonts.big,
@@ -654,25 +772,25 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
   },
   finalPrice: {
-    fontSize: 15,
+    fontSize: moderateScale(15),
     fontFamily: fonts.big,
     color: '#1A1C1E',
   },
   originalPrice: {
-    fontSize: 13,
+    fontSize: moderateScale(13),
     fontFamily: fonts.medium,
     color: '#94A3B8',
     textDecorationLine: 'line-through',
     marginRight: 6,
   },
   discountText: {
-    fontSize: 12,
+    fontSize: moderateScale(12),
     fontFamily: fonts.big,
     color: '#FD3A2D',
     marginLeft: 6,
   },
   bestPriceText: {
-    fontSize: 11,
+    fontSize: moderateScale(11),
     fontFamily: fonts.medium,
     color: '#059669',
     marginTop: 4,
@@ -692,7 +810,33 @@ const styles = StyleSheet.create({
   },
   addToBagText: {
     color: colors.primary,
-    fontSize: 13,
+    fontSize: moderateScale(13),
     fontFamily: fonts.big,
+  },
+  gradientBadge: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    borderRadius: 6,
+    paddingVertical: 2.5,
+    paddingHorizontal: 5.5,
+    zIndex: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 3,
+  },
+  gradientBadgeText: {
+    color: '#FFFFFF',
+    fontSize: moderateScale(9),
+    fontFamily: fonts.big,
+    letterSpacing: 0.5,
+  },
+  goToBagButton: {
+    backgroundColor: colors.primary,
+  },
+  goToBagText: {
+    color: '#FFFFFF',
   },
 });

@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import {
-  ActivityIndicator,
   Image,
   RefreshControl,
   ScrollView,
@@ -17,8 +16,25 @@ import { Search, ChevronLeft } from 'lucide-react-native';
 import colors from '../theme/colors';
 import fonts from '../theme/typography';
 import { useBrands } from '../hooks/useBrands';
+import { Skeleton } from '../components/Skeleton';
+import { moderateScale } from '../theme/responsive';
 
 const DUMMY_IMG = require('../../assets/dummy_product.png');
+
+function BrandGridSkeleton() {
+  const rows = [0, 1, 2];
+  return (
+    <>
+      {rows.map((rowIdx) => (
+        <View key={rowIdx} style={styles.row}>
+          {[0, 1, 2].map((colIdx) => (
+            <Skeleton key={colIdx} fillParent radius={4} style={styles.brandCard} />
+          ))}
+        </View>
+      ))}
+    </>
+  );
+}
 
 export default function BrandsScreen({ navigation }) {
   const isFocused = useIsFocused();
@@ -56,14 +72,16 @@ export default function BrandsScreen({ navigation }) {
         </TouchableOpacity>
         
         <Text style={styles.headerTitle}>All Brands</Text>
-        
-        <View style={{ width: 24 }} />
       </View>
 
       {isLoading ? (
-        <View style={styles.centerState}>
-          <ActivityIndicator color={colors.primary} size="large" />
-        </View>
+        <ScrollView
+          style={styles.scrollView}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.scrollContent}>
+          <View style={[styles.searchBarContainerInside, { opacity: 0 }]} />
+          <BrandGridSkeleton />
+        </ScrollView>
       ) : isError ? (
         <View style={styles.centerState}>
           <Text style={styles.errorText}>
@@ -92,14 +110,21 @@ export default function BrandsScreen({ navigation }) {
           {/* Sleek Search bar at the top of scrollable content */}
           <View style={styles.searchBarContainerInside}>
             <Search size={16} color="#94A3B8" style={styles.searchIcon} />
-            <TextInput
-              placeholder="Search for Brands"
-              placeholderTextColor="#94A3B8"
-              style={styles.searchInput}
-              value={search}
-              onChangeText={setSearch}
-            />
+            <View style={styles.searchInputWrapper}>
+              {search.length === 0 && (
+                <Text style={styles.searchPlaceholderText} pointerEvents="none">
+                  Search for Brands
+                </Text>
+              )}
+              <TextInput
+                style={styles.searchInput}
+                value={search}
+                onChangeText={setSearch}
+              />
+            </View>
           </View>
+
+          <Text style={styles.brandFocusTitle}>Brand Focus</Text>
 
           {filtered.length === 0 ? (
             <Text style={styles.emptyText}>
@@ -155,7 +180,6 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
@@ -166,9 +190,10 @@ const styles = StyleSheet.create({
     padding: 4,
   },
   headerTitle: {
-    fontSize: 18,
+    fontSize: moderateScale(18),
     fontFamily: fonts.big,
     color: '#1A1C1E',
+    marginLeft: 12,
   },
   searchBarContainerInside: {
     flexDirection: 'row',
@@ -185,12 +210,23 @@ const styles = StyleSheet.create({
   searchIcon: {
     marginRight: 8,
   },
-  searchInput: {
+  searchInputWrapper: {
     flex: 1,
     height: '100%',
-    fontSize: 14,
+    justifyContent: 'center',
+  },
+  searchInput: {
+    height: '100%',
+    fontSize: moderateScale(14),
     fontFamily: fonts.medium,
     color: '#1A1C1E',
+    padding: 0,
+  },
+  searchPlaceholderText: {
+    position: 'absolute',
+    fontSize: moderateScale(14),
+    fontFamily: fonts.medium,
+    color: '#94A3B8',
   },
   scrollView: {
     flex: 1,
@@ -208,7 +244,7 @@ const styles = StyleSheet.create({
     gap: 16,
   },
   errorText: {
-    fontSize: 14,
+    fontSize: moderateScale(14),
     fontFamily: fonts.medium,
     color: '#EF4444',
     textAlign: 'center',
@@ -220,12 +256,19 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary,
   },
   retryButtonText: {
-    fontSize: 14,
+    fontSize: moderateScale(14),
     fontFamily: fonts.big,
     color: colors.white,
   },
+  brandFocusTitle: {
+    fontSize: moderateScale(16),
+    fontFamily: fonts.big,
+    color: '#0F172A',
+    marginTop: 18,
+    marginBottom: 12,
+  },
   emptyText: {
-    fontSize: 14,
+    fontSize: moderateScale(14),
     fontFamily: fonts.medium,
     color: '#64748B',
     textAlign: 'center',
@@ -260,7 +303,7 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   newBadgeText: {
-    fontSize: 9,
+    fontSize: moderateScale(9),
     fontFamily: fonts.medium,
     color: colors.white,
   },

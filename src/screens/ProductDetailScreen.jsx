@@ -34,18 +34,199 @@ import {
 } from 'lucide-react-native';
 
 import { useDispatch, useSelector } from 'react-redux';
+import LinearGradient from 'react-native-linear-gradient';
 import { addToCart, selectCartItems, selectCartTotalQuantity } from '../redux/cartSlice';
 import { addToCartApi } from '../api/cart';
 
 import { useProductDetail } from '../hooks/useProducts';
 import { useBrands } from '../hooks/useBrands';
 import BottomSheetModal from '../components/BottomSheetModal';
+import { Skeleton } from '../components/Skeleton';
 import colors from '../theme/colors';
 import fonts from '../theme/typography';
+import { moderateScale } from '../theme/responsive';
 
 const { width, height } = Dimensions.get('window');
 const IMAGE_HEIGHT = width * 1.05;
 const DUMMY_IMG = require('../../assets/dummy_product.png');
+
+function ProductDetailSkeleton({ navigation }) {
+  return (
+    <>
+      {/* Real, functional header so users aren't stuck while loading */}
+      <View style={skeletonStyles.header}>
+        <TouchableOpacity
+          style={skeletonStyles.headerIconButton}
+          activeOpacity={0.7}
+          onPress={() => navigation?.goBack?.()}>
+          <ChevronLeft size={24} color="#1A1C1E" />
+        </TouchableOpacity>
+        <View style={skeletonStyles.headerRightGroup}>
+          <View style={skeletonStyles.headerIconButton}>
+            <Search size={22} color="#E2E8F0" />
+          </View>
+          <View style={skeletonStyles.headerIconButton}>
+            <Handbag size={22} color="#E2E8F0" />
+          </View>
+        </View>
+      </View>
+
+      <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
+        {/* Image carousel */}
+        <View>
+          <Skeleton width={width} height={IMAGE_HEIGHT} radius={0} />
+          <View style={skeletonStyles.imageIndicator}>
+            <Skeleton width={34} height={16} radius={8} style={{ backgroundColor: 'rgba(255,255,255,0.6)' }} />
+          </View>
+        </View>
+
+        {/* Title / brand / rating / price */}
+        <View style={skeletonStyles.mainInfoSection}>
+          <Skeleton width="35%" height={16} radius={5} />
+          <Skeleton width="80%" height={18} radius={5} style={{ marginTop: 10 }} />
+          <Skeleton width="55%" height={18} radius={5} style={{ marginTop: 6 }} />
+          <Skeleton width={54} height={20} radius={4} style={{ marginTop: 12 }} />
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 14 }}>
+            <Skeleton width={90} height={24} radius={6} />
+            <Skeleton width={70} height={18} radius={5} />
+            <Skeleton width={60} height={18} radius={5} />
+          </View>
+        </View>
+
+        {/* Bulk pricing banner */}
+        <View style={skeletonStyles.bulkBanner}>
+          <Skeleton width={18} height={18} radius={4} />
+          <View style={{ flex: 1, marginLeft: 10 }}>
+            <Skeleton width="55%" height={13} radius={5} />
+            <Skeleton width="80%" height={11} radius={5} style={{ marginTop: 6 }} />
+          </View>
+        </View>
+
+        {/* Variant chips */}
+        <View style={skeletonStyles.sectionContainer}>
+          <Skeleton width="40%" height={15} radius={5} style={{ marginBottom: 12 }} />
+          <View style={{ flexDirection: 'row', gap: 12 }}>
+            <Skeleton width={72} height={46} radius={12} />
+            <Skeleton width={72} height={46} radius={12} />
+            <Skeleton width={72} height={46} radius={12} />
+          </View>
+        </View>
+
+        {/* Tags */}
+        <View style={skeletonStyles.sectionContainer}>
+          <Skeleton width="50%" height={15} radius={5} style={{ marginBottom: 12 }} />
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+            <Skeleton width={68} height={22} radius={6} />
+            <Skeleton width={84} height={22} radius={6} />
+            <Skeleton width={60} height={22} radius={6} />
+            <Skeleton width={92} height={22} radius={6} />
+          </View>
+        </View>
+
+        {/* Delivery & services */}
+        <View style={skeletonStyles.sectionContainer}>
+          <Skeleton width="50%" height={15} radius={5} style={{ marginBottom: 12 }} />
+          <View style={skeletonStyles.serviceItemCard}>
+            <Skeleton width={20} height={20} radius={5} />
+            <View style={{ flex: 1, marginLeft: 12 }}>
+              <Skeleton width="60%" height={13} radius={5} />
+              <Skeleton width="80%" height={11} radius={5} style={{ marginTop: 6 }} />
+            </View>
+          </View>
+          {[0, 1].map((i) => (
+            <View key={i} style={skeletonStyles.serviceFeatureRow}>
+              <Skeleton width={18} height={18} radius={9} />
+              <Skeleton width="55%" height={12} radius={5} style={{ marginLeft: 10 }} />
+            </View>
+          ))}
+        </View>
+
+        {/* Specifications accordion header */}
+        <View style={skeletonStyles.sectionContainer}>
+          <Skeleton width="60%" height={16} radius={5} />
+        </View>
+      </ScrollView>
+
+      {/* Fixed bottom bar */}
+      <View style={skeletonStyles.bottomBar}>
+        <Skeleton width={90} height={48} radius={12} />
+        <Skeleton width="100%" height={48} radius={12} style={{ flex: 1, marginLeft: 12 }} />
+      </View>
+    </>
+  );
+}
+
+const skeletonStyles = StyleSheet.create({
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+    backgroundColor: '#FFFFFF',
+  },
+  headerIconButton: {
+    padding: 6,
+  },
+  headerRightGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  imageIndicator: {
+    position: 'absolute',
+    bottom: 12,
+    right: 12,
+  },
+  mainInfoSection: {
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  bulkBanner: {
+    marginHorizontal: 16,
+    marginTop: 14,
+    backgroundColor: '#FAF5FF',
+    borderWidth: 1,
+    borderColor: '#E9D5FF',
+    borderRadius: 12,
+    padding: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  sectionContainer: {
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  serviceItemCard: {
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 12,
+    padding: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  serviceFeatureRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  bottomBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: '#FFFFFF',
+    borderTopWidth: 1,
+    borderTopColor: '#F1F5F9',
+  },
+});
 
 export default function ProductDetailScreen({ route, navigation }) {
   const { productId, product: initialProduct } = route.params || {};
@@ -154,21 +335,12 @@ export default function ProductDetailScreen({ route, navigation }) {
         const q = tier.quantity;
         if (q <= 1) return;
 
-        const rawPrice = Number(tier.price) || 0;
-        let unitP = discountedPrice;
-        let totalP = discountedPrice * q;
-
-        if (rawPrice > 0) {
-          if (rawPrice > price) {
-            // rawPrice is the total package price for q units (e.g. 1200 for 3 items)
-            totalP = rawPrice;
-            unitP = Math.round(rawPrice / q);
-          } else {
-            // rawPrice is the per-unit price (e.g. 400)
-            unitP = rawPrice;
-            totalP = rawPrice * q;
-          }
-        }
+        const rawPrice = tier.price && typeof tier.price === 'object' && '$numberDecimal' in tier.price
+          ? parseFloat(tier.price.$numberDecimal) || 0
+          : Number(tier.price) || 0;
+        
+        const unitP = rawPrice > 0 ? rawPrice : discountedPrice;
+        const totalP = unitP * q;
 
         const baseTot = (price > 0 ? price : discountedPrice) * q;
         const savingsPercent = baseTot > totalP ? Math.round(((baseTot - totalP) / baseTot) * 100) : 0;
@@ -347,8 +519,9 @@ export default function ProductDetailScreen({ route, navigation }) {
 
   if (isLoading && !product?.name) {
     return (
-      <SafeAreaView style={styles.centerContainer}>
-        <ActivityIndicator size="large" color={colors.primary} />
+      <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
+        <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
+        <ProductDetailSkeleton navigation={navigation} />
       </SafeAreaView>
     );
   }
@@ -423,10 +596,14 @@ export default function ProductDetailScreen({ route, navigation }) {
           </ScrollView>
 
           {/* Optional Bestseller Badge (ONLY if is_best_seller is true) */}
-          {product?.is_best_seller ? (
-            <View style={styles.bestsellerBadge}>
-              <Text style={styles.bestsellerText}>BESTSELLER</Text>
-            </View>
+          {(product?.is_best_seller || product?.isBestSeller || product?.is_bestseller || product?.tag === 'bestseller') ? (
+            <LinearGradient
+              colors={['#A78BFA', colors.primary]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.gradientBadge}>
+              <Text style={styles.gradientBadgeText}>BESTSELLER</Text>
+            </LinearGradient>
           ) : null}
 
           {/* Multi-Image Counter Indicator */}
@@ -435,6 +612,21 @@ export default function ProductDetailScreen({ route, navigation }) {
               <Text style={styles.imageIndicatorText}>
                 {activeImageIndex + 1}/{images.length}
               </Text>
+            </View>
+          )}
+
+          {/* Dot Pagination Indicator */}
+          {images.length > 1 && (
+            <View style={styles.imageDotsRow} pointerEvents="none">
+              {images.map((_, index) => (
+                <View
+                  key={index}
+                  style={[
+                    styles.imageDot,
+                    activeImageIndex === index && styles.imageDotActive,
+                  ]}
+                />
+              ))}
             </View>
           )}
         </View>
@@ -481,8 +673,9 @@ export default function ProductDetailScreen({ route, navigation }) {
                 <Text style={styles.bulkBannerTitle}>Bulk Pricing Available</Text>
                 <Text style={styles.bulkBannerSub}>
                   {activePriceTiers.map((t) => {
-                    const rawP = Number(t.price);
-                    const unitP = rawP > price ? Math.round(rawP / t.quantity) : rawP;
+                    const unitP = t.price && typeof t.price === 'object' && '$numberDecimal' in t.price
+                      ? parseFloat(t.price.$numberDecimal) || 0
+                      : Number(t.price) || 0;
                     return `Buy ${t.quantity}+ @ ₹${unitP}/unit`;
                   }).join('  •  ')}
                 </Text>
@@ -792,7 +985,7 @@ export default function ProductDetailScreen({ route, navigation }) {
                       <View style={[styles.radioCircle, isSelected && styles.radioCircleActive]}>
                         {isSelected && <View style={styles.radioInner} />}
                       </View>
-                      <View>
+                      <View style={styles.optionTextColumn}>
                         <View style={styles.qtyTitleRow}>
                           <Text style={styles.optionQtyText}>Qty: {rowQty}</Text>
                           {opt.badge ? (
@@ -983,7 +1176,7 @@ const styles = StyleSheet.create({
   },
   cartHeaderBadgeText: {
     color: '#FFFFFF',
-    fontSize: 9,
+    fontSize: moderateScale(9),
     fontFamily: fonts.big,
   },
   headerRightGroup: {
@@ -1010,19 +1203,25 @@ const styles = StyleSheet.create({
     width: width,
     height: IMAGE_HEIGHT,
   },
-  bestsellerBadge: {
+  gradientBadge: {
     position: 'absolute',
     top: 16,
-    left: 16,
-    backgroundColor: colors.primary,
-    paddingHorizontal: 10,
+    right: 16,
+    borderRadius: 6,
     paddingVertical: 4,
-    borderRadius: 4,
+    paddingHorizontal: 10,
+    zIndex: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 3,
   },
-  bestsellerText: {
+  gradientBadgeText: {
     color: '#FFFFFF',
-    fontSize: 11,
+    fontSize: moderateScale(10),
     fontFamily: fonts.big,
+    letterSpacing: 0.5,
   },
   imageIndicator: {
     position: 'absolute',
@@ -1035,8 +1234,30 @@ const styles = StyleSheet.create({
   },
   imageIndicatorText: {
     color: '#FFFFFF',
-    fontSize: 12,
+    fontSize: moderateScale(12),
     fontFamily: fonts.medium,
+  },
+  imageDotsRow: {
+    position: 'absolute',
+    bottom: 16,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 6,
+  },
+  imageDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: 'rgba(255, 255, 255, 0.6)',
+  },
+  imageDotActive: {
+    width: 20,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: colors.primary,
   },
 
   /* Fullscreen Modal Image Viewer */
@@ -1103,16 +1324,16 @@ const styles = StyleSheet.create({
     borderBottomColor: '#F1F5F9',
   },
   brandTitle: {
-    fontSize: 18,
+    fontSize: moderateScale(18),
     fontFamily: fonts.big,
     color: colors.primary,
   },
   productName: {
-    fontSize: 16,
+    fontSize: moderateScale(16),
     fontFamily: fonts.medium,
     color: '#1A1C1E',
     marginTop: 4,
-    lineHeight: 22,
+    lineHeight: moderateScale(22),
   },
   ratingRow: {
     flexDirection: 'row',
@@ -1129,7 +1350,7 @@ const styles = StyleSheet.create({
   },
   ratingNumber: {
     color: '#FFFFFF',
-    fontSize: 12,
+    fontSize: moderateScale(12),
     fontFamily: fonts.big,
   },
   priceContainer: {
@@ -1139,23 +1360,23 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   discountedPrice: {
-    fontSize: 22,
+    fontSize: moderateScale(22),
     fontFamily: fonts.big,
     color: '#1A1C1E',
   },
   unitPriceSubText: {
-    fontSize: 13,
+    fontSize: moderateScale(13),
     fontFamily: fonts.medium,
     color: '#64748B',
   },
   originalPrice: {
-    fontSize: 16,
+    fontSize: moderateScale(16),
     fontFamily: fonts.medium,
     color: '#94A3B8',
     textDecorationLine: 'line-through',
   },
   discountBadge: {
-    fontSize: 15,
+    fontSize: moderateScale(15),
     fontFamily: fonts.big,
     color: colors.primary,
   },
@@ -1179,12 +1400,12 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   bulkBannerTitle: {
-    fontSize: 14,
+    fontSize: moderateScale(14),
     fontFamily: fonts.big,
     color: colors.primary,
   },
   bulkBannerSub: {
-    fontSize: 11,
+    fontSize: moderateScale(11),
     fontFamily: fonts.medium,
     color: '#64748B',
     marginTop: 2,
@@ -1197,13 +1418,13 @@ const styles = StyleSheet.create({
     borderBottomColor: '#F1F5F9',
   },
   sectionTitle: {
-    fontSize: 16,
+    fontSize: moderateScale(16),
     fontFamily: fonts.big,
     color: '#1A1C1E',
     marginBottom: 12,
   },
   sectionTitleNoMargin: {
-    fontSize: 16,
+    fontSize: moderateScale(16),
     fontFamily: fonts.big,
     color: '#1A1C1E',
   },
@@ -1226,7 +1447,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primaryLight ?? '#F5F3FF',
   },
   variantName: {
-    fontSize: 14,
+    fontSize: moderateScale(14),
     fontFamily: fonts.big,
     color: '#334155',
   },
@@ -1234,7 +1455,7 @@ const styles = StyleSheet.create({
     color: colors.primary,
   },
   variantPrice: {
-    fontSize: 12,
+    fontSize: moderateScale(12),
     fontFamily: fonts.medium,
     color: '#64748B',
     marginTop: 2,
@@ -1261,7 +1482,7 @@ const styles = StyleSheet.create({
     borderRadius: 6,
   },
   tagChipText: {
-    fontSize: 11,
+    fontSize: moderateScale(11),
     fontFamily: fonts.big,
     color: colors.primary,
   },
@@ -1281,12 +1502,12 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   deliveryTimeText: {
-    fontSize: 14,
+    fontSize: moderateScale(14),
     fontFamily: fonts.big,
     color: '#1A1C1E',
   },
   deliverySubText: {
-    fontSize: 12,
+    fontSize: moderateScale(12),
     fontFamily: fonts.medium,
     color: '#64748B',
     marginTop: 2,
@@ -1298,7 +1519,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   serviceFeatureTitle: {
-    fontSize: 13,
+    fontSize: moderateScale(13),
     fontFamily: fonts.medium,
     color: '#1A1C1E',
   },
@@ -1310,7 +1531,7 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   accordionTitle: {
-    fontSize: 16,
+    fontSize: moderateScale(16),
     fontFamily: fonts.big,
     color: '#1A1C1E',
   },
@@ -1331,13 +1552,13 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
   },
   specLabel: {
-    fontSize: 13,
+    fontSize: moderateScale(13),
     fontFamily: fonts.medium,
     color: '#64748B',
     flex: 1,
   },
   specValue: {
-    fontSize: 13,
+    fontSize: moderateScale(13),
     fontFamily: fonts.big,
     color: '#1A1C1E',
     flex: 1,
@@ -1347,16 +1568,16 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
   specGroupTitle: {
-    fontSize: 14,
+    fontSize: moderateScale(14),
     fontFamily: fonts.big,
     color: '#1A1C1E',
     marginBottom: 4,
   },
   specGroupContent: {
-    fontSize: 13,
+    fontSize: moderateScale(13),
     fontFamily: fonts.small,
     color: '#475569',
-    lineHeight: 18,
+    lineHeight: moderateScale(18),
   },
 
   toastBanner: {
@@ -1378,7 +1599,7 @@ const styles = StyleSheet.create({
   },
   toastText: {
     color: '#FFFFFF',
-    fontSize: 14,
+    fontSize: moderateScale(14),
     fontFamily: fonts.big,
   },
 
@@ -1418,12 +1639,12 @@ const styles = StyleSheet.create({
     paddingBottom: 14,
   },
   sheetTitle: {
-    fontSize: 18,
+    fontSize: moderateScale(18),
     fontFamily: fonts.big,
     color: '#1E1B4B',
   },
   sheetSubTitle: {
-    fontSize: 12,
+    fontSize: moderateScale(12),
     fontFamily: fonts.medium,
     color: '#64748B',
     marginTop: 2,
@@ -1454,7 +1675,7 @@ const styles = StyleSheet.create({
     borderWidth: 2.5,
   },
   qtyCircleText: {
-    fontSize: 22,
+    fontSize: moderateScale(22),
     fontFamily: fonts.big,
     color: '#1E1B4B',
   },
@@ -1471,7 +1692,7 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   confirmQtyBtnText: {
-    fontSize: 16,
+    fontSize: moderateScale(16),
     fontFamily: fonts.big,
     color: '#FFFFFF',
   },
@@ -1507,7 +1728,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#0D0814',
   },
   qtyPillText: {
-    fontSize: 20,
+    fontSize: moderateScale(20),
     fontFamily: fonts.big,
     color: '#1E1B4B',
   },
@@ -1534,9 +1755,14 @@ const styles = StyleSheet.create({
     backgroundColor: '#FAF5FF',
   },
   optionLeft: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
+  },
+  optionTextColumn: {
+    flex: 1,
+    flexShrink: 1,
   },
   radioCircle: {
     width: 20,
@@ -1559,12 +1785,14 @@ const styles = StyleSheet.create({
   qtyTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    flexWrap: 'wrap',
     gap: 8,
   },
   optionQtyText: {
-    fontSize: 15,
+    fontSize: moderateScale(15),
     fontFamily: fonts.big,
     color: '#1A1C1E',
+    flexShrink: 1,
   },
   tierBadge: {
     backgroundColor: '#2d6a4f',
@@ -1574,11 +1802,11 @@ const styles = StyleSheet.create({
   },
   tierBadgeText: {
     color: '#FFFFFF',
-    fontSize: 9,
+    fontSize: moderateScale(9),
     fontFamily: fonts.big,
   },
   optionUnitPriceText: {
-    fontSize: 12,
+    fontSize: moderateScale(12),
     fontFamily: fonts.medium,
     color: '#64748B',
     marginTop: 2,
@@ -1587,7 +1815,7 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
   },
   optionTotalPriceText: {
-    fontSize: 16,
+    fontSize: moderateScale(16),
     fontFamily: fonts.big,
     color: colors.primary,
   },
@@ -1642,14 +1870,14 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
   },
   rowStepperText: {
-    fontSize: 13,
+    fontSize: moderateScale(13),
     fontFamily: fonts.big,
     color: colors.primary,
     minWidth: 16,
     textAlign: 'center',
   },
   rowTotalPriceText: {
-    fontSize: 16,
+    fontSize: moderateScale(16),
     fontFamily: fonts.big,
     color: colors.primary,
     minWidth: 52,
@@ -1668,7 +1896,7 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   qtyBtnText: {
-    fontSize: 15,
+    fontSize: moderateScale(15),
     fontFamily: fonts.big,
     color: colors.primary,
   },
@@ -1690,7 +1918,7 @@ const styles = StyleSheet.create({
   },
   addToBagBtnText: {
     color: '#FFFFFF',
-    fontSize: 15,
+    fontSize: moderateScale(15),
     fontFamily: fonts.big,
   },
 });

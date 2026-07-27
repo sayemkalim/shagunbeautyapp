@@ -17,6 +17,7 @@ import { ArrowLeft } from 'lucide-react-native';
 import colors from '../theme/colors';
 import fonts from '../theme/typography';
 import { EyeIcon, EyeOffIcon } from '../components/icons';
+import { moderateScale } from '../theme/responsive';
 
 export default function ForgotPinScreen({ navigation, route }) {
   // Get email from route params if passed
@@ -306,24 +307,24 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   title: {
-    fontSize: 28,
+    fontSize: moderateScale(28),
     fontFamily: fonts.big,
     color: colors.text,
     textAlign: 'center',
   },
   subtitle: {
     marginTop: 10,
-    fontSize: 14,
+    fontSize: moderateScale(14),
     fontFamily: fonts.small,
     color: '#334155',
-    lineHeight: 20,
+    lineHeight: moderateScale(20),
     textAlign: 'center',
     paddingHorizontal: 10,
   },
   label: {
     marginTop: 24,
     marginBottom: 10,
-    fontSize: 14,
+    fontSize: moderateScale(14),
     fontFamily: fonts.medium,
     color: colors.text,
     letterSpacing: 0.5,
@@ -350,7 +351,7 @@ const styles = StyleSheet.create({
   emailInput: {
     flex: 1,
     height: '100%',
-    fontSize: 16,
+    fontSize: moderateScale(16),
     color: colors.text,
     fontFamily: fonts.medium,
   },
@@ -368,7 +369,7 @@ const styles = StyleSheet.create({
   passwordInput: {
     flex: 1,
     height: '100%',
-    fontSize: 16,
+    fontSize: moderateScale(16),
     color: colors.text,
     fontFamily: fonts.medium,
   },
@@ -377,7 +378,7 @@ const styles = StyleSheet.create({
   },
   errorText: {
     color: '#EF4444',
-    fontSize: 12,
+    fontSize: moderateScale(12),
     fontFamily: fonts.medium,
     marginTop: 8,
     marginLeft: 4,
@@ -401,7 +402,7 @@ const styles = StyleSheet.create({
     elevation: 0,
   },
   primaryButtonText: {
-    fontSize: 16,
+    fontSize: moderateScale(16),
     fontFamily: fonts.big,
     color: colors.white,
     letterSpacing: 0.5,
@@ -420,23 +421,23 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   checkMark: {
-    fontSize: 36,
+    fontSize: moderateScale(36),
     color: '#15803D',
     fontWeight: 'bold',
   },
   successTitle: {
-    fontSize: 24,
+    fontSize: moderateScale(24),
     fontFamily: fonts.big,
     color: colors.text,
     marginBottom: 12,
     textAlign: 'center',
   },
   successSubtitle: {
-    fontSize: 15,
+    fontSize: moderateScale(15),
     fontFamily: fonts.small,
     color: '#475569',
     textAlign: 'center',
-    lineHeight: 22,
+    lineHeight: moderateScale(22),
     paddingHorizontal: 16,
     marginBottom: 12,
   },

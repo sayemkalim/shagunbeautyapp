@@ -25,13 +25,13 @@ import {
   RotateCcw,
   LogOut,
   ChevronRight,
-  CheckCircle2,
 } from 'lucide-react-native';
 
 import colors from '../theme/colors';
 import fonts from '../theme/typography';
 import { clearSession, getUser } from '../api/authStorage';
 import { clearCart } from '../redux/cartSlice';
+import { moderateScale } from '../theme/responsive';
 
 export default function SettingsScreen({ navigation }) {
   const dispatch = useDispatch();
@@ -147,7 +147,7 @@ export default function SettingsScreen({ navigation }) {
             <TouchableOpacity
               style={styles.menuItem}
               activeOpacity={0.7}
-              onPress={() => navigation.navigate('BottomTabs', { screen: 'Bag' })}>
+              onPress={() => navigation.navigate('Orders')}>
               <View style={styles.menuLeft}>
                 <View style={styles.iconBox}>
                   <ShoppingBag size={19} color="#1E293B" />
@@ -179,7 +179,10 @@ export default function SettingsScreen({ navigation }) {
           </View>
 
           <View style={styles.sectionCardGroup}>
-            <TouchableOpacity style={styles.menuItem} activeOpacity={0.7}>
+            <TouchableOpacity
+              style={styles.menuItem}
+              activeOpacity={0.7}
+              onPress={() => navigation.navigate('FAQ')}>
               <View style={styles.menuLeft}>
                 <View style={styles.iconBox}>
                   <HelpCircle size={19} color="#1E293B" />
@@ -189,7 +192,10 @@ export default function SettingsScreen({ navigation }) {
               <ChevronRight size={18} color="#CBD5E1" />
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.menuItem} activeOpacity={0.7}>
+            <TouchableOpacity
+              style={styles.menuItem}
+              activeOpacity={0.7}
+              onPress={() => navigation.navigate('ContactUs')}>
               <View style={styles.menuLeft}>
                 <View style={styles.iconBox}>
                   <PhoneCall size={19} color="#1E293B" />
@@ -220,7 +226,10 @@ export default function SettingsScreen({ navigation }) {
           </View>
 
           <View style={styles.sectionCardGroup}>
-            <TouchableOpacity style={styles.menuItem} activeOpacity={0.7}>
+            <TouchableOpacity
+              style={styles.menuItem}
+              activeOpacity={0.7}
+              onPress={() => navigation.navigate('PrivacyPolicy')}>
               <View style={styles.menuLeft}>
                 <View style={styles.iconBox}>
                   <ShieldCheck size={19} color="#1E293B" />
@@ -230,7 +239,10 @@ export default function SettingsScreen({ navigation }) {
               <ChevronRight size={18} color="#CBD5E1" />
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.menuItem} activeOpacity={0.7}>
+            <TouchableOpacity
+              style={styles.menuItem}
+              activeOpacity={0.7}
+              onPress={() => navigation.navigate('TermsConditions')}>
               <View style={styles.menuLeft}>
                 <View style={styles.iconBox}>
                   <FileText size={19} color="#1E293B" />
@@ -328,7 +340,7 @@ const styles = StyleSheet.create({
     borderColor: colors.primary,
   },
   avatarText: {
-    fontSize: 21,
+    fontSize: moderateScale(21),
     fontFamily: fonts.big,
     color: colors.primary,
   },
@@ -341,7 +353,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   userName: {
-    fontSize: 18,
+    fontSize: moderateScale(18),
     fontFamily: fonts.big,
     color: '#0F172A',
   },
@@ -357,12 +369,12 @@ const styles = StyleSheet.create({
     borderColor: '#E9D5FF',
   },
   verifiedText: {
-    fontSize: 9,
+    fontSize: moderateScale(9),
     fontFamily: fonts.big,
     color: colors.primary,
   },
   userEmail: {
-    fontSize: 13,
+    fontSize: moderateScale(13),
     fontFamily: fonts.medium,
     color: '#64748B',
     marginTop: 2,
@@ -386,13 +398,13 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   sectionTitle: {
-    fontSize: 15,
+    fontSize: moderateScale(15),
     fontFamily: fonts.big,
     color: '#0F172A',
     letterSpacing: 0.2,
   },
   sectionTitleNoAccent: {
-    fontSize: 15,
+    fontSize: moderateScale(15),
     fontFamily: fonts.big,
     color: '#0F172A',
     letterSpacing: 0.2,
@@ -435,7 +447,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   menuText: {
-    fontSize: 15,
+    fontSize: moderateScale(15),
     fontFamily: fonts.medium,
     color: '#0F172A',
   },
@@ -461,7 +473,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   logoutText: {
-    fontSize: 15,
+    fontSize: moderateScale(15),
     fontFamily: fonts.big,
     color: '#EF4444',
   },
@@ -472,13 +484,13 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   footerTitle: {
-    fontSize: 11,
+    fontSize: moderateScale(11),
     fontFamily: fonts.big,
     color: '#94A3B8',
     letterSpacing: 1.5,
   },
   footerVersion: {
-    fontSize: 11,
+    fontSize: moderateScale(11),
     fontFamily: fonts.medium,
     color: '#CBD5E1',
     marginTop: 2,

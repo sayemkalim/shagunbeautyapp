@@ -5,7 +5,7 @@
  */
 
 import React, { useEffect } from 'react';
-import { StatusBar, useColorScheme } from 'react-native';
+import { StatusBar, useColorScheme, Text, TextInput } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Provider } from 'react-redux';
@@ -13,6 +13,14 @@ import { store } from './src/redux/store';
 import { initializeCart } from './src/redux/cartSlice';
 import RootNavigator from './src/navigation/RootNavigator';
 import { CustomAlertProvider } from './src/components/CustomAlert';
+
+// Cap how much the device's system font-size setting can scale our text.
+// Without this, a user with a large accessibility font size breaks fixed-width
+// cards/buttons across the app (overflow, clipped labels, off-screen content).
+Text.defaultProps = Text.defaultProps || {};
+Text.defaultProps.maxFontSizeMultiplier = 1.2;
+TextInput.defaultProps = TextInput.defaultProps || {};
+TextInput.defaultProps.maxFontSizeMultiplier = 1.2;
 
 const queryClient = new QueryClient({
   defaultOptions: {

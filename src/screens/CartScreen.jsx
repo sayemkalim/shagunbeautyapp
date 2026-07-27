@@ -45,8 +45,10 @@ import {
 } from '../redux/cartSlice';
 import { removeFromCartApi } from '../api/cart';
 import BottomSheetModal from '../components/BottomSheetModal';
+import { AddressCardSkeleton } from '../components/Skeleton';
 import colors from '../theme/colors';
 import fonts from '../theme/typography';
+import { moderateScale } from '../theme/responsive';
 
 const { width, height } = Dimensions.get('window');
 const DUMMY_IMG = require('../../assets/dummy_product.png');
@@ -645,7 +647,10 @@ export default function CartScreen({ navigation }) {
 
         {/* Saved Addresses List */}
         {loadingAddresses ? (
-          <ActivityIndicator size="small" color={colors.primary} style={{ marginVertical: 20 }} />
+          <View>
+            <AddressCardSkeleton />
+            <AddressCardSkeleton />
+          </View>
         ) : (
           <ScrollView style={{ maxHeight: 340 }} showsVerticalScrollIndicator={false}>
             {addressesList.length === 0 ? (
@@ -826,17 +831,17 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   deliverToLabel: {
-    fontSize: 12,
+    fontSize: moderateScale(12),
     fontFamily: fonts.medium,
     color: '#64748B',
   },
   userNameText: {
-    fontSize: 14,
+    fontSize: moderateScale(14),
     fontFamily: fonts.big,
     color: '#1A1C1E',
   },
   addressSubText: {
-    fontSize: 11,
+    fontSize: moderateScale(11),
     fontFamily: fonts.medium,
     color: '#64748B',
     marginTop: 1,
@@ -868,7 +873,7 @@ const styles = StyleSheet.create({
     borderColor: colors.primary,
   },
   navTabText: {
-    fontSize: 12,
+    fontSize: moderateScale(12),
     fontFamily: fonts.medium,
     color: '#64748B',
   },
@@ -919,12 +924,12 @@ const styles = StyleSheet.create({
     borderColor: colors.primary,
   },
   selectAllText: {
-    fontSize: 13,
+    fontSize: moderateScale(13),
     fontFamily: fonts.big,
     color: '#1A1C1E',
   },
   clearAllText: {
-    fontSize: 12,
+    fontSize: moderateScale(12),
     fontFamily: fonts.big,
     color: colors.primary,
   },
@@ -969,17 +974,17 @@ const styles = StyleSheet.create({
     paddingRight: 20,
   },
   itemBrandName: {
-    fontSize: 12,
+    fontSize: moderateScale(12),
     fontFamily: fonts.big,
     color: '#1A1C1E',
     letterSpacing: 0.5,
   },
   itemName: {
-    fontSize: 13,
+    fontSize: moderateScale(13),
     fontFamily: fonts.medium,
     color: '#475569',
     marginTop: 2,
-    lineHeight: 18,
+    lineHeight: moderateScale(18),
   },
   pillsRow: {
     flexDirection: 'row',
@@ -1007,7 +1012,7 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   dropdownPillText: {
-    fontSize: 12,
+    fontSize: moderateScale(12),
     fontFamily: fonts.big,
     color: '#1A1C1E',
   },
@@ -1040,7 +1045,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
   },
   stepperValueText: {
-    fontSize: 12,
+    fontSize: moderateScale(12),
     fontFamily: fonts.big,
     color: colors.primary,
   },
@@ -1051,18 +1056,18 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   itemFinalPrice: {
-    fontSize: 16,
+    fontSize: moderateScale(16),
     fontFamily: fonts.big,
     color: '#1A1C1E',
   },
   itemMRPPrice: {
-    fontSize: 13,
+    fontSize: moderateScale(13),
     fontFamily: fonts.medium,
     color: '#94A3B8',
     textDecorationLine: 'line-through',
   },
   itemDiscountOff: {
-    fontSize: 12,
+    fontSize: moderateScale(12),
     fontFamily: fonts.big,
     color: colors.primary,
   },
@@ -1073,7 +1078,7 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   itemDeliveryText: {
-    fontSize: 11,
+    fontSize: moderateScale(11),
     fontFamily: fonts.medium,
     color: '#2d6a4f',
   },
@@ -1096,12 +1101,12 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   couponTitle: {
-    fontSize: 14,
+    fontSize: moderateScale(14),
     fontFamily: fonts.big,
     color: '#1A1C1E',
   },
   applyCouponBtnText: {
-    fontSize: 13,
+    fontSize: moderateScale(13),
     fontFamily: fonts.big,
     color: colors.primary,
   },
@@ -1116,7 +1121,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   priceDetailsHeaderTitle: {
-    fontSize: 15,
+    fontSize: moderateScale(15),
     fontFamily: fonts.big,
     color: '#1A1C1E',
     marginBottom: 4,
@@ -1127,27 +1132,27 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   summaryLabelText: {
-    fontSize: 13,
+    fontSize: moderateScale(13),
     fontFamily: fonts.medium,
     color: '#64748B',
   },
   summaryValueText: {
-    fontSize: 14,
+    fontSize: moderateScale(14),
     fontFamily: fonts.big,
     color: '#1A1C1E',
   },
   summaryDiscountText: {
-    fontSize: 14,
+    fontSize: moderateScale(14),
     fontFamily: fonts.big,
     color: '#2d6a4f',
   },
   applyCouponLink: {
-    fontSize: 13,
+    fontSize: moderateScale(13),
     fontFamily: fonts.big,
     color: colors.primary,
   },
   summaryFreeText: {
-    fontSize: 14,
+    fontSize: moderateScale(14),
     fontFamily: fonts.big,
     color: '#2d6a4f',
   },
@@ -1162,12 +1167,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   summaryTotalLabel: {
-    fontSize: 16,
+    fontSize: moderateScale(16),
     fontFamily: fonts.big,
     color: '#1A1C1E',
   },
   summaryTotalValue: {
-    fontSize: 18,
+    fontSize: moderateScale(18),
     fontFamily: fonts.big,
     color: colors.primary,
   },
@@ -1193,13 +1198,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   savingsBannerText: {
-    fontSize: 13,
+    fontSize: moderateScale(13),
     fontFamily: fonts.big,
     color: '#2d6a4f',
     textAlign: 'center',
   },
   savingsUnderlineAmount: {
-    fontSize: 14,
+    fontSize: moderateScale(14),
     fontFamily: fonts.big,
     color: '#2d6a4f',
     textDecorationLine: 'underline',
@@ -1209,9 +1214,12 @@ const styles = StyleSheet.create({
   /* Trust Badges Row */
   trustBadgesRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 12,
+    paddingHorizontal: 16,
+    rowGap: 6,
     gap: 8,
   },
   trustBadgeItem: {
@@ -1220,12 +1228,12 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   trustBadgeText: {
-    fontSize: 11,
+    fontSize: moderateScale(11),
     fontFamily: fonts.medium,
     color: '#64748B',
   },
   trustDot: {
-    fontSize: 12,
+    fontSize: moderateScale(12),
     color: '#CBD5E1',
   },
 
@@ -1251,7 +1259,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   selectedCountText: {
-    fontSize: 12,
+    fontSize: moderateScale(12),
     fontFamily: fonts.big,
     color: colors.primary,
   },
@@ -1277,7 +1285,7 @@ const styles = StyleSheet.create({
   },
   placeOrderBtnText: {
     color: '#FFFFFF',
-    fontSize: 16,
+    fontSize: moderateScale(16),
     fontFamily: fonts.big,
   },
 
@@ -1298,17 +1306,17 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   emptyTitle: {
-    fontSize: 20,
+    fontSize: moderateScale(20),
     fontFamily: fonts.big,
     color: '#1A1C1E',
   },
   emptySubText: {
-    fontSize: 13,
+    fontSize: moderateScale(13),
     fontFamily: fonts.medium,
     color: '#64748B',
     textAlign: 'center',
     marginTop: 6,
-    lineHeight: 18,
+    lineHeight: moderateScale(18),
   },
   shopNowBtn: {
     marginTop: 20,
@@ -1319,7 +1327,7 @@ const styles = StyleSheet.create({
   },
   shopNowBtnText: {
     color: '#FFFFFF',
-    fontSize: 15,
+    fontSize: moderateScale(15),
     fontFamily: fonts.big,
   },
 
@@ -1350,7 +1358,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   qtySheetTitle: {
-    fontSize: 20,
+    fontSize: moderateScale(20),
     fontFamily: fonts.big,
     color: '#1E1B4B',
   },
@@ -1377,7 +1385,7 @@ const styles = StyleSheet.create({
     borderWidth: 2.5,
   },
   qtyCircleText: {
-    fontSize: 22,
+    fontSize: moderateScale(22),
     fontFamily: fonts.big,
     color: '#1E1B4B',
   },
@@ -1394,7 +1402,7 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   confirmQtyBtnText: {
-    fontSize: 16,
+    fontSize: moderateScale(16),
     fontFamily: fonts.big,
     color: '#FFFFFF',
   },
@@ -1417,7 +1425,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   sheetTitle: {
-    fontSize: 18,
+    fontSize: moderateScale(18),
     fontFamily: fonts.big,
     color: '#1A1C1E',
   },
@@ -1460,12 +1468,12 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary,
   },
   addrNameText: {
-    fontSize: 14,
+    fontSize: moderateScale(14),
     fontFamily: fonts.big,
     color: '#1E1B4B',
   },
   addrDetailText: {
-    fontSize: 12,
+    fontSize: moderateScale(12),
     fontFamily: fonts.medium,
     color: '#64748B',
     marginTop: 2,
@@ -1476,7 +1484,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   clearAddressBtnText: {
-    fontSize: 13,
+    fontSize: moderateScale(13),
     fontFamily: fonts.medium,
     color: '#EF4444',
   },
@@ -1501,7 +1509,7 @@ const styles = StyleSheet.create({
     paddingBottom: 16,
   },
   moveSheetTitle: {
-    fontSize: 18,
+    fontSize: moderateScale(18),
     fontFamily: fonts.big,
     color: '#1A1C1E',
   },
@@ -1528,20 +1536,20 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   moveItemBrand: {
-    fontSize: 13,
+    fontSize: moderateScale(13),
     fontFamily: fonts.big,
     color: '#1A1C1E',
     letterSpacing: 0.5,
   },
   moveItemName: {
-    fontSize: 13,
+    fontSize: moderateScale(13),
     fontFamily: fonts.medium,
     color: '#64748B',
     marginTop: 3,
-    lineHeight: 18,
+    lineHeight: moderateScale(18),
   },
   moveConfirmText: {
-    fontSize: 14,
+    fontSize: moderateScale(14),
     fontFamily: fonts.medium,
     color: '#334155',
     marginVertical: 18,
@@ -1562,7 +1570,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
   },
   removeOutlineBtnText: {
-    fontSize: 15,
+    fontSize: moderateScale(15),
     fontFamily: fonts.big,
     color: colors.primary,
   },
@@ -1575,7 +1583,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   moveToWishlistBtnText: {
-    fontSize: 15,
+    fontSize: moderateScale(15),
     fontFamily: fonts.big,
     color: '#FFFFFF',
   },
@@ -1596,16 +1604,16 @@ const styles = StyleSheet.create({
     flex: 1,
     height: '100%',
     fontFamily: fonts.medium,
-    fontSize: 14,
+    fontSize: moderateScale(14),
     color: '#0F172A',
   },
   pincodeCheckText: {
     fontFamily: fonts.big,
-    fontSize: 14,
+    fontSize: moderateScale(14),
     color: '#64748B',
   },
   pincodeStatusMessage: {
-    fontSize: 12,
+    fontSize: moderateScale(12),
     fontFamily: fonts.medium,
     marginTop: 6,
     paddingHorizontal: 4,
@@ -1631,7 +1639,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   quickActionText: {
-    fontSize: 14,
+    fontSize: moderateScale(14),
     fontFamily: fonts.big,
     color: '#EF4444',
   },
@@ -1648,7 +1656,7 @@ const styles = StyleSheet.create({
   },
   dividerText: {
     marginHorizontal: 12,
-    fontSize: 15,
+    fontSize: moderateScale(15),
     fontFamily: fonts.big,
     color: '#64748B',
   },
@@ -1674,7 +1682,7 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   activeAddressTitleText: {
-    fontSize: 14,
+    fontSize: moderateScale(14),
     fontFamily: fonts.big,
     color: '#0F172A',
   },
@@ -1685,7 +1693,7 @@ const styles = StyleSheet.create({
     borderRadius: 6,
   },
   homeBadgeText: {
-    fontSize: 9,
+    fontSize: moderateScale(9),
     fontFamily: fonts.big,
     color: '#64748B',
   },
@@ -1697,14 +1705,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   activeAddressDetailText: {
-    fontSize: 13,
+    fontSize: moderateScale(13),
     fontFamily: fonts.medium,
     color: '#1E293B',
-    lineHeight: 18,
+    lineHeight: moderateScale(18),
     marginBottom: 4,
   },
   activeAddressMobText: {
-    fontSize: 12,
+    fontSize: moderateScale(12),
     fontFamily: fonts.big,
     color: '#0F172A',
     marginBottom: 12,
@@ -1721,7 +1729,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary,
   },
   deliverHereBtnText: {
-    fontSize: 12,
+    fontSize: moderateScale(12),
     fontFamily: fonts.big,
     color: '#FFFFFF',
   },
@@ -1734,7 +1742,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
   },
   editAddressTextBtnText: {
-    fontSize: 12,
+    fontSize: moderateScale(12),
     fontFamily: fonts.big,
     color: colors.primary,
   },
@@ -1753,11 +1761,11 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   simplifiedAddressText: {
-    fontSize: 13,
+    fontSize: moderateScale(13),
     fontFamily: fonts.medium,
     color: '#1E293B',
     flex: 1,
-    lineHeight: 18,
+    lineHeight: moderateScale(18),
   },
   simplifiedRadioCircle: {
     width: 18,
@@ -1787,7 +1795,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
   },
   addNewAddressOutlineBtnText: {
-    fontSize: 14,
+    fontSize: moderateScale(14),
     fontFamily: fonts.big,
     color: colors.primary,
   },
@@ -1796,7 +1804,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   noAddressItemText: {
-    fontSize: 13,
+    fontSize: moderateScale(13),
     fontFamily: fonts.medium,
     color: '#475569',
   },
