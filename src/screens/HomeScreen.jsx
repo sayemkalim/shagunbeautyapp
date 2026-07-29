@@ -39,6 +39,7 @@ import BottomSheetModal from '../components/BottomSheetModal';
 import { useCategories } from '../hooks/useCategories';
 import { useProducts } from '../hooks/useProducts';
 import { useBrands } from '../hooks/useBrands';
+import { useBanners } from '../hooks/useBanners';
 import { addToCart } from '../redux/cartSlice';
 import { addToCartApi } from '../api/cart';
 import { Skeleton } from '../components/Skeleton';
@@ -158,6 +159,12 @@ const CATEGORIES = [
   { id: '4', name: 'Protect', image: require('../../assets/cat_protect.png') },
 ];
 
+const FALLBACK_BANNERS = [
+  { id: 'fallback-1', image: require('../../assets/luxury_banner.png') },
+  { id: 'fallback-2', image: require('../../assets/luxury_banner_3.png') },
+  { id: 'fallback-3', image: require('../../assets/luxury_banner_6.png') },
+];
+
 export default function HomeScreen({ navigation }) {
   const isFocused = useIsFocused();
   const dispatch = useDispatch();
@@ -167,6 +174,11 @@ export default function HomeScreen({ navigation }) {
   const { data: categories = [], isLoading: categoriesLoading } = useCategories();
   const { data: realProducts = [], isLoading: productsLoading } = useProducts({ per_page: 12 });
   const { data: brands = [] } = useBrands();
+  const { data: banners = [], isLoading: bannersLoading } = useBanners();
+  const bannerSlides =
+    banners.length > 0
+      ? [...banners].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+      : FALLBACK_BANNERS;
   const sliderRef = useRef(null);
 
   const cartItems = useSelector((state) => state.cart.items || []);
@@ -245,17 +257,18 @@ export default function HomeScreen({ navigation }) {
   }, [activeSlide]);
 
   useEffect(() => {
+    if (bannerSlides.length < 2) return undefined;
     const timer = setInterval(() => {
       if (sliderRef.current) {
         sliderRef.current.scrollTo({
-          x: ((activeSlide + 1) % 3) * BANNER_WIDTH,
+          x: ((activeSlide + 1) % bannerSlides.length) * BANNER_WIDTH,
           animated: true,
         });
       }
     }, 3000);
 
     return () => clearInterval(timer);
-  }, [activeSlide]);
+  }, [activeSlide, bannerSlides.length]);
 
   useEffect(() => {
     let index = 0;
@@ -306,7 +319,7 @@ export default function HomeScreen({ navigation }) {
           {/* Weekend Sale Banner */}
           <TouchableOpacity style={styles.saleBannerContainer} activeOpacity={0.9}>
             <Image
-              source={require('../../assets/top_banner.jpg')}
+              source={require('../../assets/luxury_banner.png')}
               style={styles.saleBannerImage}
               resizeMode="cover"
             />
@@ -332,46 +345,57 @@ export default function HomeScreen({ navigation }) {
         <View style={styles.bottomWhiteSection}>
           {/* New Luxury Ritual Banner Slider */}
           <View style={styles.luxuryBanner}>
-            <ScrollView
-              ref={sliderRef}
-              horizontal
-              pagingEnabled
-              showsHorizontalScrollIndicator={false}
-              onScroll={handleScroll}
-              scrollEventThrottle={16}>
-          
-              <TouchableOpacity activeOpacity={0.95} style={{ width: BANNER_WIDTH, height: 180 }}>
-                <Image
-                  source={require('../../assets/luxury_banner.png')}
-                  style={styles.luxuryBannerImage}
-                  resizeMode="cover"
-                />
-              </TouchableOpacity>
-              
-              <TouchableOpacity activeOpacity={0.95} style={{ width: BANNER_WIDTH, height: 180 }}>
-                <Image
-                  source={require('../../assets/luxury_banner_3.png')}
-                  style={styles.luxuryBannerImage}
-                  resizeMode="cover"
-                />
-              </TouchableOpacity>
-            
-              <TouchableOpacity activeOpacity={0.95} style={{ width: BANNER_WIDTH, height: 180 }}>
-                <Image
-                  source={require('../../assets/luxury_banner_6.png')}
-                  style={styles.luxuryBannerImage}
-                  resizeMode="cover"
-                />
-              </TouchableOpacity>
-            </ScrollView>
+            {bannersLoading ? (
+              <Skeleton width={BANNER_WIDTH} height={180} radius={16} />
+            ) : (
+              <ScrollView
+                ref={sliderRef}
+                horizontal
+                pagingEnabled
+                showsHorizontalScrollIndicator={false}
+                onScroll={handleScroll}
+                scrollEventThrottle={16}>
+                {bannerSlides.map((banner) => {
+                  const imageSource = banner.banner_url
+                    ? { uri: banner.banner_url }
+                    : banner.image;
+
+                  return (
+                    <TouchableOpacity
+                      key={banner._id || banner.id}
+                      activeOpacity={0.95}
+                      style={{ width: BANNER_WIDTH, height: 180 }}
+                      onPress={() => {
+                        if (banner.product?._id) {
+                          navigation.navigate('ProductDetail', {
+                            productId: banner.product._id,
+                            product: banner.product,
+                          });
+                        }
+                      }}>
+                      <Image
+                        source={imageSource}
+                        style={styles.luxuryBannerImage}
+                        resizeMode="cover"
+                      />
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            )}
           </View>
-          
+
           {/* Carousel Dots below the banner */}
-          <View style={styles.luxuryBannerDots}>
-            <View style={[styles.luxuryDot, activeSlide === 0 && styles.luxuryDotActive]} />
-            <View style={[styles.luxuryDot, activeSlide === 1 && styles.luxuryDotActive]} />
-            <View style={[styles.luxuryDot, activeSlide === 2 && styles.luxuryDotActive]} />
-          </View>
+          {!bannersLoading && bannerSlides.length > 1 && (
+            <View style={styles.luxuryBannerDots}>
+              {bannerSlides.map((banner, index) => (
+                <View
+                  key={banner._id || banner.id || index}
+                  style={[styles.luxuryDot, activeSlide === index && styles.luxuryDotActive]}
+                />
+              ))}
+            </View>
+          )}
 
           {/* Categories Section */}
           <View style={styles.categoriesSection}>

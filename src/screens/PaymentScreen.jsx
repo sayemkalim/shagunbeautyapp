@@ -50,9 +50,10 @@ const CONFETTI_PARTICLES = [
 
 export default function PaymentScreen({ navigation, route }) {
   const dispatch = useDispatch();
-  const totalAmount = useSelector(selectCartTotalAmount);
+  const { addressId, address, couponCode, totalAmount: paramTotalAmount } = route.params || {};
+  const reduxTotalAmount = useSelector(selectCartTotalAmount);
+  const totalAmount = paramTotalAmount !== undefined ? paramTotalAmount : reduxTotalAmount;
   const cartItems = useSelector(selectCartItems);
-  const { addressId, address } = route.params || {};
 
   // Selected Payment Method: 'cod' or 'online'
   const [paymentMethod, setPaymentMethod] = useState('cod');
@@ -116,7 +117,7 @@ export default function PaymentScreen({ navigation, route }) {
       setIsPlacingOrder(true);
       
       // 1. Fetch cart to retrieve its _id
-      const cartRes = await getCart(addressId);
+      const cartRes = await getCart(addressId, couponCode);
       const cartId = cartRes?.data?.data?._id || cartRes?.data?._id;
       if (!cartId) {
         Alert.alert('Error', 'Your cart is empty or not found.');
@@ -124,7 +125,8 @@ export default function PaymentScreen({ navigation, route }) {
       }
 
       // 2. Create the order
-      await createOrder({ cartId, addressId });
+      const mode = paymentMethod === 'cod' ? 'COD' : 'UPI';
+      await createOrder({ cartId, addressId, couponCode, paymentMode: mode });
 
       // 3. Success - Set orderedItems to preserve details for the overlay
       setOrderedItems([...cartItems]);

@@ -122,6 +122,8 @@ export default function CheckoutScreen({ navigation, route }) {
     navigation.navigate('Payment', {
       addressId: selectedAddr._id || selectedAddr.id,
       address: selectedAddr,
+      couponCode: route.params?.couponCode,
+      totalAmount: route.params?.totalAmount,
     });
   };
 

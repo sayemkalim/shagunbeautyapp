@@ -9,6 +9,7 @@ import {
   StatusBar,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -33,6 +34,10 @@ import {
   MapPin,
   CheckCircle2,
   PlusCircle,
+  Tag,
+  Info,
+  ChevronRight,
+  ChevronUp,
 } from 'lucide-react-native';
 
 import {
@@ -42,10 +47,13 @@ import {
   removeFromCart,
   updateQuantity,
   clearCart,
+  setCartData,
 } from '../redux/cartSlice';
-import { removeFromCartApi } from '../api/cart';
+import { removeFromCartApi, getCart, addToCartApi } from '../api/cart';
+import { getActiveCoupons } from '../api/coupon';
+import { useQueryClient } from '@tanstack/react-query';
 import BottomSheetModal from '../components/BottomSheetModal';
-import { AddressCardSkeleton } from '../components/Skeleton';
+import { AddressCardSkeleton, Skeleton } from '../components/Skeleton';
 import colors from '../theme/colors';
 import fonts from '../theme/typography';
 import { moderateScale } from '../theme/responsive';
@@ -53,11 +61,91 @@ import { moderateScale } from '../theme/responsive';
 const { width, height } = Dimensions.get('window');
 const DUMMY_IMG = require('../../assets/dummy_product.png');
 
+const toNumber = (value) => {
+  if (typeof value === 'number') return value;
+  if (value && typeof value === 'object' && '$numberDecimal' in value) {
+    return parseFloat(value.$numberDecimal) || 0;
+  }
+  return Number(value) || 0;
+};
+
+const getCouponCode = (coupon) => coupon?.code || coupon?.couponCode || coupon?.name || '';
+
+// Builds a short "FLAT ₹X OFF" / "X% OFF" label from whatever discount fields the API sends.
+const getDiscountLabel = (coupon = {}) => {
+  const discountType = coupon.discount_type || coupon.discountType;
+  const discountValue = coupon.discount_value ?? coupon.discountValue;
+  if (discountType === 'flat' && discountValue) return `FLAT ₹${discountValue} OFF`;
+  if ((discountType === 'percentage' || discountType === 'percent') && discountValue) {
+    return `${discountValue}% OFF`;
+  }
+  if (coupon.discount_amount) return `₹${coupon.discount_amount} OFF`;
+  return null;
+};
+
+// Works out whether a coupon applies to the current order value, and how much it would save —
+// this is what drives the "min order ₹X" / "add ₹X more" condition messaging in the coupon UI.
+const getCouponEligibility = (coupon = {}, orderValue = 0) => {
+  const minOrderValue = Number(
+    coupon.min_order_value ?? coupon.minOrderValue ?? coupon.min_cart_value ?? coupon.minCartValue ?? 0
+  );
+  const discountType = coupon.discount_type || coupon.discountType;
+  const discountValue = Number(coupon.discount_value ?? coupon.discountValue ?? 0);
+  const maxDiscount = Number(
+    coupon.max_discount_amount ?? coupon.maxDiscount ?? coupon.max_discount_value ?? 0
+  );
+
+  let estimatedSavings = 0;
+  if (discountType === 'flat') {
+    estimatedSavings = discountValue;
+  } else if (discountType === 'percentage' || discountType === 'percent') {
+    estimatedSavings = (orderValue * discountValue) / 100;
+    if (maxDiscount > 0) estimatedSavings = Math.min(estimatedSavings, maxDiscount);
+  } else {
+    estimatedSavings = Number(coupon.discount_amount ?? 0);
+  }
+  estimatedSavings = Math.max(0, Math.round(Math.min(estimatedSavings, orderValue || estimatedSavings)));
+
+  const eligible = orderValue >= minOrderValue;
+  const shortfall = Math.max(0, Math.round(minOrderValue - orderValue));
+
+  return { minOrderValue, estimatedSavings, eligible, shortfall };
+};
+
 export default function CartScreen({ navigation }) {
   const dispatch = useDispatch();
+  const queryClient = useQueryClient();
   const cartItems = useSelector(selectCartItems);
   const totalAmount = useSelector(selectCartTotalAmount);
   const totalQuantity = useSelector(selectCartTotalQuantity);
+
+  const [backendCartData, setBackendCartData] = useState(null);
+  const [loadingCart, setLoadingCart] = useState(false);
+  const [updatingCartItemId, setUpdatingCartItemId] = useState(null);
+
+  const refreshCart = async (addressId, couponCode) => {
+    const addrId = addressId !== undefined ? addressId : selectedAddress?.id;
+    const cpCode = couponCode !== undefined ? couponCode : appliedCoupon;
+    try {
+      setLoadingCart(true);
+      const res = await getCart(addrId, cpCode);
+      const data = res?.data?.data || res?.data || res || {};
+      setBackendCartData(data);
+      if (data.coupon && data.coupon.is_valid !== false) {
+        setAppliedCoupon(data.coupon.code || null);
+        setCouponDiscount(Math.round(Number(data.coupon.discount_amount || data.coupon_discount_amount || 0)));
+      } else {
+        setAppliedCoupon(null);
+        setCouponDiscount(0);
+      }
+      dispatch(setCartData(data));
+      queryClient.invalidateQueries({ queryKey: ['cart'] });
+    } catch (err) {
+      console.log('Error refreshing cart from backend:', err);
+    } finally {
+      setLoadingCart(false);
+    }
+  };
 
   // Checked item IDs for selection
   const [selectedItemIds, setSelectedItemIds] = useState(() =>
@@ -131,11 +219,114 @@ export default function CartScreen({ navigation }) {
       };
 
       loadAddresses();
+      refreshCart();
       return () => {
         isMounted = false;
       };
     }, [])
   );
+
+  useEffect(() => {
+    refreshCart(selectedAddress?.id);
+  }, [selectedAddress]);
+
+  // Coupon state
+  // The active-coupons endpoint has been seen returning either a bare array,
+  // an object wrapping the array ({ data / coupons: [...] }), or a single
+  // coupon object directly — normalize all shapes to an array here.
+  const extractCouponList = (res) => {
+    if (Array.isArray(res)) return res;
+    if (Array.isArray(res?.data)) return res.data;
+    if (Array.isArray(res?.coupons)) return res.coupons;
+    if (Array.isArray(res?.data?.data)) return res.data.data;
+    if (Array.isArray(res?.data?.coupons)) return res.data.coupons;
+    if (res?.code || res?.couponCode) return [res];
+    if (res?.data?.code || res?.data?.couponCode) return [res.data];
+    return [];
+  };
+
+  const [showCouponSheet, setShowCouponSheet] = useState(false);
+  const [couponInput, setCouponInput] = useState('');
+  const [appliedCoupon, setAppliedCoupon] = useState(null);
+  const [couponDiscount, setCouponDiscount] = useState(0);
+  const [isApplyingCoupon, setIsApplyingCoupon] = useState(false);
+  const [applyingCode, setApplyingCode] = useState(null);
+  const [couponError, setCouponError] = useState(null);
+  const [availableCoupons, setAvailableCoupons] = useState([]);
+  const [loadingCoupons, setLoadingCoupons] = useState(false);
+  const [expandedCouponId, setExpandedCouponId] = useState(null);
+
+  // Fetched once on mount (not gated on the sheet being open) so the collapsed
+  // coupon card can also show a "save ₹X" / "add ₹X more" teaser.
+  useEffect(() => {
+    let isMounted = true;
+    (async () => {
+      try {
+        setLoadingCoupons(true);
+        const res = await getActiveCoupons();
+        const list = extractCouponList(res);
+        if (isMounted) setAvailableCoupons(list);
+      } catch (err) {
+        console.error('getActiveCoupons error in CartScreen:', err);
+        if (isMounted) setAvailableCoupons([]);
+      } finally {
+        if (isMounted) setLoadingCoupons(false);
+      }
+    })();
+    return () => {
+      isMounted = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const applyCoupon = async (rawCode) => {
+    const code = (rawCode || '').trim().toUpperCase();
+    if (!code) return;
+    try {
+      setIsApplyingCoupon(true);
+      setApplyingCode(code);
+      setCouponError(null);
+      const res = await getCart(selectedAddress?.id, code);
+      const cartData = res?.data?.data || res?.data || res || {};
+      const couponInfo = cartData.coupon || {};
+      if (couponInfo.is_valid === false) {
+        throw new Error(couponInfo.message || 'This coupon is not valid.');
+      }
+      setBackendCartData(cartData);
+      setAppliedCoupon(code);
+      setCouponDiscount(Math.round(Number(cartData.coupon_discount_amount || couponInfo.discount_amount || 0)));
+      setCouponInput('');
+      setShowCouponSheet(false);
+      dispatch(setCartData(cartData));
+      queryClient.invalidateQueries({ queryKey: ['cart'] });
+    } catch (err) {
+      console.error('applyCoupon error in CartScreen:', err);
+      setCouponError(err?.message || 'Invalid or expired coupon code.');
+    } finally {
+      setIsApplyingCoupon(false);
+      setApplyingCode(null);
+    }
+  };
+
+  const removeCoupon = async () => {
+    try {
+      setLoadingCart(true);
+      const res = await getCart(selectedAddress?.id, '');
+      console.log('removeCoupon response in CartScreen:', JSON.stringify(res, null, 2));
+      const cartData = res?.data?.data || res?.data || res || {};
+      setBackendCartData(cartData);
+      setAppliedCoupon(null);
+      setCouponDiscount(0);
+      setCouponInput('');
+      setCouponError(null);
+      dispatch(setCartData(cartData));
+      queryClient.invalidateQueries({ queryKey: ['cart'] });
+    } catch (err) {
+      console.error('removeCoupon error in CartScreen:', err);
+    } finally {
+      setLoadingCart(false);
+    }
+  };
 
   // Modal state for removing item ("Move from Bag")
   const [removingCartItem, setRemovingCartItem] = useState(null);
@@ -145,18 +336,21 @@ export default function CartScreen({ navigation }) {
     if (!item) return;
     try {
       setIsRemoving(true);
+      setUpdatingCartItemId(item.cartItemId);
       // Backend API call to remove item from user cart (quantity: 0)
       await removeFromCartApi({
         type: 'product',
         productId: item.productId,
         variantSku: item.variant?.sku,
       });
+      await refreshCart(selectedAddress?.id, appliedCoupon);
     } catch (err) {
       // Non-blocking fallback for offline/guest scenario
     } finally {
       dispatch(removeFromCart(item.cartItemId));
       setIsRemoving(false);
       setRemovingCartItem(null);
+      setUpdatingCartItemId(null);
     }
   };
 
@@ -191,7 +385,33 @@ export default function CartScreen({ navigation }) {
   }, [cartItems, selectedItemIds]);
 
   // Financial calculations
-  const { totalMRP, totalSellingPrice, totalSavings } = useMemo(() => {
+  const { totalMRP, totalSellingPrice, totalSavings, finalTotal, combinedSavings, shippingCharge } = useMemo(() => {
+    if (backendCartData) {
+      let mrp = 0;
+      const items = backendCartData.items || [];
+      items.forEach((item) => {
+        const prod = item.product || {};
+        const basePrice = toNumber(prod.price) || toNumber(item.price) || 0;
+        mrp += basePrice * (item.quantity || 1);
+      });
+
+      const selling = backendCartData.total_price || 0;
+      const savings = mrp > selling ? mrp - selling : 0;
+      const cDiscount = backendCartData.coupon_discount_amount ?? backendCartData.coupon?.discount_amount ?? 0;
+      const fTotal = backendCartData.final_price ?? Math.max(0, selling - cDiscount);
+      const combSavings = savings + cDiscount;
+      const sCharge = backendCartData.shipping_charge ?? 0;
+
+      return {
+        totalMRP: Math.round(mrp),
+        totalSellingPrice: Math.round(selling),
+        totalSavings: Math.round(savings),
+        finalTotal: Math.round(fTotal),
+        combinedSavings: Math.round(combSavings),
+        shippingCharge: sCharge,
+      };
+    }
+
     let mrp = 0;
     let selling = 0;
     selectedCartItems.forEach((item) => {
@@ -200,16 +420,62 @@ export default function CartScreen({ navigation }) {
       selling += item.totalPrice;
     });
     const savings = mrp > selling ? mrp - selling : 0;
+    const cDiscount = appliedCoupon ? (couponDiscount || 0) : 0;
+    const fTotal = Math.max(0, selling - cDiscount);
+    const combSavings = savings + cDiscount;
+
     return {
       totalMRP: Math.round(mrp),
       totalSellingPrice: Math.round(selling),
       totalSavings: Math.round(savings),
+      finalTotal: Math.round(fTotal),
+      combinedSavings: Math.round(combSavings),
+      shippingCharge: 0,
     };
-  }, [selectedCartItems]);
+  }, [backendCartData, selectedCartItems, appliedCoupon, couponDiscount]);
 
-  const handleUpdateQty = (cartItemId, newQty) => {
+  // Best coupon teaser for the collapsed coupon card — prefers the biggest
+  // already-eligible saving, falling back to whichever coupon is closest to unlocking.
+  const bestCoupon = useMemo(() => {
+    if (!availableCoupons.length) return null;
+    const withEligibility = availableCoupons.map((coupon) => ({
+      coupon,
+      ...getCouponEligibility(coupon, totalSellingPrice),
+    }));
+    const eligible = withEligibility.filter((entry) => entry.eligible && entry.estimatedSavings > 0);
+    if (eligible.length > 0) {
+      return eligible.sort((a, b) => b.estimatedSavings - a.estimatedSavings)[0];
+    }
+    return [...withEligibility].sort((a, b) => a.shortfall - b.shortfall)[0];
+  }, [availableCoupons, totalSellingPrice]);
+
+  const handleUpdateQty = async (cartItemId, newQty) => {
     dispatch(updateQuantity({ cartItemId, quantity: newQty }));
     setEditingCartItem(null);
+
+    const item = cartItems.find((i) => i.cartItemId === cartItemId);
+    if (item) {
+      try {
+        setUpdatingCartItemId(cartItemId);
+        if (newQty <= 0) {
+          await removeFromCartApi({
+            productId: item.productId,
+            variantSku: item.variant?.sku,
+          });
+        } else {
+          await addToCartApi({
+            productId: item.productId,
+            quantity: newQty,
+            variantSku: item.variant?.sku,
+          });
+        }
+        await refreshCart(selectedAddress?.id, appliedCoupon);
+      } catch (err) {
+        console.error('Error updating cart quantity on backend:', err);
+      } finally {
+        setUpdatingCartItemId(null);
+      }
+    }
   };
 
   const handleRemove = (cartItemId) => {
@@ -218,7 +484,24 @@ export default function CartScreen({ navigation }) {
       {
         text: 'Remove',
         style: 'destructive',
-        onPress: () => dispatch(removeFromCart(cartItemId)),
+        onPress: async () => {
+          const item = cartItems.find((i) => i.cartItemId === cartItemId);
+          dispatch(removeFromCart(cartItemId));
+          if (item) {
+            try {
+              setUpdatingCartItemId(cartItemId);
+              await removeFromCartApi({
+                productId: item.productId,
+                variantSku: item.variant?.sku,
+              });
+              await refreshCart(selectedAddress?.id, appliedCoupon);
+            } catch (err) {
+              console.error('Error removing item on backend:', err);
+            } finally {
+              setUpdatingCartItemId(null);
+            }
+          }
+        },
       },
     ]);
   };
@@ -230,7 +513,111 @@ export default function CartScreen({ navigation }) {
     }
     navigation.navigate('Checkout', {
       selectedAddress,
+      couponCode: appliedCoupon,
+      totalAmount: finalTotal,
     });
+  };
+
+  const renderFullScreenSkeleton = () => {
+    return (
+      <ScrollView
+        style={styles.scrollView}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={[styles.scrollContent, { gap: 16 }]}
+      >
+        {/* Address Bar Shimmer */}
+        <View style={{ paddingVertical: 14, borderBottomWidth: 1, borderColor: '#F1F5F9' }}>
+          <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}>
+            <Skeleton width={20} height={20} radius={10} />
+            <View style={{ gap: 6, flex: 1 }}>
+              <Skeleton width="45%" height={12} radius={4} />
+              <Skeleton width="75%" height={10} radius={4} />
+            </View>
+          </View>
+        </View>
+
+        {/* Select All Row Skeleton */}
+        <View style={[styles.selectAllRow, { borderBottomWidth: 0, marginTop: 4 }]}>
+          <Skeleton width={120} height={16} radius={4} />
+        </View>
+
+        {/* 3 Cart Item Skeletons */}
+        {Array.from({ length: 1 }).map((_, index) => (
+          <View key={`sk_item_${index}`} style={[styles.cartCard, { height: 153, justifyContent: 'center' }]}>
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <View style={{ width: 20, paddingTop: 4 }}>
+                <Skeleton width={18} height={18} radius={4} />
+              </View>
+              <Skeleton width={105} height={125} radius={14} />
+              <View style={{ flex: 1, gap: 8, paddingRight: 20 }}>
+                <Skeleton width="40%" height={12} radius={4} />
+                <Skeleton width="85%" height={12} radius={4} style={{ marginTop: 2 }} />
+                <View style={{ flexDirection: 'row', gap: 6, marginTop: 4 }}>
+                  <Skeleton width={60} height={20} radius={6} />
+                  <Skeleton width={80} height={20} radius={6} />
+                </View>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 15, alignItems: 'center' }}>
+                  <Skeleton width={50} height={18} radius={4} />
+                  <Skeleton width={80} height={14} radius={4} />
+                </View>
+              </View>
+            </View>
+          </View>
+        ))}
+
+        {/* Coupon Card Skeleton */}
+        <View style={[styles.ticketContainer, styles.ticketContainerIdle, { paddingHorizontal: 14, justifyContent: 'center' }]}>
+          <View style={[styles.ticketNotchTop, styles.ticketNotchTopIdle]} />
+          <View style={[styles.ticketNotchBottom, styles.ticketNotchBottomIdle]} />
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', width: '100%', paddingLeft: 8 }}>
+            <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}>
+              <Skeleton width={24} height={24} radius={12} />
+              <Skeleton width={140} height={14} radius={4} />
+            </View>
+            <Skeleton width={35} height={14} radius={4} style={{ marginRight: 8 }} />
+          </View>
+        </View>
+
+        {/* Price Details Card Skeleton */}
+        <View style={styles.priceDetailsCard}>
+          <Skeleton width={100} height={16} radius={4} style={{ marginBottom: 16 }} />
+          <View style={{ gap: 12 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+              <Skeleton width={80} height={12} radius={4} />
+              <Skeleton width={60} height={12} radius={4} />
+            </View>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+              <Skeleton width={120} height={12} radius={4} />
+              <Skeleton width={60} height={12} radius={4} />
+            </View>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+              <Skeleton width={160} height={12} radius={4} />
+              <Skeleton width={60} height={12} radius={4} />
+            </View>
+          </View>
+          <View style={[styles.summaryDivider, { marginVertical: 14 }]} />
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+            <Skeleton width={90} height={16} radius={4} />
+            <Skeleton width={80} height={20} radius={6} />
+          </View>
+        </View>
+
+        {/* Trust Badges Shimmer */}
+        <View style={[styles.trustBadgesRow, { justifyContent: 'center', marginVertical: 14 }]}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <Skeleton width={16} height={16} radius={8} />
+            <Skeleton width={80} height={12} radius={4} />
+          </View>
+          <Text style={[styles.trustDot, { color: '#E2E8F0' }]}>•</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <Skeleton width={16} height={16} radius={8} />
+            <Skeleton width={100} height={12} radius={4} />
+          </View>
+        </View>
+
+        <View style={{ height: 100 }} />
+      </ScrollView>
+    );
   };
 
   return (
@@ -284,7 +671,9 @@ export default function CartScreen({ navigation }) {
         </View>
       </View>
 
-      {cartItems.length === 0 ? (
+      {loadingCart && !backendCartData ? (
+        renderFullScreenSkeleton()
+      ) : cartItems.length === 0 ? (
         /* ── Empty Cart View ── */
         <View style={styles.emptyContainer}>
           <View style={styles.emptyIconCircle}>
@@ -327,13 +716,15 @@ export default function CartScreen({ navigation }) {
               </Text>
             </TouchableOpacity>
 
-            <TouchableOpacity activeOpacity={0.7} onPress={() => dispatch(clearCart())}>
+            {/* <TouchableOpacity activeOpacity={0.7} onPress={() => dispatch(clearCart())}>
               <Text style={styles.clearAllText}>Clear Bag</Text>
-            </TouchableOpacity>
+            </TouchableOpacity> */}
           </View>
 
           {/* ── Cart Item Cards ── */}
           {cartItems.map((item) => {
+            // Inline item loader is handled globally by the absolute overlay
+
             const isChecked = selectedItemIds.includes(item.cartItemId);
             
             const displayPrice = (typeof item.totalPrice === 'number' && item.totalPrice > 0)
@@ -479,6 +870,87 @@ export default function CartScreen({ navigation }) {
             );
           })}
 
+          {/* ── Coupon Card ── */}
+          <View style={[
+            styles.ticketContainer,
+            appliedCoupon ? styles.ticketContainerApplied : styles.ticketContainerIdle
+          ]}>
+            {/* Notches centered on the perforation line */}
+            <View style={[
+              styles.ticketNotchTop,
+              appliedCoupon ? styles.ticketNotchTopApplied : styles.ticketNotchTopIdle
+            ]} />
+            <View style={[
+              styles.ticketNotchBottom,
+              appliedCoupon ? styles.ticketNotchBottomApplied : styles.ticketNotchBottomIdle
+            ]} />
+
+            {/* Left Stub */}
+            <View style={styles.ticketStub}>
+              {appliedCoupon ? (
+                <View style={styles.couponAppliedIconCircle}>
+                  <Check size={14} color="#FFFFFF" />
+                </View>
+              ) : (
+                <View style={styles.couponIdleIconCircle}>
+                  <Percent size={15} color={colors.primary} />
+                </View>
+              )}
+            </View>
+
+            {/* Perforation Line */}
+            <View style={styles.ticketPerforation} />
+
+            {/* Right Body */}
+            <View style={styles.ticketBody}>
+              {appliedCoupon ? (
+                <>
+                  <View style={{ flex: 1, paddingRight: 6 }}>
+                    <View style={styles.couponTitleRow}>
+                      <Text style={[styles.couponTitle, { color: '#166534' }]}>{appliedCoupon}</Text>
+                      {getDiscountLabel(backendCartData?.coupon) ? (
+                        <View style={styles.couponAppliedBadgePill}>
+                          <Text style={styles.couponAppliedBadgeText}>
+                            {getDiscountLabel(backendCartData?.coupon)}
+                          </Text>
+                        </View>
+                      ) : null}
+                    </View>
+                    <Text style={[styles.couponAppliedSubText, { color: '#2F855A', marginTop: 2 }]} numberOfLines={1}>
+                      {couponDiscount > 0 ? `You saved ₹${couponDiscount} on this order` : 'Coupon applied'}
+                    </Text>
+                  </View>
+                  <TouchableOpacity style={styles.removeCouponBtn} activeOpacity={0.7} onPress={removeCoupon}>
+                    <Text style={styles.removeCouponText}>Remove</Text>
+                  </TouchableOpacity>
+                </>
+              ) : (
+                <>
+                  <View style={{ flex: 1, paddingRight: 6 }}>
+                    <Text style={[styles.couponTitle, { color: '#5B21B6' }]}>Apply Coupon</Text>
+                    <Text style={styles.couponIdleSubText} numberOfLines={1}>
+                      {bestCoupon
+                        ? bestCoupon.eligible
+                          ? `Use ${getCouponCode(bestCoupon.coupon)} & save ₹${bestCoupon.estimatedSavings}`
+                          : `Add ₹${bestCoupon.shortfall} more to save with ${getCouponCode(bestCoupon.coupon)}`
+                        : 'Unlock instant discounts'}
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.viewCouponsBtn}
+                    activeOpacity={0.7}
+                    onPress={() => {
+                      setCouponError(null);
+                      setShowCouponSheet(true);
+                    }}>
+                    <Text style={styles.applyCouponLink}>View</Text>
+                    <ChevronRight size={13} color={colors.primary} />
+                  </TouchableOpacity>
+                </>
+              )}
+            </View>
+          </View>
+
           {/* ── Price Details Summary Card (Matching User Screenshot 2) ── */}
           <View style={styles.priceDetailsCard}>
             <Text style={styles.priceDetailsHeaderTitle}>Price Details</Text>
@@ -495,19 +967,30 @@ export default function CartScreen({ navigation }) {
               </View>
             )}
 
+            {appliedCoupon && (
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryLabelText}>Coupon ({appliedCoupon})</Text>
+                <Text style={styles.summaryDiscountText}>
+                  {couponDiscount > 0 ? `- ₹${couponDiscount}` : 'Applied'}
+                </Text>
+              </View>
+            )}
+
             <View style={styles.summaryRow}>
               <Text style={styles.summaryLabelText}>Shipping / Platform Fee</Text>
-              <Text style={styles.summaryFreeText}>FREE</Text>
+              <Text style={shippingCharge > 0 ? styles.summaryValueText : styles.summaryFreeText}>
+                {shippingCharge > 0 ? `₹${shippingCharge}` : 'FREE'}
+              </Text>
             </View>
 
             <View style={styles.summaryDivider} />
 
             <View style={styles.summaryTotalRow}>
               <Text style={styles.summaryTotalLabel}>Total Amount</Text>
-              <Text style={styles.summaryTotalValue}>₹{totalSellingPrice}</Text>
+              <Text style={styles.summaryTotalValue}>₹{finalTotal}</Text>
             </View>
 
-            {totalSavings > 0 && (
+            {combinedSavings > 0 && (
               <View style={styles.savingsBannerPill}>
                 <View style={styles.savingsIconCircle}>
                   <Percent size={13} color="#FFFFFF" strokeWidth={3} />
@@ -515,7 +998,7 @@ export default function CartScreen({ navigation }) {
                 <Text style={styles.savingsBannerText}>
                   You're saving{' '}
                   <Text style={styles.savingsUnderlineAmount}>
-                    ₹{totalSavings.toLocaleString('en-IN')}
+                    ₹{combinedSavings.toLocaleString('en-IN')}
                   </Text>{' '}
                   on this order
                 </Text>
@@ -533,11 +1016,6 @@ export default function CartScreen({ navigation }) {
             <View style={styles.trustBadgeItem}>
               <Truck size={16} color="#64748B" />
               <Text style={styles.trustBadgeText}>Contactless Delivery</Text>
-            </View>
-            <Text style={styles.trustDot}>•</Text>
-            <View style={styles.trustBadgeItem}>
-              <RotateCcw size={16} color="#64748B" />
-              <Text style={styles.trustBadgeText}>Easy Returns</Text>
             </View>
           </View>
         </ScrollView>
@@ -794,6 +1272,189 @@ export default function CartScreen({ navigation }) {
           </TouchableOpacity>
         </View>
       </BottomSheetModal>
+
+      {/* ── Apply Coupon Bottom Sheet ── */}
+      <BottomSheetModal
+        visible={showCouponSheet}
+        showHandle={true}
+        onClose={() => {
+          setShowCouponSheet(false);
+          setCouponError(null);
+        }}>
+        <View style={styles.sheetHeader}>
+          <Text style={styles.sheetTitle}>Apply Coupon</Text>
+          <TouchableOpacity
+            style={styles.closeBtn}
+            activeOpacity={0.7}
+            onPress={() => {
+              setShowCouponSheet(false);
+              setCouponError(null);
+            }}>
+            <X size={22} color="#1A1C1E" />
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.couponInputRow}>
+          <TextInput
+            style={styles.couponInputField}
+            placeholder="Enter coupon code"
+            placeholderTextColor="#94A3B8"
+            autoCapitalize="characters"
+            value={couponInput}
+            onChangeText={(t) => {
+              setCouponInput(t);
+              setCouponError(null);
+            }}
+          />
+          <TouchableOpacity
+            style={[
+              styles.couponApplyBtn,
+              (!couponInput.trim() || isApplyingCoupon) && styles.couponApplyBtnDisabled,
+            ]}
+            activeOpacity={0.85}
+            disabled={!couponInput.trim() || isApplyingCoupon}
+            onPress={() => applyCoupon(couponInput)}>
+            {isApplyingCoupon ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <Text style={styles.couponApplyBtnText}>Apply</Text>
+            )}
+          </TouchableOpacity>
+        </View>
+
+        {couponError ? <Text style={styles.couponErrorText}>{couponError}</Text> : null}
+
+        <Text style={styles.couponListHeader}>Available Coupons</Text>
+
+        {loadingCoupons ? (
+          <ActivityIndicator size="small" color={colors.primary} style={{ marginVertical: 24 }} />
+        ) : availableCoupons.length === 0 ? (
+          <Text style={styles.noCouponsText}>No coupons available right now.</Text>
+        ) : (
+          <ScrollView style={{ maxHeight: 340 }} showsVerticalScrollIndicator={false}>
+            {availableCoupons.map((c) => {
+              const code = getCouponCode(c);
+              const discountLabel = getDiscountLabel(c);
+              const { minOrderValue, estimatedSavings, eligible, shortfall } = getCouponEligibility(
+                c,
+                totalSellingPrice
+              );
+              const isCurrentlyApplied = appliedCoupon === code;
+              const isApplyingThis = isApplyingCoupon && applyingCode === code;
+              const disableApply = !eligible || isCurrentlyApplied || isApplyingCoupon;
+              const isExpanded = expandedCouponId === code;
+
+              const formattedExpiry = (() => {
+                const expiryDate = c.expiresAt || c.expiry || c.endDate || c.expiryDate;
+                if (expiryDate) {
+                  try {
+                    const dateObj = new Date(expiryDate);
+                    const day = dateObj.getDate();
+                    const getDaySuffix = (d) => {
+                      if (d > 3 && d < 21) return 'th';
+                      switch (d % 10) {
+                        case 1:  return "st";
+                        case 2:  return "nd";
+                        case 3:  return "rd";
+                        default: return "th";
+                      }
+                    };
+                    const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+                    const monthStr = months[dateObj.getMonth()];
+                    const year = dateObj.getFullYear();
+                    let hours = dateObj.getHours();
+                    const minutes = String(dateObj.getMinutes()).padStart(2, '0');
+                    const ampm = hours >= 12 ? 'PM' : 'AM';
+                    hours = hours % 12;
+                    hours = hours ? hours : 12;
+                    return `${day}${getDaySuffix(day)} ${monthStr} ${year} | ${hours}:${minutes} ${ampm}`;
+                  } catch (e) {
+                    // Fallback
+                  }
+                }
+                return '09th August 2026 | 11:59 PM';
+              })();
+
+              return (
+                <View
+                  key={c._id || code}
+                  style={[styles.premiumCouponCard, !eligible && styles.premiumCouponCardDisabled]}>
+                  {/* Top Row: Save Badge + Coupon Code + Action button */}
+                  <View style={styles.premiumCouponTopRow}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
+                      <View style={[styles.premiumSavePill, !eligible && styles.premiumSavePillDisabled]}>
+                        <Text style={styles.premiumSaveText}>Save ₹{estimatedSavings}</Text>
+                      </View>
+                      <Text style={[styles.premiumCodeText, !eligible && styles.premiumCodeTextDisabled]}>{code}</Text>
+                    </View>
+
+                    <TouchableOpacity
+                      style={[styles.premiumApplyBtn, disableApply && styles.premiumApplyBtnDisabled]}
+                      activeOpacity={0.8}
+                      disabled={disableApply}
+                      onPress={() => applyCoupon(code)}>
+                      {isApplyingThis ? (
+                        <ActivityIndicator size="small" color={colors.primary} />
+                      ) : (
+                        <Text
+                          style={[
+                            styles.premiumApplyBtnText,
+                            disableApply && styles.premiumApplyBtnTextDisabled,
+                          ]}>
+                          {isCurrentlyApplied ? 'Applied' : 'Apply'}
+                        </Text>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* Second Row: Condition descriptions */}
+                  <Text style={styles.premiumDescText}>
+                    {c.description || `${discountLabel} on minimum purchase of Rs. ${minOrderValue || 0}.`}
+                  </Text>
+
+                  {/* Third Row: Details Toggle */}
+                  <TouchableOpacity
+                    style={styles.premiumDetailsToggle}
+                    activeOpacity={0.7}
+                    onPress={() => setExpandedCouponId(isExpanded ? null : code)}>
+                    <Text style={styles.premiumDetailsToggleText}>Details</Text>
+                    {isExpanded ? (
+                      <ChevronUp size={14} color={colors.primary} />
+                    ) : (
+                      <ChevronDown size={14} color={colors.primary} />
+                    )}
+                  </TouchableOpacity>
+
+                  {/* Expandable details list section */}
+                  {isExpanded && (
+                    <View style={{ marginTop: 8 }}>
+                      <View style={styles.premiumDashedDivider} />
+                      <View style={{ gap: 6, marginTop: 10 }}>
+                        <Text style={styles.premiumBulletItem}>
+                          •  {c.description || `${discountLabel} on minimum purchase of Rs. ${minOrderValue || 0}`}
+                        </Text>
+                        <Text style={styles.premiumBulletItem}>
+                          •  Expires on: {formattedExpiry}
+                        </Text>
+                        {!eligible && (
+                          <Text style={[styles.premiumBulletItem, { color: '#EF4444' }]}>
+                            •  Add ₹{shortfall} more to unlock this coupon
+                          </Text>
+                        )}
+                      </View>
+                    </View>
+                  )}
+                </View>
+              );
+            })}
+          </ScrollView>
+        )}
+      </BottomSheetModal>
+      <Modal transparent visible={updatingCartItemId !== null} animationType="none">
+        <View style={{ flex: 1, backgroundColor: 'rgba(255, 255, 255, 0.65)', justifyContent: 'center', alignItems: 'center' }}>
+          <ActivityIndicator size="large" color={colors.primary} />
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -1083,22 +1744,85 @@ const styles = StyleSheet.create({
     color: '#2d6a4f',
   },
 
-  /* Coupon Card */
-  couponCard: {
-    backgroundColor: '#FFFFFF',
+  /* Coupon Ticket Card */
+  ticketContainer: {
+    height: 76,
     borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderWidth: 1,
-    borderColor: '#F1F5F9',
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
+    flexDirection: 'row',
+    alignItems: 'center',
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  ticketContainerIdle: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#E2D5F8',
+  },
+  ticketContainerApplied: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#C6F6D5',
+  },
+  ticketNotchTop: {
+    position: 'absolute',
+    top: -8,
+    left: 46,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1.5,
+    zIndex: 10,
+  },
+  ticketNotchTopIdle: {
+    borderColor: '#E2D5F8',
+  },
+  ticketNotchTopApplied: {
+    borderColor: '#C6F6D5',
+  },
+  ticketNotchBottom: {
+    position: 'absolute',
+    bottom: -8,
+    left: 46,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1.5,
+    zIndex: 10,
+  },
+  ticketNotchBottomIdle: {
+    borderColor: '#E2D5F8',
+  },
+  ticketNotchBottomApplied: {
+    borderColor: '#C6F6D5',
+  },
+  ticketStub: {
+    width: 54,
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: '100%',
+  },
+  ticketPerforation: {
+    width: 0,
+    height: '100%',
+    borderLeftWidth: 1.5,
+    borderStyle: 'dashed',
+    borderLeftColor: '#E2D5F8',
+  },
+  ticketBody: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    paddingLeft: 12,
+    paddingRight: 10,
+    paddingVertical: 10,
   },
-  couponLeft: {
+  couponTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 6,
   },
   couponTitle: {
     fontSize: moderateScale(14),
@@ -1109,6 +1833,218 @@ const styles = StyleSheet.create({
     fontSize: moderateScale(13),
     fontFamily: fonts.big,
     color: colors.primary,
+  },
+  couponIdleIconCircle: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: '#F3E8FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  couponIdleSubText: {
+    fontSize: moderateScale(11),
+    fontFamily: fonts.medium,
+    color: '#64748B',
+    marginTop: 2,
+  },
+  couponAppliedIconCircle: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: '#2d6a4f',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  couponAppliedBadgePill: {
+    backgroundColor: '#DCFCE7',
+    borderRadius: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+  },
+  couponAppliedBadgeText: {
+    fontSize: moderateScale(10),
+    fontFamily: fonts.big,
+    color: '#166534',
+  },
+  couponAppliedSubText: {
+    fontSize: moderateScale(11),
+    fontFamily: fonts.medium,
+    color: '#2d6a4f',
+    marginTop: 2,
+  },
+  removeCouponBtn: {
+    backgroundColor: '#FEF2F2',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 20,
+  },
+  removeCouponText: {
+    fontSize: moderateScale(12),
+    fontFamily: fonts.big,
+    color: '#EF4444',
+  },
+  viewCouponsBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    backgroundColor: '#F3E8FF',
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 20,
+  },
+  couponInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 6,
+  },
+  couponInputField: {
+    flex: 1,
+    height: 48,
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    fontFamily: fonts.medium,
+    fontSize: moderateScale(14),
+    color: '#0F172A',
+  },
+  couponApplyBtn: {
+    height: 48,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  couponApplyBtnDisabled: {
+    backgroundColor: '#CBD5E1',
+  },
+  couponApplyBtnText: {
+    fontSize: moderateScale(14),
+    fontFamily: fonts.big,
+    color: '#FFFFFF',
+  },
+  couponErrorText: {
+    fontSize: moderateScale(12),
+    fontFamily: fonts.medium,
+    color: '#EF4444',
+    marginBottom: 8,
+  },
+  couponListHeader: {
+    fontSize: moderateScale(13),
+    fontFamily: fonts.big,
+    color: '#64748B',
+    marginTop: 10,
+    marginBottom: 10,
+  },
+  noCouponsText: {
+    fontSize: moderateScale(13),
+    fontFamily: fonts.medium,
+    color: '#94A3B8',
+    textAlign: 'center',
+    marginVertical: 24,
+  },
+  couponListItem: {
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderStyle: 'dashed',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 10,
+    backgroundColor: '#FFFFFF',
+  },
+  couponListItemDisabled: {
+    backgroundColor: '#F8FAFC',
+    borderColor: '#E2E8F0',
+  },
+  couponListTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  couponListIconCircle: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#F3E8FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  couponListIconCircleDisabled: {
+    backgroundColor: '#F1F5F9',
+  },
+  couponListCode: {
+    fontSize: moderateScale(14),
+    fontFamily: fonts.big,
+    color: '#1A1C1E',
+    letterSpacing: 0.5,
+  },
+  couponListBadgePill: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#F3E8FF',
+    borderRadius: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    marginTop: 3,
+  },
+  couponListBadgePillDisabled: {
+    backgroundColor: '#F1F5F9',
+  },
+  couponListBadge: {
+    fontSize: moderateScale(11),
+    fontFamily: fonts.big,
+    color: colors.primary,
+  },
+  couponListBadgeDisabled: {
+    color: '#94A3B8',
+  },
+  couponListConditionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 10,
+  },
+  couponListDesc: {
+    fontSize: moderateScale(12),
+    fontFamily: fonts.medium,
+    color: '#64748B',
+    flexShrink: 1,
+  },
+  couponListSavings: {
+    fontSize: moderateScale(12),
+    fontFamily: fonts.big,
+    color: '#059669',
+    marginTop: 6,
+  },
+  couponListShortfall: {
+    fontSize: moderateScale(12),
+    fontFamily: fonts.big,
+    color: '#D97706',
+    marginTop: 6,
+  },
+  couponListApplyBtn: {
+    borderWidth: 1.5,
+    borderColor: colors.primary,
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    minWidth: 72,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  couponListApplyBtnDisabled: {
+    borderColor: '#E2E8F0',
+    backgroundColor: '#F8FAFC',
+  },
+  couponListApplyBtnText: {
+    fontSize: moderateScale(12),
+    fontFamily: fonts.big,
+    color: colors.primary,
+  },
+  couponListApplyBtnTextDisabled: {
+    color: '#94A3B8',
   },
 
   /* Price Details Card */
@@ -1807,5 +2743,93 @@ const styles = StyleSheet.create({
     fontSize: moderateScale(13),
     fontFamily: fonts.medium,
     color: '#475569',
+  },
+
+  /* Premium Available Coupon list item styles */
+  premiumCouponCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    marginBottom: 12,
+  },
+  premiumCouponCardDisabled: {
+    opacity: 0.8,
+  },
+  premiumCouponTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  premiumSavePill: {
+    backgroundColor: '#10B981',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  premiumSavePillDisabled: {
+    backgroundColor: '#94A3B8',
+  },
+  premiumSaveText: {
+    color: '#FFFFFF',
+    fontSize: moderateScale(11),
+    fontFamily: fonts.big,
+  },
+  premiumCodeText: {
+    fontSize: moderateScale(14),
+    fontFamily: fonts.big,
+    color: '#1E1B4B',
+  },
+  premiumCodeTextDisabled: {
+    color: '#94A3B8',
+  },
+  premiumApplyBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+  },
+  premiumApplyBtnDisabled: {
+    opacity: 0.5,
+  },
+  premiumApplyBtnText: {
+    fontSize: moderateScale(14),
+    fontFamily: fonts.big,
+    color: colors.primary, // Primary action text color
+  },
+  premiumApplyBtnTextDisabled: {
+    color: '#94A3B8',
+  },
+  premiumDescText: {
+    fontSize: moderateScale(13),
+    fontFamily: fonts.medium,
+    color: '#475569',
+    lineHeight: 18,
+    marginBottom: 10,
+  },
+  premiumDetailsToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  premiumDetailsToggleText: {
+    fontSize: moderateScale(13),
+    fontFamily: fonts.big,
+    color: '#1E1B4B',
+  },
+  premiumDashedDivider: {
+    height: 1,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderStyle: 'dashed',
+    borderRadius: 1,
+    marginTop: 6,
+  },
+  premiumBulletItem: {
+    fontSize: moderateScale(12),
+    fontFamily: fonts.medium,
+    color: '#475569',
+    lineHeight: 18,
   },
 });

@@ -245,6 +245,7 @@ export default function ProductDetailScreen({ route, navigation }) {
   // Active UI States
   const [activeImageIndex, setActiveImageIndex] = useState(0);
   const [selectedVariantIndex, setSelectedVariantIndex] = useState(null); // null = base product selected by default
+  const [isColorSelected, setIsColorSelected] = useState(true); // color is selected by default
   const [quantity, setQuantity] = useState(1);
   const [tempQty, setTempQty] = useState(1);
   const [selectedTierQty, setSelectedTierQty] = useState(1);
@@ -713,6 +714,28 @@ export default function ProductDetailScreen({ route, navigation }) {
           </View>
         )}
 
+        {/* ── Product Color (ONLY if color exists) ── */}
+        {product?.color && String(product.color).trim() !== '' && (
+          <View style={styles.sectionContainer}>
+            <Text style={styles.sectionTitle}>Select Shade / Color</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 4 }}>
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={() => setIsColorSelected(!isColorSelected)}
+                style={[
+                  styles.colorSwatchContainer,
+                  isColorSelected && styles.colorSwatchContainerActive
+                ]}>
+                <View style={[styles.colorSwatchCircle, { backgroundColor: product.color }]}>
+                  {isColorSelected && (
+                    <Check size={18} color="#FFFFFF" strokeWidth={3} />
+                  )}
+                </View>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
         {/* ── Product Tags (ONLY if tags exist) ── */}
         {Array.isArray(product?.tags) && product.tags.length > 0 && (
           <View style={styles.sectionContainer}>
@@ -748,11 +771,11 @@ export default function ProductDetailScreen({ route, navigation }) {
             <ShieldCheck size={18} color={colors.green || '#2d6a4f'} />
             <Text style={styles.serviceFeatureTitle}>100% Authentic Product</Text>
           </View>
-
+{/* 
           <View style={styles.serviceFeatureRow}>
             <RotateCcw size={18} color={colors.green || '#2d6a4f'} />
             <Text style={styles.serviceFeatureTitle}>Easy Returns & Exchanges</Text>
-          </View>
+          </View> */}
         </View>
 
         {/* ── Product Specifications & Details (ONLY real fields) ── */}
@@ -1920,5 +1943,30 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: moderateScale(15),
     fontFamily: fonts.big,
+  },
+  colorSwatchContainer: {
+    padding: 3,
+    borderRadius: 26,
+    borderWidth: 2,
+    borderColor: 'transparent',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  colorSwatchContainerActive: {
+    borderColor: colors.primary,
+  },
+  colorSwatchCircle: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 1.5,
+    elevation: 1,
   },
 });

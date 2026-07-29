@@ -197,6 +197,48 @@ const cartSlice = createSlice({
       state.totalAmount = 0;
       saveCartToStorage(state);
     },
+    setCartData: (state, action) => {
+      const cartData = action.payload || {};
+      if (cartData && Array.isArray(cartData.items)) {
+        const apiItems = cartData.items.map((item) => {
+          const product = item.product || {};
+          const pId = typeof product === 'string' ? product : product._id;
+          const variantKey = item.variant_sku || 'base';
+          const productPrice = toNumber(product.price);
+          const productDiscountedPrice = toNumber(product.discounted_price);
+          const uPrice = toNumber(item.price) || productDiscountedPrice || productPrice || 0;
+          const qty = item.quantity || 1;
+          const tPrice = toNumber(item.total) || Math.round(uPrice * qty) || 0;
+          const bPrice = productPrice || toNumber(item.price) || uPrice;
+
+          return {
+            cartItemId: `${pId}_${variantKey}`,
+            productId: pId,
+            name: product.name || 'Product',
+            brandName: product.brand?.name || '',
+            image: product.banner_image || (product.images && product.images[0]) || null,
+            variant: item.variant_sku ? { sku: item.variant_sku } : null,
+            variantName: item.variant_sku || null,
+            unitPrice: uPrice,
+            totalPrice: tPrice,
+            quantity: qty,
+            price: bPrice,
+            discountedPrice: productDiscountedPrice || uPrice,
+          };
+        });
+
+        state.items = apiItems;
+        let qty = 0;
+        let amount = 0;
+        apiItems.forEach((i) => {
+          qty += i.quantity;
+          amount += i.totalPrice;
+        });
+        state.totalQuantity = qty;
+        state.totalAmount = Math.round(amount);
+        saveCartToStorage(state);
+      }
+    },
   },
   extraReducers: (builder) => {
     builder.addCase(initializeCart.fulfilled, (state, action) => {
@@ -210,7 +252,7 @@ const cartSlice = createSlice({
   },
 });
 
-export const { addToCart, removeFromCart, updateQuantity, clearCart } = cartSlice.actions;
+export const { addToCart, removeFromCart, updateQuantity, clearCart, setCartData } = cartSlice.actions;
 
 export const selectCartItems = (state) => state.cart.items;
 export const selectCartTotalQuantity = (state) => state.cart.totalQuantity;

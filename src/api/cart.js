@@ -1,9 +1,12 @@
 import { apiRequest } from './client';
 import { getToken } from './authStorage';
 
-export async function getCart(addressId) {
+export async function getCart(addressId, couponCode) {
   const token = await getToken();
-  const query = addressId ? `?addressId=${addressId}` : '';
+  const params = new URLSearchParams();
+  if (addressId) params.append('addressId', addressId);
+  if (couponCode) params.append('couponCode', couponCode);
+  const query = params.toString() ? `?${params.toString()}` : '';
   return apiRequest(`/api/cart/${query}`, {
     method: 'GET',
     token,
