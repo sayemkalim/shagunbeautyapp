@@ -149,7 +149,7 @@ export default function BrandsScreen({ navigation }) {
                         brand.images?.[0] ? { uri: brand.images[0] } : DUMMY_IMG
                       }
                       style={styles.brandImage}
-                      resizeMode="contain"
+                      resizeMode="cover"
                     />
                     {brand.newly_launched ? (
                       <View style={styles.newBadge}>
@@ -283,7 +283,7 @@ const styles = StyleSheet.create({
     flex: 1,
     aspectRatio: 1,
     borderRadius: 4,
-    padding: 16,
+    padding: 0,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#F0ECFF',

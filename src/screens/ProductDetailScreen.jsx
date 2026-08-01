@@ -589,6 +589,7 @@ export default function ProductDetailScreen({ route, navigation }) {
                 onPress={() => handleOpenImageModal(index)}>
                 <Image
                   source={imgUri ? { uri: imgUri } : DUMMY_IMG}
+                  defaultSource={DUMMY_IMG}
                   style={styles.fullWidthImage}
                   resizeMode="cover"
                 />
@@ -728,7 +729,7 @@ export default function ProductDetailScreen({ route, navigation }) {
                 ]}>
                 <View style={[styles.colorSwatchCircle, { backgroundColor: product.color }]}>
                   {isColorSelected && (
-                    <Check size={18} color="#FFFFFF" strokeWidth={3} />
+                    <Check size={22} color="#FFFFFF" strokeWidth={3} />
                   )}
                 </View>
               </TouchableOpacity>
@@ -909,6 +910,7 @@ export default function ProductDetailScreen({ route, navigation }) {
                 <View key={index} style={styles.fullscreenImageSlide}>
                   <Image
                     source={imgUri ? { uri: imgUri } : DUMMY_IMG}
+                    defaultSource={DUMMY_IMG}
                     style={styles.fullscreenMainImage}
                     resizeMode="contain"
                   />
@@ -950,6 +952,7 @@ export default function ProductDetailScreen({ route, navigation }) {
                     }}>
                     <Image
                       source={imgUri ? { uri: imgUri } : DUMMY_IMG}
+                      defaultSource={DUMMY_IMG}
                       style={styles.thumbnailImg}
                       resizeMode="cover"
                     />
@@ -1946,7 +1949,7 @@ const styles = StyleSheet.create({
   },
   colorSwatchContainer: {
     padding: 3,
-    borderRadius: 26,
+    borderRadius: 32,
     borderWidth: 2,
     borderColor: 'transparent',
     alignItems: 'center',
@@ -1956,9 +1959,9 @@ const styles = StyleSheet.create({
     borderColor: colors.primary,
   },
   colorSwatchCircle: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     borderWidth: 1,
     borderColor: '#E2E8F0',
     alignItems: 'center',

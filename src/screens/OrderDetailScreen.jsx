@@ -11,7 +11,7 @@ import {
   Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ChevronLeft, Calendar, MapPin, ShoppingBag, FileText } from 'lucide-react-native';
+import { ChevronLeft, Calendar, MapPin, ShoppingBag, FileText, Wallet, CreditCard } from 'lucide-react-native';
 import colors from '../theme/colors';
 import fonts from '../theme/typography';
 import { moderateScale } from '../theme/responsive';
@@ -81,6 +81,28 @@ export default function OrderDetailScreen({ navigation, route }) {
     }
   };
 
+  const getPaymentStatusStyle = (status) => {
+    const s = String(status).toLowerCase();
+    switch (s) {
+      case 'paid':
+      case 'completed':
+      case 'success':
+        return { color: '#137333', label: 'Paid' };
+      case 'failed':
+        return { color: '#C5221F', label: 'Failed' };
+      case 'pending':
+      default:
+        return { color: '#B06000', label: 'Pending' };
+    }
+  };
+
+  const getPaymentModeLabel = (mode) => {
+    const m = String(mode).toUpperCase();
+    if (m === 'COD') return 'Cash on Delivery';
+    if (mode) return 'Online Payment';
+    return 'Not specified';
+  };
+
   if (isLoading) {
     return (
       <SafeAreaView style={styles.safeArea} edges={['top']}>
@@ -130,6 +152,10 @@ export default function OrderDetailScreen({ navigation, route }) {
   const shippingCost = parseFloat(order.shippingCost?.$numberDecimal || order.shippingCost || 0);
   const discountedTotal = parseFloat(order.discountedTotalAmount?.$numberDecimal || order.discountedTotalAmount || 0);
   const finalTotalAmount = parseFloat(order.finalTotalAmount?.$numberDecimal || order.finalTotalAmount || 0);
+  const couponDiscountAmount = parseFloat(order.couponDiscountAmount?.$numberDecimal || order.couponDiscountAmount || 0);
+  const couponCode = order.couponCode || '';
+  const paymentMode = order.paymentMode || '';
+  const paymentStatusDetails = getPaymentStatusStyle(order.paymentStatus);
 
   // Address string formatting
   const fullAddress = [
@@ -261,38 +287,77 @@ export default function OrderDetailScreen({ navigation, route }) {
           </View>
         </View>
 
+        {/* Payment Method Card */}
+        <View style={styles.sectionContainer}>
+          <Text style={styles.sectionTitle}>Payment Method</Text>
+          <View style={[styles.card, styles.cardPadding]}>
+            <View style={styles.paymentRow}>
+              {paymentMode === 'COD' ? (
+                <Wallet size={18} color={colors.primary} />
+              ) : (
+                <CreditCard size={18} color={colors.primary} />
+              )}
+              <Text style={styles.paymentMethodText}>{getPaymentModeLabel(paymentMode)}</Text>
+            </View>
+            <View style={styles.paymentSubRow}>
+              <Text style={styles.paymentLabel}>Payment Status: </Text>
+              <Text style={[styles.paymentValue, { color: paymentStatusDetails.color }]}>
+                {paymentStatusDetails.label}
+              </Text>
+            </View>
+          </View>
+        </View>
+
         {/* Price Calculations */}
         <View style={styles.sectionContainer}>
           <Text style={styles.sectionTitle}>Order Summary</Text>
-          <View style={[styles.card, styles.cardPadding]}>
-            <View style={styles.billRow}>
-              <Text style={styles.billLabel}>Total Amount (MRP)</Text>
-              <Text style={styles.billValue}>₹{Math.round(totalAmount)}</Text>
-            </View>
-            {discountedTotal < totalAmount ? (
-              <>
+          <View style={styles.receiptContainer}>
+            <View style={styles.receiptContent}>
+              <View style={styles.billRow}>
+                <Text style={styles.billLabel}>Total Amount (MRP)</Text>
+                <Text style={styles.billValue}>₹{Math.round(totalAmount)}</Text>
+              </View>
+              {discountedTotal < totalAmount ? (
+                <>
+                  <View style={styles.billRow}>
+                    <Text style={styles.billLabel}>Wholesale Discount</Text>
+                    <Text style={[styles.billValue, { color: '#137333' }]}>
+                      -₹{Math.round(totalAmount - discountedTotal)}
+                    </Text>
+                  </View>
+                  <View style={styles.billRow}>
+                    <Text style={styles.billLabel}>Discounted Total</Text>
+                    <Text style={styles.billValue}>₹{Math.round(discountedTotal)}</Text>
+                  </View>
+                </>
+              ) : null}
+              {couponDiscountAmount > 0 ? (
                 <View style={styles.billRow}>
-                  <Text style={styles.billLabel}>Wholesale Discount</Text>
+                  <Text style={styles.billLabel}>
+                    Coupon Discount{couponCode ? ` (${couponCode})` : ''}
+                  </Text>
                   <Text style={[styles.billValue, { color: '#137333' }]}>
-                    -₹{Math.round(totalAmount - discountedTotal)}
+                    -₹{Math.round(couponDiscountAmount)}
                   </Text>
                 </View>
-                <View style={styles.billRow}>
-                  <Text style={styles.billLabel}>Discounted Total</Text>
-                  <Text style={styles.billValue}>₹{Math.round(discountedTotal)}</Text>
-                </View>
-              </>
-            ) : null}
-            <View style={styles.billRow}>
-              <Text style={styles.billLabel}>Shipping & Delivery</Text>
-              <Text style={styles.billValue}>
-                {shippingCost > 0 ? `₹${Math.round(shippingCost)}` : 'FREE'}
-              </Text>
+              ) : null}
+              <View style={styles.billRow}>
+                <Text style={styles.billLabel}>Shipping & Delivery</Text>
+                <Text style={styles.billValue}>
+                  {shippingCost > 0 ? `₹${Math.round(shippingCost)}` : 'FREE'}
+                </Text>
+              </View>
+              <View style={styles.billDivider} />
+              <View style={styles.billRowTotal}>
+                <Text style={styles.billLabelTotal}>Grand Total</Text>
+                <Text style={styles.billValueTotal}>₹{Math.round(finalTotalAmount)}</Text>
+              </View>
             </View>
-            <View style={styles.billDivider} />
-            <View style={styles.billRowTotal}>
-              <Text style={styles.billLabelTotal}>Grand Total</Text>
-              <Text style={styles.billValueTotal}>₹{Math.round(finalTotalAmount)}</Text>
+            {/* Ticket Cut / Receipt Wavy Edge */}
+            <View style={styles.receiptJaggedEdgeContainer}>
+              {Array.from({ length: 50 }).map((_, i) => (
+                <View key={i} style={styles.jaggedTooth} />
+              ))}
             </View>
           </View>
         </View>
@@ -533,9 +598,10 @@ const styles = StyleSheet.create({
     color: '#0F172A',
   },
   billDivider: {
-    height: 1,
-    backgroundColor: '#F1F5F9',
-    marginVertical: 10,
+    borderBottomWidth: 1.5,
+    borderBottomColor: '#E2E8F0',
+    borderStyle: 'dashed',
+    marginVertical: 12,
   },
   billRowTotal: {
     flexDirection: 'row',
@@ -598,5 +664,39 @@ const styles = StyleSheet.create({
     fontSize: moderateScale(11),
     fontFamily: fonts.medium,
     marginBottom: 2,
+  },
+  receiptContainer: {
+    shadowColor: '#64748B',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.02,
+    shadowRadius: 6,
+    elevation: 1.5,
+    backgroundColor: 'transparent',
+  },
+  receiptContent: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
+    borderBottomWidth: 0,
+    padding: 16,
+    paddingBottom: 24,
+  },
+  receiptJaggedEdgeContainer: {
+    flexDirection: 'row',
+    height: 8,
+    overflow: 'hidden',
+    marginTop: -1,
+  },
+  jaggedTooth: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
+    marginTop: -6,
+    marginRight: -2,
   },
 });

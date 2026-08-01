@@ -13,6 +13,7 @@ import {
   BagTabIcon,
   ProfileTabIcon,
 } from '../components/icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import colors from '../theme/colors';
 import fonts from '../theme/typography';
 
@@ -51,6 +52,7 @@ const ProfileTabBarIcon = ({ color, size, focused }) => (
 
 export default function BottomTabNavigator() {
   const cartTotalQuantity = useSelector(selectCartTotalQuantity);
+  const insets = useSafeAreaInsets();
 
   return (
     <Tab.Navigator
@@ -64,8 +66,10 @@ export default function BottomTabNavigator() {
           borderTopRightRadius: 20,
           borderTopWidth: 1,
           borderTopColor: '#E2E8F0',
-          height: 76,
-          paddingBottom: 12,
+          height: 76 + insets.bottom,
+          paddingBottom: 12 + insets.bottom,
+          paddingLeft: insets.left,
+          paddingRight: insets.right,
           paddingTop: 8,
           shadowColor: '#000',
           shadowOffset: { width: 0, height: -4 },

@@ -32,6 +32,8 @@ import {
   Star,
   Heart,
   X,
+  Sparkles,
+  Gem,
 } from 'lucide-react-native';
 import { useIsFocused } from '@react-navigation/native';
 import { useDispatch, useSelector } from 'react-redux';
@@ -57,7 +59,7 @@ const DEALS_SNAP_INTERVAL = (DEAL_CARD_WIDTH + DEALS_GAP) * 2;
 function CategorySkeleton() {
   return (
     <View style={{ alignItems: 'center' }}>
-      <Skeleton width={106} height={106} radius={22} />
+      <Skeleton width={84} height={84} radius={42} />
       <Skeleton width={60} height={10} radius={4} style={{ marginTop: 8 }} />
     </View>
   );
@@ -134,11 +136,10 @@ const gridStyles = StyleSheet.create({
 
 // ─── Data ──────────────────────────────────────────────────────────────────────
 const DEAL_CHIPS = [
-  { id: '1', title: 'Lightning\nDeals', Icon: Zap, iconColor: '#EAB308', iconBg: '#FEF9C3' },
-  { id: '2', title: 'Monsoon\nStore', Icon: Umbrella, iconColor: '#EC4899', iconBg: '#FCE7F3' },
-  { id: '3', title: 'Free Gift\nInside', Icon: Gift, iconColor: '#EF4444', iconBg: '#FEE2E2' },
-  { id: '4', title: 'Bestsellers\nof the Season', Icon: Award, iconColor: '#06B6D4', iconBg: '#ECFEFF' },
-  { id: '5', title: 'Super\nSavers', Icon: Percent, iconColor: '#8B5CF6', iconBg: '#F3E8FF' },
+  { id: '1', title: 'Lightning\nDeals', image: require('../../assets/lightning_deals.png') },
+  { id: '2', title: 'Monsoon\nSale', image: require('../../assets/monsoon_sale.png') },
+  { id: '4', title: 'Bestsellers\nof the Season', image: require('../../assets/best_seller.png') },
+  { id: '5', title: 'Super\nSavers', image: require('../../assets/super_saver.png') },
 ];
 
 const SEARCH_SUGGESTIONS = [
@@ -161,8 +162,15 @@ const CATEGORIES = [
 
 const FALLBACK_BANNERS = [
   { id: 'fallback-1', image: require('../../assets/luxury_banner.png') },
-  { id: 'fallback-2', image: require('../../assets/luxury_banner_3.png') },
+  { id: 'fallback-2', image: require('../../assets/glow_banner_products.png') },
   { id: 'fallback-3', image: require('../../assets/luxury_banner_6.png') },
+];
+
+const BUDGET_STORES = [
+  { id: 'b1', title: 'Under ₹299', subtitle: 'Everyday Essentials', maxPrice: 299, colors: ['#ECFDF5', '#D1FAE5'], accent: '#059669', priceText: '₹299', badge: 'BEST SELLER', image: require('../../assets/under_299.png') },
+  { id: 'b2', title: 'Under ₹499', subtitle: 'Trending Skincare', maxPrice: 499, colors: ['#FFF5F5', '#FED7D7'], accent: '#E53E3E', priceText: '₹499', badge: 'POPULAR', image: require('../../assets/under_499.png') },
+  { id: 'b3', title: 'Under ₹699', subtitle: 'Self-Care Treats', maxPrice: 699, colors: ['#EEF2FF', '#E0E7FF'], accent: '#4F46E5', priceText: '₹699', badge: 'RECOMMENDED', image: require('../../assets/under_699.png') },
+  { id: 'b4', title: 'Under ₹999', subtitle: 'Luxury Indulgence', maxPrice: 999, colors: ['#FFFBEB', '#FEF3C7'], accent: '#D97706', priceText: '₹999', badge: 'PREMIUM', image: require('../../assets/under_999.png') },
 ];
 
 export default function HomeScreen({ navigation }) {
@@ -330,14 +338,51 @@ export default function HomeScreen({ navigation }) {
             horizontal
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.dealChipsScroll}>
-            {DEAL_CHIPS.map((chip) => (
-              <TouchableOpacity key={chip.id} style={styles.dealChipCard} activeOpacity={0.8}>
-                <View style={[styles.chipIconContainer, { backgroundColor: chip.iconBg }]}>
-                  <chip.Icon size={22} color={chip.iconColor} />
-                </View>
-                <Text style={styles.dealChipTitle}>{chip.title}</Text>
-              </TouchableOpacity>
-            ))}
+            {DEAL_CHIPS.map((chip) => {
+              const hasImage = !!chip.image;
+              return (
+                <TouchableOpacity
+                  key={chip.id}
+                  style={hasImage ? styles.dealChipCardImageOnly : styles.dealChipCard}
+                  activeOpacity={0.85}
+                  onPress={() => {
+                    let filterType = '';
+                    let headerTitle = '';
+                    if (chip.id === '1') {
+                      filterType = 'lightning';
+                      headerTitle = 'Lightning Deals';
+                    } else if (chip.id === '2') {
+                      filterType = 'monsoon';
+                      headerTitle = 'Monsoon Sale';
+                    } else if (chip.id === '3') {
+                      filterType = 'freegift';
+                      headerTitle = 'Free Gift Inside';
+                    } else if (chip.id === '4') {
+                      filterType = 'bestseller';
+                      headerTitle = 'Bestsellers of the Season';
+                    } else if (chip.id === '5') {
+                      filterType = 'supersaver';
+                      headerTitle = 'Super Savers';
+                    }
+                    navigation.navigate('Products', { filterType, headerTitle });
+                  }}>
+                  {hasImage ? (
+                    <Image
+                      source={chip.image}
+                      style={styles.dealChipFullImage}
+                      resizeMode="cover"
+                    />
+                  ) : (
+                    <>
+                      <View style={[styles.chipIconContainer, { backgroundColor: chip.iconBg }]}>
+                        <chip.Icon size={22} color={chip.iconColor} />
+                      </View>
+                      <Text style={styles.dealChipTitle}>{chip.title}</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              );
+            })}
           </ScrollView>
         </GridBackground>
 
@@ -375,6 +420,7 @@ export default function HomeScreen({ navigation }) {
                       }}>
                       <Image
                         source={imageSource}
+                        defaultSource={require('../../assets/dummy_product.png')}
                         style={styles.luxuryBannerImage}
                         resizeMode="cover"
                       />
@@ -433,12 +479,70 @@ export default function HomeScreen({ navigation }) {
                       style={styles.categoryItem}
                       activeOpacity={0.85}
                       onPress={() => navigation.navigate('Products', { categoryId: cat._id, categoryName: cat.name })}>
-                      <Image source={imageSource} style={styles.categoryItemImage} />
+                      <Image source={imageSource} defaultSource={require('../../assets/dummy_product.png')} style={styles.categoryItemImage} />
                       <Text style={styles.categoryItemLabel}>{cat.name}</Text>
                     </TouchableOpacity>
                   );
                 })
               )}
+            </ScrollView>
+          </View>
+
+          {/* ── Budget Beauty Store Section ── */}
+          <View style={styles.budgetSection}>
+            <View style={styles.budgetHeader}>
+              <Text style={styles.budgetTitle}>Budget Beauty Store</Text>
+              <Text style={styles.budgetSubtitle}>Premium beauty for every pocket</Text>
+            </View>
+
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.budgetScroll}>
+              {BUDGET_STORES.map((store) => {
+                return (
+                  <TouchableOpacity
+                    key={store.id}
+                    activeOpacity={0.85}
+                    onPress={() =>
+                      navigation.navigate('Products', {
+                        maxPrice: store.maxPrice,
+                        headerTitle: `${store.title} Store`,
+                      })
+                    }>
+                    {store.image ? (
+                      <View style={styles.budgetCardImageWrapper}>
+                        <Image
+                          source={store.image}
+                          style={styles.budgetCardImage}
+                          resizeMode="contain"
+                        />
+                      </View>
+                    ) : (
+                      <LinearGradient
+                        colors={store.colors}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                        style={styles.budgetCard}>
+                        <View style={styles.budgetCardHeader}>
+                          <View style={[styles.budgetBadgeContainer, { backgroundColor: `${store.accent}15` }]}>
+                            <Text style={[styles.budgetBadgeText, { color: store.accent }]}>{store.badge}</Text>
+                          </View>
+                        </View>
+                        
+                        <View style={styles.budgetCardPriceContainer}>
+                          <Text style={[styles.budgetCardPriceText, { color: store.accent }]}>{store.priceText}</Text>
+                        </View>
+
+                        <View style={styles.budgetCardBody}>
+                          <Text style={styles.budgetCardTitle}>{store.title}</Text>
+                          <Text style={styles.budgetCardSubtitle}>{store.subtitle}</Text>
+                        </View>
+                      </LinearGradient>
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
             </ScrollView>
           </View>
 
@@ -538,6 +642,7 @@ export default function HomeScreen({ navigation }) {
                         )}
                         <Image
                           source={imageSource}
+                          defaultSource={require('../../assets/dummy_product.png')}
                           style={styles.productImage}
                           resizeMode="cover"
                         />
@@ -639,25 +744,52 @@ const styles = StyleSheet.create({
     backgroundColor: '#F8FAFC',
     borderWidth: 1,
     borderColor: '#E2E8F0',
-    borderRadius: 12,
-    minHeight: moderateScale(50),
+    borderRadius: 14,
+    minHeight: moderateScale(48),
     paddingHorizontal: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.04,
-    shadowRadius: 4,
-    elevation: 1,
   },
   searchIcon: { marginRight: 10 },
   searchPlaceholderText: { flex: 1, fontSize: moderateScale(14), fontFamily: fonts.medium, color: '#94A3B8' },
   scrollContent: { paddingBottom: 24 },
-  saleBannerContainer: { margin: 16, borderRadius: 16, overflow: 'hidden', height: 180, backgroundColor: '#F3E8FF', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 3 },
+  saleBannerContainer: { margin: 16, borderRadius: 18, overflow: 'hidden', height: 180, backgroundColor: '#F3E8FF' },
   saleBannerImage: { width: '100%', height: '100%' },
   dealChipsScroll: { paddingHorizontal: 16, gap: 12, paddingBottom: 16 },
-  dealChipCard: { width: 90, backgroundColor: '#FFFFFF', borderRadius: 12, borderWidth: 1, borderColor: '#E2E8F0', padding: 10, alignItems: 'center' },
-  chipIconContainer: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', marginBottom: 8 },
-  dealChipTitle: { fontSize: moderateScale(9), fontFamily: fonts.medium, color: '#334155', textAlign: 'center', lineHeight: moderateScale(12) },
-  luxuryBanner: { marginHorizontal: 16, borderRadius: 16, backgroundColor: '#E4E4E1', height: 180, position: 'relative', overflow: 'hidden' },
+  dealChipCard: {
+    width: 115,
+    height: 115,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    paddingTop: 12,
+    paddingBottom: 8,
+    paddingHorizontal: 6,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  dealChipCardImageOnly: {
+    width: 115,
+    height: 115,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    overflow: 'hidden',
+  },
+  dealChipFullImage: {
+    width: '100%',
+    height: '100%',
+  },
+  chipIconContainer: {
+    width: 56,
+    height: 56,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  dealChipTitle: { fontSize: moderateScale(9.5), fontFamily: fonts.medium, color: '#334155', textAlign: 'center', lineHeight: moderateScale(12) },
+  luxuryBanner: { marginHorizontal: 16, borderRadius: 18, backgroundColor: '#E4E4E1', height: 180, position: 'relative', overflow: 'hidden' },
   luxuryBannerImage: { width: BANNER_WIDTH, height: '100%' },
   luxuryBannerDots: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 6, marginTop: 12 },
   luxuryDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#CBD5E1' },
@@ -667,9 +799,80 @@ const styles = StyleSheet.create({
   categoriesTitle: { fontSize: moderateScale(18), fontFamily: fonts.big, color: '#000000' },
   categoriesScroll: { paddingHorizontal: 16, gap: 16, paddingBottom: 16 },
   categoryItem: { alignItems: 'center' },
-  categoryItemImage: { width: 106, height: 106, borderRadius: 22 },
+  categoryItemImage: {
+    width: 84,
+    height: 84,
+    borderRadius: 42,
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    backgroundColor: '#F8FAFC',
+  },
   categoryItemLabel: { marginTop: 8, fontSize: moderateScale(12), fontFamily: fonts.medium, color: '#1E1B4B', textAlign: 'center' },
   categoriesLoadingContainer: { height: 100, width: BANNER_WIDTH, alignItems: 'center', justifyContent: 'center' },
+  
+  /* Budget Beauty Store Section Styles */
+  budgetSection: { marginTop: 24 },
+  budgetHeader: { paddingHorizontal: 16, marginBottom: 12 },
+  budgetTitle: { fontSize: moderateScale(18), fontFamily: fonts.big, color: '#000000' },
+  budgetSubtitle: { fontSize: moderateScale(12), fontFamily: fonts.medium, color: '#64748B', marginTop: 2 },
+  budgetScroll: { paddingHorizontal: 16, gap: 12, paddingBottom: 16 },
+  budgetCard: {
+    width: 140,
+    height: 155,
+    borderRadius: 22,
+    padding: 14,
+    justifyContent: 'space-between',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.4)',
+  },
+  budgetCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'flex-start',
+    alignItems: 'center',
+  },
+  budgetBadgeContainer: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  budgetBadgeText: {
+    fontSize: moderateScale(8.5),
+    fontFamily: fonts.big,
+    letterSpacing: 0.3,
+  },
+  budgetCardPriceContainer: {
+    alignItems: 'center',
+    marginVertical: 2,
+  },
+  budgetCardPriceText: {
+    fontSize: moderateScale(28),
+    fontFamily: fonts.big,
+  },
+  budgetCardBody: {
+    marginTop: 2,
+  },
+  budgetCardTitle: {
+    fontSize: moderateScale(13.5),
+    fontFamily: fonts.big,
+    color: '#1A1C1E',
+  },
+  budgetCardSubtitle: {
+    fontSize: moderateScale(10),
+    fontFamily: fonts.medium,
+    color: '#64748B',
+    marginTop: 2,
+  },
+  budgetCardImageWrapper: {
+    width: 140,
+    height: 155,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  budgetCardImage: {
+    width: '100%',
+    height: '100%',
+  },
+
   /* Deals Of The Day Section (LinearGradient Background) */
   dealsLinearSection: {
     marginTop: 24,
@@ -730,10 +933,10 @@ const styles = StyleSheet.create({
   swiperProductCard: {
     width: DEAL_CARD_WIDTH,
     backgroundColor: '#FFFFFF',
-    borderRadius: 12,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: '#F1F5F9',
-    padding: 8,
+    padding: 10,
   },
   imageContainer: {
     width: '100%',
@@ -753,11 +956,6 @@ const styles = StyleSheet.create({
     paddingVertical: 2.5,
     paddingHorizontal: 5.5,
     zIndex: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-    elevation: 3,
   },
   gradientBadgeText: {
     color: '#FFFFFF',
@@ -842,13 +1040,13 @@ const styles = StyleSheet.create({
     fontFamily: fonts.big,
   },
   addToBagButton: {
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: colors.primary,
-    borderRadius: 8,
-    paddingVertical: 8,
+    borderRadius: 10,
+    paddingVertical: 9,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 10,
+    marginTop: 12,
     backgroundColor: '#FFFFFF',
   },
   addToBagText: {

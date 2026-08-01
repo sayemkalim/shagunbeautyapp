@@ -15,15 +15,10 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   ChevronLeft,
-  Star,
   ArrowUpDown,
-  Users,
-  Award,
-  SlidersHorizontal,
   Search,
   X,
   Tag,
-  ShoppingBag,
   Handbag,
 } from 'lucide-react-native';
 
@@ -51,7 +46,7 @@ const SORT_OPTIONS = [
 ];
 
 export default function ProductsScreen({ route, navigation }) {
-  const { categoryId, categoryName, brandId, brandName, headerTitle } = route.params || {};
+  const { categoryId, categoryName, brandId, brandName, headerTitle, filterType, minPrice, maxPrice } = route.params || {};
   const screenTitle = headerTitle || brandName || categoryName || 'Products';
   
   // Sheet state: null | 'sort' | 'brand' | 'gender' | 'filters'
@@ -171,14 +166,75 @@ export default function ProductsScreen({ route, navigation }) {
   const processedProducts = useMemo(() => {
     let result = [...products];
 
+    // Deal chips filtering
+    if (filterType) {
+      if (filterType === 'bestseller') {
+        result = result.filter(
+          (p) => p.is_best_seller === true || p.isBestSeller === true || p.is_bestseller === true || p.tag === 'bestseller'
+        );
+      } else if (filterType === 'supersaver') {
+        result = result.filter((p) => {
+          const original = p.price || 0;
+          const sell = p.discounted_price || original;
+          const off = original > 0 ? Math.round(((original - sell) / original) * 100) : 0;
+          return off >= 20;
+        });
+      } else if (filterType === 'lightning') {
+        result = result.filter((p) => {
+          const original = p.price || 0;
+          const sell = p.discounted_price || original;
+          const off = original > 0 ? Math.round(((original - sell) / original) * 100) : 0;
+          return off >= 20 || p.is_lightning_deal === true;
+        });
+      } else if (filterType === 'monsoon') {
+        result = result.filter((p) => {
+          const nameLower = (p.name || '').toLowerCase();
+          const tags = Array.isArray(p.tags) ? p.tags.map(t => String(t).toLowerCase()) : [];
+          return (
+            nameLower.includes('monsoon') ||
+            nameLower.includes('serum') ||
+            nameLower.includes('oil') ||
+            nameLower.includes('wash') ||
+            nameLower.includes('cream') ||
+            tags.includes('monsoon') ||
+            tags.includes('skincare')
+          );
+        });
+      } else if (filterType === 'freegift') {
+        result = result.filter((p) => {
+          const nameLower = (p.name || '').toLowerCase();
+          const tags = Array.isArray(p.tags) ? p.tags.map(t => String(t).toLowerCase()) : [];
+          return (
+            p.is_free_gift === true ||
+            p.price > 400 ||
+            tags.includes('gift') ||
+            nameLower.includes('gift')
+          );
+        });
+      }
+    }
+
     // Brand filtering
     const activeBrandIds = Object.keys(selectedBrands).filter((id) => selectedBrands[id]);
     if (activeBrandIds.length > 0) {
       result = result.filter((p) => {
-        // If product has brand object, filter by brand._id or brand name
         const pBrandId = typeof p.brand === 'object' ? p.brand?._id : p.brand;
         const pBrandName = typeof p.brand === 'object' ? p.brand?.name : p.brand;
         return activeBrandIds.includes(pBrandId) || activeBrandIds.includes(pBrandName);
+      });
+    }
+
+    // Price range filtering
+    if (minPrice !== undefined) {
+      result = result.filter((p) => {
+        const finalPrice = p.discounted_price || p.price || 0;
+        return finalPrice >= minPrice;
+      });
+    }
+    if (maxPrice !== undefined) {
+      result = result.filter((p) => {
+        const finalPrice = p.discounted_price || p.price || 0;
+        return finalPrice <= maxPrice;
       });
     }
 
@@ -196,7 +252,7 @@ export default function ProductsScreen({ route, navigation }) {
     }
 
     return result;
-  }, [products, selectedBrands, sortBy]);
+  }, [products, selectedBrands, sortBy, filterType, minPrice, maxPrice]);
 
   // Check if all filtered brands are selected
   const allBrandsSelected = useMemo(() => {
@@ -298,7 +354,12 @@ export default function ProductsScreen({ route, navigation }) {
               <Text style={styles.gradientBadgeText}>BESTSELLER</Text>
             </LinearGradient>
           )}
-          <Image source={imageSource} style={styles.productImage} resizeMode="cover" />
+          <Image
+            source={imageSource}
+            defaultSource={require('../../assets/dummy_product.png')}
+            style={styles.productImage}
+            resizeMode="cover"
+          />
         </View>
 
         <View style={styles.detailsContainer}>

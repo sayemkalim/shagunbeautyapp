@@ -352,7 +352,12 @@ export default function SearchScreen({ navigation }) {
               <Text style={styles.gradientBadgeText}>BESTSELLER</Text>
             </LinearGradient>
           )}
-          <Image source={imageSource} style={styles.productImage} resizeMode="cover" />
+          <Image
+            source={imageSource}
+            defaultSource={require('../../assets/dummy_product.png')}
+            style={styles.productImage}
+            resizeMode="cover"
+          />
         </View>
 
         <View style={styles.detailsContainer}>
