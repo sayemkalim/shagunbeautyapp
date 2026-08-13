@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
   ActivityIndicator,
   Dimensions,
   Image,
-  LayoutAnimation,
   Platform,
+  RefreshControl,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -37,6 +37,7 @@ import {
 } from 'lucide-react-native';
 import { useIsFocused } from '@react-navigation/native';
 import { useDispatch, useSelector } from 'react-redux';
+import { useQueryClient } from '@tanstack/react-query';
 import BottomSheetModal from '../components/BottomSheetModal';
 import { useCategories } from '../hooks/useCategories';
 import { useProducts } from '../hooks/useProducts';
@@ -62,6 +63,43 @@ function CategorySkeleton() {
       <Skeleton width={84} height={84} radius={42} />
       <Skeleton width={60} height={10} radius={4} style={{ marginTop: 8 }} />
     </View>
+  );
+}
+
+function RemoteImage({ source, defaultSource, style, resizeMode = 'cover', radius = 0 }) {
+  const [loaded, setLoaded] = useState(false);
+  const isLocalSource = typeof source === 'number';
+
+  return (
+    <View style={[style, { overflow: 'hidden' }]}>
+      {!loaded && !isLocalSource && (
+        <Skeleton style={StyleSheet.absoluteFill} radius={radius} fillParent />
+      )}
+      <Image
+        source={source}
+        defaultSource={defaultSource}
+        style={StyleSheet.absoluteFill}
+        resizeMode={resizeMode}
+        onLoadEnd={() => setLoaded(true)}
+      />
+    </View>
+  );
+}
+
+function SearchHintText() {
+  const [searchHint, setSearchHint] = useState(SEARCH_SUGGESTIONS[0]);
+
+  useEffect(() => {
+    let index = 0;
+    const interval = setInterval(() => {
+      index = (index + 1) % SEARCH_SUGGESTIONS.length;
+      setSearchHint(SEARCH_SUGGESTIONS[index]);
+    }, 2000);
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <Text numberOfLines={1} style={styles.searchPlaceholderText}>{searchHint}</Text>
   );
 }
 
@@ -176,17 +214,118 @@ const BUDGET_STORES = [
 export default function HomeScreen({ navigation }) {
   const isFocused = useIsFocused();
   const dispatch = useDispatch();
+  const queryClient = useQueryClient();
   const [activeSlide, setActiveSlide] = useState(0);
   const [dealsActivePage, setDealsActivePage] = useState(0);
-  const [searchHint, setSearchHint] = useState(SEARCH_SUGGESTIONS[0]);
   const { data: categories = [], isLoading: categoriesLoading } = useCategories();
   const { data: realProducts = [], isLoading: productsLoading } = useProducts({ per_page: 12 });
   const { data: brands = [] } = useBrands();
   const { data: banners = [], isLoading: bannersLoading } = useBanners();
-  const bannerSlides =
-    banners.length > 0
-      ? [...banners].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
-      : FALLBACK_BANNERS;
+
+  const [refreshing, setRefreshing] = useState(false);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['categories'] }),
+        queryClient.invalidateQueries({ queryKey: ['products'] }),
+        queryClient.invalidateQueries({ queryKey: ['brands'] }),
+        queryClient.invalidateQueries({ queryKey: ['banners'] }),
+      ]);
+    } catch (error) {
+      console.error('Home refresh error:', error);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [queryClient]);
+  const bannerSlides = useMemo(
+    () =>
+      banners.length > 0
+        ? [...banners].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+        : FALLBACK_BANNERS,
+    [banners]
+  );
+  const bannerItems = useMemo(
+    () =>
+      bannerSlides.map((banner) => ({
+        banner,
+        key: banner._id || banner.id,
+        imageSource: banner.banner_url
+          ? { uri: banner.banner_url, cache: 'force-cache' }
+          : banner.image,
+      })),
+    [bannerSlides]
+  );
+  const categoryItems = useMemo(
+    () =>
+      categories.map((cat) => ({
+        cat,
+        imageSource: cat.images?.[0]
+          ? { uri: cat.images[0], cache: 'force-cache' }
+          : require('../../assets/dummy_product.png'),
+      })),
+    [categories]
+  );
+  const dealsProducts = useMemo(
+    () =>
+      realProducts.map((item) => {
+        const itemId = item._id || item.id;
+        const originalPrice = item.price || 0;
+        const finalPrice = item.discounted_price || item.price || 0;
+        const discount =
+          originalPrice > finalPrice
+            ? Math.round(((originalPrice - finalPrice) / originalPrice) * 100)
+            : 0;
+        const imageSource = item.images?.[0]
+          ? { uri: item.images[0], cache: 'force-cache' }
+          : item.image
+          ? { uri: item.image, cache: 'force-cache' }
+          : require('../../assets/dummy_product.png');
+
+        let brandNameStr = '';
+        if (typeof item.brand === 'object' && item.brand?.name) {
+          brandNameStr = item.brand.name;
+        } else if (item.brandName) {
+          brandNameStr = item.brandName;
+        } else if (typeof item.brand === 'string') {
+          if (/^[0-9a-fA-F]{24}$/.test(item.brand)) {
+            const found = brands.find((b) => b._id === item.brand);
+            brandNameStr = found ? found.name : '';
+          } else {
+            brandNameStr = item.brand;
+          }
+        }
+
+        const titleText = brandNameStr
+          ? item.name.toLowerCase().startsWith(brandNameStr.toLowerCase())
+            ? item.name.slice(brandNameStr.length).trim()
+            : item.name
+          : item.name;
+
+        return { item, itemId, originalPrice, finalPrice, discount, imageSource, brandNameStr, titleText };
+      }),
+    [realProducts, brands]
+  );
+
+  useEffect(() => {
+    bannerItems.forEach(({ imageSource }) => {
+      if (imageSource?.uri) Image.prefetch(imageSource.uri);
+    });
+  }, [bannerItems]);
+
+  useEffect(() => {
+    categoryItems.forEach(({ imageSource }) => {
+      if (imageSource?.uri) Image.prefetch(imageSource.uri);
+    });
+  }, [categoryItems]);
+
+  useEffect(() => {
+    dealsProducts.forEach(({ imageSource }) => {
+      if (imageSource?.uri) Image.prefetch(imageSource.uri);
+    });
+  }, [dealsProducts]);
+
   const sliderRef = useRef(null);
 
   const cartItems = useSelector((state) => state.cart.items || []);
@@ -260,9 +399,6 @@ export default function HomeScreen({ navigation }) {
     setDealsActivePage(pageIndex);
   };
 
-  useEffect(() => {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-  }, [activeSlide]);
 
   useEffect(() => {
     if (bannerSlides.length < 2) return undefined;
@@ -277,15 +413,6 @@ export default function HomeScreen({ navigation }) {
 
     return () => clearInterval(timer);
   }, [activeSlide, bannerSlides.length]);
-
-  useEffect(() => {
-    let index = 0;
-    const interval = setInterval(() => {
-      index = (index + 1) % SEARCH_SUGGESTIONS.length;
-      setSearchHint(SEARCH_SUGGESTIONS[index]);
-    }, 2000);
-    return () => clearInterval(interval);
-  }, []);
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
@@ -312,7 +439,7 @@ export default function HomeScreen({ navigation }) {
             activeOpacity={0.8}
             onPress={() => navigation.navigate('Search')}>
             <Search size={20} color="#64748B" style={styles.searchIcon} />
-            <Text numberOfLines={1} style={styles.searchPlaceholderText}>{searchHint}</Text>
+            <SearchHintText />
           </TouchableOpacity>
         </View>
       </GridBackground>
@@ -320,7 +447,15 @@ export default function HomeScreen({ navigation }) {
       <ScrollView
         style={styles.scrollView}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}>
+        contentContainerStyle={styles.scrollContent}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={[colors.primary]}
+            tintColor={colors.primary}
+          />
+        }>
 
         {/* ── Top Lavender Grid Section ── */}
         <GridBackground style={styles.topLavenderSection}>
@@ -390,7 +525,7 @@ export default function HomeScreen({ navigation }) {
         <View style={styles.bottomWhiteSection}>
           {/* New Luxury Ritual Banner Slider */}
           <View style={styles.luxuryBanner}>
-            {bannersLoading ? (
+            {(bannersLoading || refreshing) ? (
               <Skeleton width={BANNER_WIDTH} height={180} radius={16} />
             ) : (
               <ScrollView
@@ -400,14 +535,10 @@ export default function HomeScreen({ navigation }) {
                 showsHorizontalScrollIndicator={false}
                 onScroll={handleScroll}
                 scrollEventThrottle={16}>
-                {bannerSlides.map((banner) => {
-                  const imageSource = banner.banner_url
-                    ? { uri: banner.banner_url }
-                    : banner.image;
-
+                {bannerItems.map(({ banner, key, imageSource }) => {
                   return (
                     <TouchableOpacity
-                      key={banner._id || banner.id}
+                      key={key}
                       activeOpacity={0.95}
                       style={{ width: BANNER_WIDTH, height: 180 }}
                       onPress={() => {
@@ -418,7 +549,7 @@ export default function HomeScreen({ navigation }) {
                           });
                         }
                       }}>
-                      <Image
+                      <RemoteImage
                         source={imageSource}
                         defaultSource={require('../../assets/dummy_product.png')}
                         style={styles.luxuryBannerImage}
@@ -453,7 +584,7 @@ export default function HomeScreen({ navigation }) {
               horizontal
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.categoriesScroll}>
-              {categoriesLoading ? (
+              {(categoriesLoading || refreshing) ? (
                 Array.from({ length: 6 }).map((_, i) => (
                   <View key={i} style={styles.categoryItem}>
                     <CategorySkeleton />
@@ -471,15 +602,14 @@ export default function HomeScreen({ navigation }) {
                   </TouchableOpacity>
                 ))
               ) : (
-                categories.map((cat) => {
-                  const imageSource = cat.images?.[0] ? { uri: cat.images[0] } : require('../../assets/dummy_product.png');
+                categoryItems.map(({ cat, imageSource }) => {
                   return (
                     <TouchableOpacity
                       key={cat._id}
                       style={styles.categoryItem}
                       activeOpacity={0.85}
                       onPress={() => navigation.navigate('Products', { categoryId: cat._id, categoryName: cat.name })}>
-                      <Image source={imageSource} defaultSource={require('../../assets/dummy_product.png')} style={styles.categoryItemImage} />
+                      <RemoteImage source={imageSource} defaultSource={require('../../assets/dummy_product.png')} style={styles.categoryItemImage} radius={42} />
                       <Text style={styles.categoryItemLabel}>{cat.name}</Text>
                     </TouchableOpacity>
                   );
@@ -558,7 +688,7 @@ export default function HomeScreen({ navigation }) {
               </View>
             </View>
 
-            {productsLoading ? (
+            {(productsLoading || refreshing) ? (
               <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
@@ -580,43 +710,9 @@ export default function HomeScreen({ navigation }) {
                 onScroll={handleDealsScroll}
                 scrollEventThrottle={16}
                 contentContainerStyle={styles.dealsSwiperContent}>
-                {realProducts.map((item) => {
-                  const itemId = item._id || item.id;
+                {dealsProducts.map(({ item, itemId, originalPrice, finalPrice, discount, imageSource, brandNameStr, titleText }) => {
                   const isInCart = cartItems.some((ci) => (ci.productId || ci.id) === itemId);
                   const isLoadingThis = loadingProductId === itemId;
-
-                  const originalPrice = item.price || 0;
-                  const finalPrice = item.discounted_price || item.price || 0;
-                  const discount =
-                    originalPrice > finalPrice
-                      ? Math.round(((originalPrice - finalPrice) / originalPrice) * 100)
-                      : 0;
-
-                  const imageSource = item.images?.[0]
-                    ? { uri: item.images[0] }
-                    : item.image
-                    ? { uri: item.image }
-                    : require('../../assets/dummy_product.png');
-
-                  let brandNameStr = '';
-                  if (typeof item.brand === 'object' && item.brand?.name) {
-                    brandNameStr = item.brand.name;
-                  } else if (item.brandName) {
-                    brandNameStr = item.brandName;
-                  } else if (typeof item.brand === 'string') {
-                    if (/^[0-9a-fA-F]{24}$/.test(item.brand)) {
-                      const found = brands.find((b) => b._id === item.brand);
-                      brandNameStr = found ? found.name : '';
-                    } else {
-                      brandNameStr = item.brand;
-                    }
-                  }
-
-                  const titleText = brandNameStr
-                    ? item.name.toLowerCase().startsWith(brandNameStr.toLowerCase())
-                      ? item.name.slice(brandNameStr.length).trim()
-                      : item.name
-                    : item.name;
 
                   return (
                     <TouchableOpacity
@@ -640,7 +736,7 @@ export default function HomeScreen({ navigation }) {
                             <Text style={styles.gradientBadgeText}>BESTSELLER</Text>
                           </LinearGradient>
                         )}
-                        <Image
+                        <RemoteImage
                           source={imageSource}
                           defaultSource={require('../../assets/dummy_product.png')}
                           style={styles.productImage}

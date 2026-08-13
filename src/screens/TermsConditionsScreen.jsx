@@ -42,7 +42,7 @@ export default function TermsConditionsScreen({ navigation }) {
       icon: <ShieldAlert size={20} color={colors.primary} />,
       title: '4. Limitation of Liability & Returns',
       content:
-        'Products sold on this platform are for retail or professional salon distribution. We make every effort to verify product quality, but we disclaim any warranties, express or implied, regarding commercial viability. Returns and refunds are strictly governed by our Refund & Cancellation policies. Shagun Beauty holds no liability for indirect or consequential damages.',
+        'Products sold on this platform are for retail or professional salon distribution. We make every effort to verify product quality, but we disclaim any warranties, express or implied, regarding commercial viability. Returns and refunds are strictly governed by our Refund & Cancellation policies. Please note that to claim a return or replacement for any damaged or missing items, customers must record a continuous, unedited unboxing video of the parcel immediately upon delivery. Return requests without video proof will not be accepted. Shagun Beauty holds no liability for indirect or consequential damages.',
     },
     {
       id: 5,
@@ -78,7 +78,7 @@ export default function TermsConditionsScreen({ navigation }) {
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
           style={styles.introCard}>
-          <Text style={styles.introTitle}>Shagun Beauty B2B Terms of Service</Text>
+          <Text style={styles.introTitle}>Shagun Beauty Terms of Service</Text>
           <Text style={styles.introDescription}>
             Please read these terms carefully before using our mobile application. By accessing or purchasing from Shagun Beauty, you agree to be bound by these Terms of Service.
           </Text>
@@ -99,7 +99,7 @@ export default function TermsConditionsScreen({ navigation }) {
         {/* Footer legal text */}
         <View style={styles.footerContainer}>
           <Text style={styles.footerText}>
-            For any queries regarding our Terms of Service or general wholesale policies, please reach out to support@shagunbeauty.com.
+            For any queries regarding our Terms of Service or general wholesale policies, please reach out to helpshagunbeauty@gmail.com.
           </Text>
         </View>
       </ScrollView>

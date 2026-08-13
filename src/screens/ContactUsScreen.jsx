@@ -19,10 +19,11 @@ import colors from '../theme/colors';
 import fonts from '../theme/typography';
 import { moderateScale } from '../theme/responsive';
 import { submitContactQuery } from '../api/contact';
+import { WhatsappIcon } from '../components/icons';
 
-const WHATSAPP_NUMBER = '918210433552';
-const HELPLINE_NUMBER = '+918210433552';
-const EMAIL_ADDRESS = 'support@shagunbeauty.com';
+const WHATSAPP_NUMBER = '919045791373';
+const HELPLINE_NUMBER = '+919045791373';
+const EMAIL_ADDRESS = 'helpshagunbeauty@gmail.com';
 
 export default function ContactUsScreen({ navigation }) {
   const [name, setName] = useState('');
@@ -35,13 +36,13 @@ export default function ContactUsScreen({ navigation }) {
 
   const handleCall = () => {
     Linking.openURL(`tel:${HELPLINE_NUMBER}`).catch(() => {
-      Alert.alert('Error', 'Unable to initiate a call. Please dial +91 82104 33552 manually.');
+      Alert.alert('Error', 'Unable to initiate a call. Please dial +91 90457 91373 manually.');
     });
   };
 
   const handleEmail = () => {
     Linking.openURL(`mailto:${EMAIL_ADDRESS}?subject=B2B Wholesale Support Query`).catch(() => {
-      Alert.alert('Error', 'Mail app not found. Please email support@shagunbeauty.com.');
+      Alert.alert('Error', 'Mail app not found. Please email helpshagunbeauty@gmail.com.');
     });
   };
 
@@ -140,7 +141,7 @@ export default function ContactUsScreen({ navigation }) {
               activeOpacity={0.8}
               onPress={handleWhatsApp}>
               <View style={[styles.iconBox, { backgroundColor: '#DCFCE7' }]}>
-                <MessageSquare size={20} color="#15803D" />
+                <WhatsappIcon size={25} />
               </View>
               <Text style={[styles.channelName, { color: '#14532D' }]}>WhatsApp</Text>
               <Text style={styles.channelSub}>Chat Support</Text>
@@ -154,7 +155,7 @@ export default function ContactUsScreen({ navigation }) {
                 <Phone size={20} color="#1D4ED8" />
               </View>
               <Text style={[styles.channelName, { color: '#1E3A8A' }]}>Call Us</Text>
-              <Text style={styles.channelSub}>+91 82104 33552</Text>
+              <Text style={styles.channelSub}>+91 90457 91373</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -165,7 +166,7 @@ export default function ContactUsScreen({ navigation }) {
                 <Mail size={20} color="#7E22CE" />
               </View>
               <Text style={[styles.channelName, { color: '#581C87' }]}>Email</Text>
-              <Text style={styles.channelSub}>support@shagun...</Text>
+              <Text style={styles.channelSub}>helpshagunbe...</Text>
             </TouchableOpacity>
           </View>
 
@@ -241,9 +242,8 @@ export default function ContactUsScreen({ navigation }) {
               <Text style={styles.addressTitle}>Corporate Office</Text>
             </View>
             <Text style={styles.addressBody}>
-              Shagun Beauty & Cosmetics Warehouse,{'\n'}
-              Circular Road, Lalpur, Ranchi,{'\n'}
-              Jharkhand - 834001, India
+              Pachraya, Etawah,{'\n'}
+              Uttar Pradesh (U.P.) - 206001
             </Text>
             <Text style={styles.businessHours}>
               Business Hours: Mon - Sat (10:00 AM - 7:00 PM)

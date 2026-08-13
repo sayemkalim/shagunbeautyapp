@@ -14,12 +14,10 @@ import { useDispatch } from 'react-redux';
 import {
   User,
   MapPin,
-  Lock,
   ShoppingBag,
   Truck,
   HelpCircle,
   PhoneCall,
-  AlertTriangle,
   ShieldCheck,
   FileText,
   RotateCcw,
@@ -77,14 +75,14 @@ export default function SettingsScreen({ navigation }) {
         <View style={styles.userHeaderCard}>
           <View style={styles.avatarCircle}>
             <Text style={styles.avatarText}>
-              {user?.name ? user.name.substring(0, 2).toUpperCase() : 'SK'}
+              {user?.name ? user.name.substring(0, 2).toUpperCase() : 'SU'}
             </Text>
           </View>
           <View style={styles.userInfo}>
             <View style={styles.nameRow}>
-              <Text style={styles.userName}>{user?.name || 'Sayem Kalim'}</Text>
+              <Text style={styles.userName}>{user?.name || 'Shagun User'}</Text>
             </View>
-            <Text style={styles.userEmail}>{user?.email || 'sayem@shagunbeauty.com'}</Text>
+            <Text style={styles.userEmail}>{user?.email || 'helpshagunbeauty@gmail.com'}</Text>
           </View>
         </View>
 
@@ -110,7 +108,7 @@ export default function SettingsScreen({ navigation }) {
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={styles.menuItem}
+              style={[styles.menuItem, styles.noBorderItem]}
               activeOpacity={0.7}
               onPress={() => navigation.navigate('Address')}>
               <View style={styles.menuLeft}>
@@ -118,18 +116,6 @@ export default function SettingsScreen({ navigation }) {
                   <MapPin size={19} color="#1E293B" />
                 </View>
                 <Text style={styles.menuText}>Manage Address</Text>
-              </View>
-              <ChevronRight size={18} color="#CBD5E1" />
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.menuItem, styles.noBorderItem]}
-              activeOpacity={0.7}>
-              <View style={styles.menuLeft}>
-                <View style={styles.iconBox}>
-                  <Lock size={19} color="#1E293B" />
-                </View>
-                <Text style={styles.menuText}>Change Password</Text>
               </View>
               <ChevronRight size={18} color="#CBD5E1" />
             </TouchableOpacity>
@@ -159,12 +145,13 @@ export default function SettingsScreen({ navigation }) {
 
             <TouchableOpacity
               style={[styles.menuItem, styles.noBorderItem]}
-              activeOpacity={0.7}>
+              activeOpacity={0.7}
+              onPress={() => navigation.navigate('ShippingDelivery')}>
               <View style={styles.menuLeft}>
                 <View style={styles.iconBox}>
                   <Truck size={19} color="#1E293B" />
                 </View>
-                <Text style={styles.menuText}>Track Order</Text>
+                <Text style={styles.menuText}>Shipping & Delivery</Text>
               </View>
               <ChevronRight size={18} color="#CBD5E1" />
             </TouchableOpacity>
@@ -193,7 +180,7 @@ export default function SettingsScreen({ navigation }) {
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={styles.menuItem}
+              style={[styles.menuItem, styles.noBorderItem]}
               activeOpacity={0.7}
               onPress={() => navigation.navigate('ContactUs')}>
               <View style={styles.menuLeft}>
@@ -201,18 +188,6 @@ export default function SettingsScreen({ navigation }) {
                   <PhoneCall size={19} color="#1E293B" />
                 </View>
                 <Text style={styles.menuText}>Contact Us</Text>
-              </View>
-              <ChevronRight size={18} color="#CBD5E1" />
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.menuItem, styles.noBorderItem]}
-              activeOpacity={0.7}>
-              <View style={styles.menuLeft}>
-                <View style={styles.iconBox}>
-                  <AlertTriangle size={19} color="#1E293B" />
-                </View>
-                <Text style={styles.menuText}>Report a Problem</Text>
               </View>
               <ChevronRight size={18} color="#CBD5E1" />
             </TouchableOpacity>
@@ -252,24 +227,14 @@ export default function SettingsScreen({ navigation }) {
               <ChevronRight size={18} color="#CBD5E1" />
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.menuItem} activeOpacity={0.7}>
+            <TouchableOpacity 
+              style={[styles.menuItem, styles.noBorderItem]} 
+              activeOpacity={0.7}>
               <View style={styles.menuLeft}>
                 <View style={styles.iconBox}>
                   <RotateCcw size={19} color="#1E293B" />
                 </View>
                 <Text style={styles.menuText}>Refund & Cancellation</Text>
-              </View>
-              <ChevronRight size={18} color="#CBD5E1" />
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.menuItem, styles.noBorderItem]}
-              activeOpacity={0.7}>
-              <View style={styles.menuLeft}>
-                <View style={styles.iconBox}>
-                  <Truck size={19} color="#1E293B" />
-                </View>
-                <Text style={styles.menuText}>Shipping & Delivery</Text>
               </View>
               <ChevronRight size={18} color="#CBD5E1" />
             </TouchableOpacity>
@@ -292,8 +257,8 @@ export default function SettingsScreen({ navigation }) {
 
         {/* Version Footer */}
         <View style={styles.footerInfo}>
-          <Text style={styles.footerTitle}>SHAGUN BEAUTY B2B</Text>
-          <Text style={styles.footerVersion}>Version 1.2.0 • Premium Edition</Text>
+          <Text style={styles.footerTitle}>SHAGUN BEAUTY</Text>
+          <Text style={styles.footerVersion}>Version 1.2.0</Text>
         </View>
 
       </ScrollView>

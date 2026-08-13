@@ -123,7 +123,7 @@ export default function OrdersScreen({ navigation }) {
             renderItem={({ item: subItem }) => {
               const product = subItem.product || {};
               const imageSource = product.banner_image || (product.images && product.images[0])
-                ? { uri: product.banner_image || product.images[0] }
+                ? { uri: product.banner_image || product.images[0], cache: 'force-cache' }
                 : DUMMY_IMG;
               return (
                 <View style={styles.productImageWrapper}>

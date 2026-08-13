@@ -285,10 +285,20 @@ export default function ProductDetailScreen({ route, navigation }) {
     ? Math.round(((price - discountedPrice) / price) * 100)
     : 0;
 
-  // Inventory & Stock limit
+  const displayWeight = currentVariant && currentVariant.weight_in_grams !== undefined
+    ? currentVariant.weight_in_grams
+    : product?.weight_in_grams;
+
+  const displaySku = currentVariant && currentVariant.sku
+    ? currentVariant.sku
+    : product?.sku;
+
   const maxStock = useMemo(() => {
     if (currentVariant) {
       if (typeof currentVariant.inventory === 'number') return currentVariant.inventory;
+    }
+    if (product && typeof product.available_inventory === 'number') {
+      return product.available_inventory;
     }
     if (typeof product?.inventory === 'number') {
       return product.inventory;
@@ -588,7 +598,7 @@ export default function ProductDetailScreen({ route, navigation }) {
                 activeOpacity={0.9}
                 onPress={() => handleOpenImageModal(index)}>
                 <Image
-                  source={imgUri ? { uri: imgUri } : DUMMY_IMG}
+                  source={imgUri ? { uri: imgUri, cache: 'force-cache' } : DUMMY_IMG}
                   defaultSource={DUMMY_IMG}
                   style={styles.fullWidthImage}
                   resizeMode="cover"
@@ -673,14 +683,14 @@ export default function ProductDetailScreen({ route, navigation }) {
               <Tag size={18} color={colors.primary} />
               <View>
                 <Text style={styles.bulkBannerTitle}>Bulk Pricing Available</Text>
-                <Text style={styles.bulkBannerSub}>
+                {/* <Text style={styles.bulkBannerSub}>
                   {activePriceTiers.map((t) => {
                     const unitP = t.price && typeof t.price === 'object' && '$numberDecimal' in t.price
                       ? parseFloat(t.price.$numberDecimal) || 0
                       : Number(t.price) || 0;
-                    return `Buy ${t.quantity}+ @ ₹${unitP}/unit`;
+                    return `Qty ${t.quantity} @ ₹${unitP}/unit`;
                   }).join('  •  ')}
-                </Text>
+                </Text> */}
               </View>
             </View>
             <ChevronDown size={18} color={colors.primary} />
@@ -691,7 +701,7 @@ export default function ProductDetailScreen({ route, navigation }) {
         {product?.variants && product.variants.length > 0 && (
           <View style={styles.sectionContainer}>
             <Text style={styles.sectionTitle}>
-              Select Option{currentVariant?.name ? `: ${currentVariant.name}` : ''}
+              Select Option
             </Text>
             <View style={styles.variantsRow}>
               {product.variants.map((v, idx) => {
@@ -703,7 +713,7 @@ export default function ProductDetailScreen({ route, navigation }) {
                     activeOpacity={0.8}
                     onPress={() => setSelectedVariantIndex(isSelected ? null : idx)}>
                     <Text style={[styles.variantName, isSelected && styles.variantNameActive]}>
-                      {v.name || `Option ${idx + 1}`}
+                      {v.weight_in_grams ? `${v.weight_in_grams} g` : (v.name || `Option ${idx + 1}`)}
                     </Text>
                     <Text style={[styles.variantPrice, isSelected && styles.variantPriceActive]}>
                       ₹{v.discounted_price || v.price}
@@ -768,15 +778,37 @@ export default function ProductDetailScreen({ route, navigation }) {
             </View>
           </View>
 
-          <View style={styles.serviceFeatureRow}>
-            <ShieldCheck size={18} color={colors.green || '#2d6a4f'} />
-            <Text style={styles.serviceFeatureTitle}>100% Authentic Product</Text>
+          {/* New Trust Badge Row (Exact Image Clone) */}
+          <View style={styles.trustBadgeRow}>
+            <View style={styles.trustBadgeColumn}>
+              <View style={styles.sealContainer}>
+                <View style={[styles.starburstPart, { transform: [{ rotate: '0deg' }] }]} />
+                <View style={[styles.starburstPart, { transform: [{ rotate: '30deg' }] }]} />
+                <View style={[styles.starburstPart, { transform: [{ rotate: '60deg' }] }]} />
+                <View style={styles.sealInnerCircle} />
+                <View style={styles.stampPill}>
+                  <Text style={styles.stampText}>ORIGINAL</Text>
+                </View>
+              </View>
+              <Text style={styles.trustBadgeText}>Genuine{"\n"}Product</Text>
+            </View>
+
+            <View style={styles.trustBadgeColumn}>
+              <View style={styles.sealContainer}>
+                <View style={styles.ribbonTailLeft} />
+                <View style={styles.ribbonTailRight} />
+                <View style={[styles.starburstPart, { transform: [{ rotate: '0deg' }] }]} />
+                <View style={[styles.starburstPart, { transform: [{ rotate: '30deg' }] }]} />
+                <View style={[styles.starburstPart, { transform: [{ rotate: '60deg' }] }]} />
+                <View style={styles.sealInnerCircle}>
+                  <View style={styles.innerCircle}>
+                    <Check size={17} color="#FFFFFF" strokeWidth={4} />
+                  </View>
+                </View>
+              </View>
+              <Text style={styles.trustBadgeText}>Quality{"\n"}Checked</Text>
+            </View>
           </View>
-{/* 
-          <View style={styles.serviceFeatureRow}>
-            <RotateCcw size={18} color={colors.green || '#2d6a4f'} />
-            <Text style={styles.serviceFeatureTitle}>Easy Returns & Exchanges</Text>
-          </View> */}
         </View>
 
         {/* ── Product Specifications & Details (ONLY real fields) ── */}
@@ -784,9 +816,9 @@ export default function ProductDetailScreen({ route, navigation }) {
           product.small_description ||
           formattedExpiryDate ||
           product.manufacturer ||
-          product.weight_in_grams ||
+          displayWeight ||
           product.consumed_type ||
-          product.sku) && (
+          displaySku) && (
           <View style={styles.sectionContainer}>
             <TouchableOpacity
               style={styles.detailsAccordionHeader}
@@ -816,10 +848,10 @@ export default function ProductDetailScreen({ route, navigation }) {
                   </View>
                 ) : null}
 
-                {product.sku ? (
+                {displaySku ? (
                   <View style={styles.specRow}>
                     <Text style={styles.specLabel}>SKU</Text>
-                    <Text style={styles.specValue}>{product.sku}</Text>
+                    <Text style={styles.specValue}>{displaySku}</Text>
                   </View>
                 ) : null}
 
@@ -830,10 +862,10 @@ export default function ProductDetailScreen({ route, navigation }) {
                   </View>
                 ) : null}
 
-                {product.weight_in_grams ? (
+                {displayWeight ? (
                   <View style={styles.specRow}>
                     <Text style={styles.specLabel}>Weight</Text>
-                    <Text style={styles.specValue}>{product.weight_in_grams} g</Text>
+                    <Text style={styles.specValue}>{displayWeight} g</Text>
                   </View>
                 ) : null}
 
@@ -909,7 +941,7 @@ export default function ProductDetailScreen({ route, navigation }) {
               {images.map((imgUri, index) => (
                 <View key={index} style={styles.fullscreenImageSlide}>
                   <Image
-                    source={imgUri ? { uri: imgUri } : DUMMY_IMG}
+                    source={imgUri ? { uri: imgUri, cache: 'force-cache' } : DUMMY_IMG}
                     defaultSource={DUMMY_IMG}
                     style={styles.fullscreenMainImage}
                     resizeMode="contain"
@@ -951,7 +983,7 @@ export default function ProductDetailScreen({ route, navigation }) {
                       }
                     }}>
                     <Image
-                      source={imgUri ? { uri: imgUri } : DUMMY_IMG}
+                      source={imgUri ? { uri: imgUri, cache: 'force-cache' } : DUMMY_IMG}
                       defaultSource={DUMMY_IMG}
                       style={styles.thumbnailImg}
                       resizeMode="cover"
@@ -1460,31 +1492,49 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   variantCard: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 12,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    borderRadius: 14,
     borderWidth: 1.5,
-    borderColor: '#E2E8F0',
+    borderColor: '#94A3B8',
     backgroundColor: '#FFFFFF',
     alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 90,
   },
   variantCardActive: {
     borderColor: colors.primary,
-    backgroundColor: colors.primaryLight ?? '#F5F3FF',
+    backgroundColor: '#FFFFFF',
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    elevation: 3,
   },
   variantName: {
-    fontSize: moderateScale(14),
+    fontSize: moderateScale(13),
     fontFamily: fonts.big,
-    color: '#334155',
+    color: '#1E293B',
   },
   variantNameActive: {
     color: colors.primary,
   },
+  variantPriceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 4,
+  },
+  variantOriginalPrice: {
+    fontSize: moderateScale(10),
+    fontFamily: fonts.regular,
+    color: '#94A3B8',
+    textDecorationLine: 'line-through',
+  },
   variantPrice: {
     fontSize: moderateScale(12),
     fontFamily: fonts.medium,
-    color: '#64748B',
-    marginTop: 2,
+    color: '#475569',
   },
   variantPriceActive: {
     color: colors.primary,
@@ -1548,6 +1598,108 @@ const styles = StyleSheet.create({
     fontSize: moderateScale(13),
     fontFamily: fonts.medium,
     color: '#1A1C1E',
+  },
+
+  trustBadgeRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+    paddingVertical: 18,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    marginTop: 15,
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
+  },
+  trustBadgeColumn: {
+    flexDirection: 'column',
+    alignItems: 'center',
+    width: '45%',
+  },
+  sealContainer: {
+    width: 60,
+    height: 60,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  starburstPart: {
+    position: 'absolute',
+    width: 44,
+    height: 44,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: colors.primary,
+    backgroundColor: colors.primaryLight ?? '#F5F3FF',
+  },
+  sealInnerCircle: {
+    position: 'absolute',
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: colors.primaryLight ?? '#F5F3FF',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  stampPill: {
+    position: 'absolute',
+    transform: [{ rotate: '-12deg' }],
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+    borderWidth: 1.5,
+    borderRadius: 6,
+    paddingHorizontal: 7,
+    paddingVertical: 1.5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 1,
+    elevation: 1.5,
+  },
+  stampText: {
+    color: '#FFFFFF',
+    fontSize: 7.5,
+    fontFamily: fonts.big,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+  },
+  innerCircle: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: '#3B5998',
+    backgroundColor: '#3B5998',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  ribbonTailLeft: {
+    position: 'absolute',
+    bottom: 2,
+    left: 15,
+    width: 9,
+    height: 16,
+    backgroundColor: colors.primary,
+    transform: [{ rotate: '25deg' }],
+    zIndex: -1,
+  },
+  ribbonTailRight: {
+    position: 'absolute',
+    bottom: 2,
+    right: 15,
+    width: 9,
+    height: 16,
+    backgroundColor: colors.primary,
+    transform: [{ rotate: '-25deg' }],
+    zIndex: -1,
+  },
+  trustBadgeText: {
+    fontSize: moderateScale(13),
+    fontFamily: fonts.big,
+    color: colors.primary,
+    textAlign: 'center',
+    lineHeight: 16,
+    marginTop: 4,
   },
 
   detailsAccordionHeader: {

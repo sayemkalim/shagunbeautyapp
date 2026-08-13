@@ -12,9 +12,10 @@ import {
   Image,
   Animated,
   Easing,
+  TextInput,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ChevronLeft, CreditCard, Banknote, X, Smartphone, Copy, CheckCircle2, ShoppingBag, MapPin } from 'lucide-react-native';
+import { ChevronLeft, CreditCard, Banknote, X, Copy, CheckCircle2, ShoppingBag, MapPin, QrCode } from 'lucide-react-native';
 import { useSelector, useDispatch } from 'react-redux';
 import QRCode from 'react-native-qrcode-svg';
 import Clipboard from '@react-native-clipboard/clipboard';
@@ -26,8 +27,13 @@ import { moderateScale } from '../theme/responsive';
 import { getCart } from '../api/cart';
 import { createOrder } from '../api/order';
 
-const UPI_ID = '8210433552@ybl';
+const UPI_ID = '9045791373-3@ybl';
 const UPI_PAYEE_NAME = 'ShagunBeauty';
+
+const BANK_ACCOUNT_NAME = 'Shagun Beauty';
+const BANK_ACCOUNT_NUMBER = '0163002100134605';
+const BANK_IFSC_CODE = 'PUNB0016300';
+const BANK_NAME = 'Punjab National Bank';
 
 const CONFETTI_PARTICLES = [
   { dx: -50, dy: -60, color: '#FF3366', size: 8 },
@@ -52,7 +58,17 @@ export default function PaymentScreen({ navigation, route }) {
   const dispatch = useDispatch();
   const { addressId, address, couponCode, totalAmount: paramTotalAmount } = route.params || {};
   const reduxTotalAmount = useSelector(selectCartTotalAmount);
-  const totalAmount = paramTotalAmount !== undefined ? paramTotalAmount : reduxTotalAmount;
+  
+  // Calculate final total amount (including the ₹50 delivery charge fallback if total is < ₹2000)
+  const totalAmount = useMemo(() => {
+    if (paramTotalAmount !== undefined) {
+      return paramTotalAmount;
+    }
+    if (reduxTotalAmount > 0 && reduxTotalAmount < 2000) {
+      return reduxTotalAmount + 50;
+    }
+    return reduxTotalAmount;
+  }, [paramTotalAmount, reduxTotalAmount]);
   const cartItems = useSelector(selectCartItems);
 
   // Selected Payment Method: 'cod' or 'online'
@@ -61,6 +77,7 @@ export default function PaymentScreen({ navigation, route }) {
   const [isPlacingOrder, setIsPlacingOrder] = useState(false);
   const [orderedItems, setOrderedItems] = useState([]);
   const [showSuccessOverlay, setShowSuccessOverlay] = useState(false);
+  const [utrNumber, setUtrNumber] = useState('');
 
   const scaleAnim = useRef(new Animated.Value(0)).current;
   const confettiAnim = useRef(new Animated.Value(0)).current;
@@ -87,6 +104,19 @@ export default function PaymentScreen({ navigation, route }) {
     }
   }, [showSuccessOverlay, scaleAnim, confettiAnim]);
 
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('beforeRemove', (e) => {
+      if (showSuccessOverlay) {
+        // Prevent default behavior of leaving the screen
+        e.preventDefault();
+        // Navigate to Home screen
+        navigation.navigate('BottomTabs', { screen: 'Home' });
+      }
+    });
+
+    return unsubscribe;
+  }, [navigation, showSuccessOverlay]);
+
   const upiUri = useMemo(() => {
     const params = new URLSearchParams({
       pa: UPI_ID,
@@ -97,15 +127,6 @@ export default function PaymentScreen({ navigation, route }) {
     });
     return `upi://pay?${params.toString()}`;
   }, [totalAmount]);
-
-  const handlePayViaUpiApp = () => {
-    Linking.openURL(upiUri).catch(() => {
-      Alert.alert(
-        'No UPI App Found',
-        'Please install a UPI app like Google Pay or PhonePe, or scan the QR code with another device.'
-      );
-    });
-  };
 
   const placeOrderFlow = async () => {
     if (!addressId) {
@@ -140,17 +161,23 @@ export default function PaymentScreen({ navigation, route }) {
     }
   };
 
-  const handleConfirmPayment = () => {
-    setShowQrModal(false);
-    placeOrderFlow();
-  };
-
   const handlePayment = () => {
     if (isPlacingOrder) return;
     if (paymentMethod === 'cod') {
       placeOrderFlow();
     } else {
-      setShowQrModal(true);
+      if (!utrNumber.trim()) {
+        Alert.alert(
+          'Transaction ID Required',
+          'Entering your Transaction ID or UTR number is mandatory to confirm the payment. Would you like to view the QR Code and Bank details?',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'View Details', onPress: () => setShowQrModal(true) },
+          ]
+        );
+        return;
+      }
+      placeOrderFlow();
     }
   };
 
@@ -169,11 +196,14 @@ export default function PaymentScreen({ navigation, route }) {
         <Text style={styles.headerTitle}>Payment Option</Text>
       </View>
 
-      <View style={styles.container}>
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}>
         {/* Amount Card */}
         <View style={styles.amountCard}>
-          <Text style={styles.amountLabel}>Total Amount to Pay</Text>
-          <Text style={styles.amountValue}>₹{totalAmount}</Text>
+          <Text style={styles.amountLabel}>Total Payable Amount</Text>
+          <Text style={styles.amountValue}>₹{totalAmount.toLocaleString('en-IN')}</Text>
         </View>
 
         <Text style={styles.sectionTitle}>Select Payment Method</Text>
@@ -188,14 +218,14 @@ export default function PaymentScreen({ navigation, route }) {
           onPress={() => setPaymentMethod('cod')}>
           <View style={styles.cardLeft}>
             <View style={[styles.iconContainer, paymentMethod === 'cod' && styles.iconContainerActive]}>
-              <Banknote size={24} color={paymentMethod === 'cod' ? colors.primary : '#64748B'} />
+              <Banknote size={22} color={paymentMethod === 'cod' ? colors.primary : '#64748B'} />
             </View>
             <View style={styles.textContainer}>
               <Text style={styles.methodTitle}>Cash on Delivery (COD)</Text>
               <Text style={styles.methodDescription}>Pay with cash on delivery of your order.</Text>
             </View>
           </View>
-          <View style={styles.radioOuter}>
+          <View style={[styles.radioOuter, paymentMethod === 'cod' && styles.radioOuterActive]}>
             {paymentMethod === 'cod' && <View style={styles.radioInner} />}
           </View>
         </TouchableOpacity>
@@ -210,18 +240,97 @@ export default function PaymentScreen({ navigation, route }) {
           onPress={() => setPaymentMethod('online')}>
           <View style={styles.cardLeft}>
             <View style={[styles.iconContainer, paymentMethod === 'online' && styles.iconContainerActive]}>
-              <CreditCard size={24} color={paymentMethod === 'online' ? colors.primary : '#64748B'} />
+              <CreditCard size={22} color={paymentMethod === 'online' ? colors.primary : '#64748B'} />
             </View>
             <View style={styles.textContainer}>
               <Text style={styles.methodTitle}>Online Payment</Text>
               <Text style={styles.methodDescription}>UPI, Credit/Debit Cards, Net Banking</Text>
             </View>
           </View>
-          <View style={styles.radioOuter}>
+          <View style={[styles.radioOuter, paymentMethod === 'online' && styles.radioOuterActive]}>
             {paymentMethod === 'online' && <View style={styles.radioInner} />}
           </View>
         </TouchableOpacity>
-      </View>
+
+        {/* Inline Online Payment details if selected */}
+        {paymentMethod === 'online' && (
+          <View style={styles.onlinePaymentSection}>
+            {/* Warning Banner */}
+            <View style={styles.warningBanner}>
+              <Text style={styles.warningTitle}>⚠️ Important Payment Process / महत्वपूर्ण भुगतान प्रक्रिया</Text>
+              
+              {/* English */}
+              <Text style={[styles.warningText, { fontFamily: fonts.big, color: '#D97706' }]}>English:</Text>
+              <Text style={styles.warningText}>
+                After completing the payment, please enter your Transaction ID / UTR Number below and send the payment screenshot on WhatsApp (+91 90457 91373).
+              </Text>
+              <Text style={[styles.warningText, { marginTop: 2, fontFamily: fonts.big }]}>
+                Tapping the "CONFIRM ORDER" button below is mandatory to place your order.
+              </Text>
+
+              {/* Divider line inside banner */}
+              <View style={{ height: 1, backgroundColor: '#FEF3C7', marginVertical: 8 }} />
+
+              {/* Hindi */}
+              <Text style={[styles.warningText, { fontFamily: fonts.big, color: '#D97706' }]}>Hindi:</Text>
+              <Text style={styles.warningText}>
+                पेमेंट पूरा करने के बाद कृपया नीचे अपना Transaction ID / UTR Number दर्ज करें, और पेमेंट स्क्रीनशॉट व्हाट्सएप (+91 90457 91373) पर भेजें।
+              </Text>
+              <Text style={[styles.warningText, { marginTop: 2, fontFamily: fonts.big }]}>
+                अपना ऑर्डर प्लेस करने के लिए नीचे "CONFIRM ORDER" बटन दबाना अनिवार्य है।
+              </Text>
+
+              {/* Divider line inside banner */}
+              <View style={{ height: 1, backgroundColor: '#FEF3C7', marginVertical: 8 }} />
+
+              {/* Copy WhatsApp Number Row */}
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={() => {
+                  Clipboard.setString('9045791373');
+                  Alert.alert('Copied', 'WhatsApp Number (+91 90457 91373) copied successfully!');
+                }}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  alignSelf: 'center',
+                  backgroundColor: '#FFF2C2',
+                  paddingHorizontal: 12,
+                  paddingVertical: 6,
+                  borderRadius: 8,
+                  marginTop: 4,
+                }}>
+                <Text style={{ fontSize: moderateScale(11), fontFamily: fonts.big, color: '#B45309' }}>
+                  Copy WhatsApp: +91 90457 91373
+                </Text>
+                <Copy size={12} color="#B45309" style={{ marginLeft: 6 }} />
+              </TouchableOpacity>
+            </View>
+
+            {/* View QR & Bank Details Button */}
+            <TouchableOpacity
+              style={styles.viewDetailsBtn}
+              activeOpacity={0.8}
+              onPress={() => setShowQrModal(true)}>
+              <QrCode size={18} color={colors.primary} style={{ marginRight: 8 }} />
+              <Text style={styles.viewDetailsBtnText}>View QR Code & Bank Details</Text>
+            </TouchableOpacity>
+
+            {/* UTR/Transaction ID Input */}
+            <View style={styles.utrInputGroup}>
+              <Text style={styles.utrLabel}>Transaction ID / UTR Number (Required)</Text>
+              <TextInput
+                style={styles.utrInput}
+                placeholder="Enter 12-digit Transaction ID or UTR number"
+                placeholderTextColor="#94A3B8"
+                keyboardType="number-pad"
+                value={utrNumber}
+                onChangeText={setUtrNumber}
+              />
+            </View>
+          </View>
+        )}
+      </ScrollView>
 
       {/* Sticky Bottom Payment Button */}
       <View style={styles.bottomBar}>
@@ -234,19 +343,19 @@ export default function PaymentScreen({ navigation, route }) {
             <ActivityIndicator size="small" color="#FFFFFF" />
           ) : (
             <Text style={styles.payButtonText}>
-              {paymentMethod === 'cod' ? 'CONFIRM ORDER (COD)' : 'PROCEED TO PAY'}
+              {paymentMethod === 'cod' ? 'CONFIRM ORDER (COD)' : 'CONFIRM ORDER'}
             </Text>
           )}
         </TouchableOpacity>
       </View>
 
-      {/* ── UPI QR Payment Modal ── */}
+      {/* ── UPI QR & Bank Payment Details Modal ── */}
       <BottomSheetModal
         visible={showQrModal}
         showHandle={true}
         onClose={() => setShowQrModal(false)}>
         <View style={styles.sheetHeader}>
-          <Text style={styles.sheetTitle}>Pay via UPI</Text>
+          <Text style={styles.sheetTitle}>Payment Details</Text>
           <TouchableOpacity
             style={styles.closeBtn}
             activeOpacity={0.7}
@@ -255,43 +364,93 @@ export default function PaymentScreen({ navigation, route }) {
           </TouchableOpacity>
         </View>
 
-        <View style={styles.upiAmountRow}>
-          <Text style={styles.upiAmountLabel}>Amount Payable</Text>
-          <Text style={styles.upiAmountValue}>₹{totalAmount}</Text>
-        </View>
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          style={styles.sheetScrollView}
+          contentContainerStyle={styles.sheetScrollContent}>
+          
+          <View style={styles.upiAmountRow}>
+            <Text style={styles.upiAmountLabel}>Amount Payable</Text>
+            <Text style={styles.upiAmountValue}>₹{totalAmount}</Text>
+          </View>
 
-        <View style={styles.qrContainer}>
-          <QRCode value={upiUri} size={200} backgroundColor="#FFFFFF" color="#1A1C1E" />
-        </View>
+          <View style={styles.qrContainer}>
+            <QRCode value={upiUri} size={200} backgroundColor="#FFFFFF" color="#1A1C1E" />
+          </View>
 
-        <Text style={styles.upiScanHint}>
-          Scan this QR with any UPI app (Google Pay, PhonePe, Paytm) to pay
-        </Text>
-        
-        <TouchableOpacity
-          style={styles.upiCopyRow}
-          activeOpacity={0.7}
-          onPress={() => {
-            Clipboard.setString(UPI_ID);
-            Alert.alert('UPI ID Copied', `Successfully copied: ${UPI_ID}`);
-          }}>
-          <Text style={styles.upiIdText}>UPI ID: {UPI_ID}</Text>
-          <Copy size={14} color={colors.primary} style={{ marginLeft: 6 }} />
-        </TouchableOpacity>
+          <Text style={styles.upiScanHint}>
+            Scan this QR with any UPI app (Google Pay, PhonePe, Paytm) to pay
+          </Text>
+          
+          <TouchableOpacity
+            style={styles.upiCopyRow}
+            activeOpacity={0.7}
+            onPress={() => {
+              Clipboard.setString(UPI_ID);
+              Alert.alert('UPI ID Copied', `Successfully copied: ${UPI_ID}`);
+            }}>
+            <Text style={styles.upiIdText}>UPI ID: {UPI_ID}</Text>
+            <Copy size={14} color={colors.primary} style={{ marginLeft: 6 }} />
+          </TouchableOpacity>
 
-        <TouchableOpacity
-          style={styles.upiPayBtn}
-          activeOpacity={0.85}
-          onPress={handlePayViaUpiApp}>
-          <Smartphone size={18} color="#FFFFFF" style={{ marginRight: 8 }} />
-          <Text style={styles.upiPayBtnText}>Pay via UPI App</Text>
-        </TouchableOpacity>
+          {/* Bank details for direct transfer */}
+          <View style={styles.bankDetailsContainer}>
+            <Text style={styles.bankSectionTitle}>Or Pay via Direct Bank Transfer</Text>
+            
+            <View style={styles.bankRow}>
+              <Text style={styles.bankLabel}>Account Holder Name:</Text>
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={() => {
+                  Clipboard.setString(BANK_ACCOUNT_NAME);
+                  Alert.alert('Copied', 'Account Holder Name copied successfully!');
+                }}
+                style={styles.bankCopyBtn}>
+                <Text style={styles.bankValue}>{BANK_ACCOUNT_NAME}</Text>
+                <Copy size={12} color={colors.primary} style={{ marginLeft: 4 }} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.bankRow}>
+              <Text style={styles.bankLabel}>Bank Account Number:</Text>
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={() => {
+                  Clipboard.setString(BANK_ACCOUNT_NUMBER);
+                  Alert.alert('Copied', 'Bank Account Number copied successfully!');
+                }}
+                style={styles.bankCopyBtn}>
+                <Text style={styles.bankValue}>{BANK_ACCOUNT_NUMBER}</Text>
+                <Copy size={12} color={colors.primary} style={{ marginLeft: 4 }} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.bankRow}>
+              <Text style={styles.bankLabel}>Bank IFSC Code:</Text>
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={() => {
+                  Clipboard.setString(BANK_IFSC_CODE);
+                  Alert.alert('Copied', 'Bank IFSC Code copied successfully!');
+                }}
+                style={styles.bankCopyBtn}>
+                <Text style={styles.bankValue}>{BANK_IFSC_CODE}</Text>
+                <Copy size={12} color={colors.primary} style={{ marginLeft: 4 }} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.bankRow}>
+              <Text style={styles.bankLabel}>Bank Name:</Text>
+              <Text style={styles.bankValueFlat}>{BANK_NAME}</Text>
+            </View>
+          </View>
+        </ScrollView>
 
         <TouchableOpacity
           style={styles.upiConfirmBtn}
           activeOpacity={0.85}
-          onPress={handleConfirmPayment}>
-        <Text style={styles.upiConfirmBtnText}>I've Paid — Confirm Order</Text>
+          onPress={() => setShowQrModal(false)}>
+          <Text style={styles.upiConfirmBtnText}>Close Payment Details</Text>
         </TouchableOpacity>
       </BottomSheetModal>
 
@@ -432,16 +591,6 @@ export default function PaymentScreen({ navigation, route }) {
                 }}>
                 <Text style={styles.continueShopText}>Continue Shopping</Text>
               </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.viewOrdersBtn}
-                activeOpacity={0.7}
-                onPress={() => {
-                  setShowSuccessOverlay(false);
-                  navigation.navigate('Orders');
-                }}>
-                <Text style={styles.viewOrdersText}>View My Orders</Text>
-              </TouchableOpacity>
             </View>
           </ScrollView>
         </View>
@@ -476,31 +625,36 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F8FAFC',
+  },
+  scrollContent: {
     padding: 16,
+    paddingBottom: 32,
   },
   amountCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 20,
+    borderRadius: 16,
+    paddingVertical: 24,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 24,
+    marginBottom: 26,
     borderWidth: 1,
     borderColor: '#E2E8F0',
-    shadowColor: '#64748B',
+    shadowColor: '#0F172A',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.04,
-    shadowRadius: 8,
-    elevation: 2,
+    shadowOpacity: 0.02,
+    shadowRadius: 10,
+    elevation: 1,
   },
   amountLabel: {
-    fontSize: moderateScale(14),
+    fontSize: moderateScale(12),
     fontFamily: fonts.medium,
     color: '#64748B',
     marginBottom: 6,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
   },
   amountValue: {
-    fontSize: moderateScale(28),
+    fontSize: moderateScale(32),
     fontFamily: fonts.big,
     color: '#0F172A',
   },
@@ -515,15 +669,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     backgroundColor: '#FFFFFF',
-    borderWidth: 1.5,
+    borderWidth: 1,
     borderColor: '#E2E8F0',
-    borderRadius: 12,
+    borderRadius: 14,
     padding: 16,
     marginBottom: 12,
   },
   paymentCardActive: {
     borderColor: colors.primary,
-    backgroundColor: '#FAF5FF',
+    backgroundColor: '#FFFFFF',
   },
   cardLeft: {
     flexDirection: 'row',
@@ -533,39 +687,41 @@ const styles = StyleSheet.create({
   iconContainer: {
     width: 44,
     height: 44,
-    borderRadius: 22,
-    backgroundColor: '#F1F5F9',
+    borderRadius: 12,
+    backgroundColor: '#F8FAFC',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 14,
   },
   iconContainerActive: {
-    backgroundColor: '#FFF1F2',
+    backgroundColor: '#F5F3FF',
   },
   textContainer: {
     flex: 1,
-    paddingRight: 10,
+    paddingRight: 8,
   },
   methodTitle: {
-    fontSize: moderateScale(15),
+    fontSize: moderateScale(14),
     fontFamily: fonts.big,
-    color: '#1E293B',
-    marginBottom: 4,
+    color: '#0F172A',
+    marginBottom: 3,
   },
   methodDescription: {
     fontSize: moderateScale(12),
     fontFamily: fonts.medium,
     color: '#64748B',
-    lineHeight: moderateScale(16),
   },
   radioOuter: {
     width: 20,
     height: 20,
     borderRadius: 10,
-    borderWidth: 2,
+    borderWidth: 1.5,
     borderColor: '#CBD5E1',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  radioOuterActive: {
+    borderColor: colors.primary,
   },
   radioInner: {
     width: 10,
@@ -575,7 +731,7 @@ const styles = StyleSheet.create({
   },
   bottomBar: {
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 14,
     borderTopWidth: 1,
     borderTopColor: '#F1F5F9',
     backgroundColor: '#FFFFFF',
@@ -586,12 +742,12 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
+    width: '100%',
   },
   payButtonText: {
     fontSize: moderateScale(14),
     fontFamily: fonts.big,
     color: '#FFFFFF',
-    letterSpacing: 0.5,
   },
 
   /* UPI QR Payment Modal */
@@ -683,6 +839,170 @@ const styles = StyleSheet.create({
     fontSize: moderateScale(15),
     fontFamily: fonts.big,
     color: colors.primary,
+  },
+  bankDetailsContainer: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 14,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    marginBottom: 20,
+    width: '100%',
+  },
+  bankSectionTitle: {
+    fontSize: moderateScale(13),
+    fontFamily: fonts.big,
+    color: '#0F172A',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  bankRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  bankLabel: {
+    fontSize: moderateScale(11),
+    fontFamily: fonts.medium,
+    color: '#64748B',
+    flex: 1.2,
+  },
+  bankCopyBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    flex: 2,
+  },
+  bankValue: {
+    fontSize: moderateScale(11),
+    fontFamily: fonts.big,
+    color: '#0F172A',
+    textAlign: 'right',
+  },
+  bankValueFlat: {
+    fontSize: moderateScale(11),
+    fontFamily: fonts.big,
+    color: '#0F172A',
+    flex: 2,
+    textAlign: 'right',
+  },
+  onlinePaymentSection: {
+    width: '100%',
+    marginTop: 16,
+  },
+  viewDetailsBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 46,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: colors.primary,
+    backgroundColor: '#FFFFFF',
+    marginBottom: 20,
+    width: '100%',
+  },
+  viewDetailsBtnText: {
+    fontSize: moderateScale(13),
+    fontFamily: fonts.big,
+    color: colors.primary,
+  },
+  sheetScrollView: {
+    maxHeight: moderateScale(540),
+    width: '100%',
+  },
+  sheetScrollContent: {
+    paddingBottom: 16,
+  },
+  warningBanner: {
+    backgroundColor: '#FFFBEB',
+    borderColor: '#FEF3C7',
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 16,
+    width: '100%',
+  },
+  warningTitle: {
+    fontSize: moderateScale(12),
+    fontFamily: fonts.big,
+    color: '#D97706',
+    marginBottom: 4,
+  },
+  warningText: {
+    fontSize: moderateScale(11),
+    fontFamily: fonts.medium,
+    color: '#B45309',
+    lineHeight: moderateScale(16),
+  },
+  uploadContainer: {
+    width: '100%',
+    height: 80,
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
+    borderColor: '#CBD5E1',
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F8FAFC',
+    marginBottom: 16,
+    flexDirection: 'row',
+  },
+  uploadText: {
+    fontSize: moderateScale(13),
+    fontFamily: fonts.big,
+    color: '#64748B',
+    marginLeft: 8,
+  },
+  previewContainer: {
+    width: '100%',
+    backgroundColor: '#F0FDF4',
+    borderColor: '#DCFCE7',
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  previewLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  previewText: {
+    fontSize: moderateScale(12),
+    fontFamily: fonts.big,
+    color: '#166534',
+    marginLeft: 8,
+  },
+  removeBtn: {
+    padding: 4,
+  },
+  utrInputGroup: {
+    width: '100%',
+    marginBottom: 16,
+  },
+  utrLabel: {
+    fontSize: moderateScale(11),
+    fontFamily: fonts.big,
+    color: '#475569',
+    marginBottom: 6,
+    marginTop: 4,
+  },
+  utrInput: {
+    height: 44,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    fontSize: moderateScale(13),
+    fontFamily: fonts.medium,
+    color: '#0F172A',
+    backgroundColor: '#F8FAFC',
   },
   overlayContainer: {
     position: 'absolute',

@@ -80,7 +80,7 @@ export default function PrivacyPolicyScreen({ navigation }) {
           style={styles.introCard}>
           <Text style={styles.introTitle}>Shagun Beauty Privacy Statement</Text>
           <Text style={styles.introDescription}>
-            We value your business privacy. This policy outlines how Shagun Beauty B2B processes and protects your company and personal identifiers.
+            We value your business privacy. This policy outlines how Shagun Beauty processes and protects your company and personal identifiers.
           </Text>
         </LinearGradient>
 
@@ -99,7 +99,7 @@ export default function PrivacyPolicyScreen({ navigation }) {
         {/* Footer legal text */}
         <View style={styles.footerContainer}>
           <Text style={styles.footerText}>
-            For any queries or concerns regarding data processing practices, please contact us at privacy@shagunbeauty.com.
+            For any queries or concerns regarding data processing practices, please contact us at helpshagunbeauty@gmail.com.
           </Text>
         </View>
       </ScrollView>

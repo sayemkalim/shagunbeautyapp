@@ -38,6 +38,7 @@ import {
   Info,
   ChevronRight,
   ChevronUp,
+  HelpCircle,
 } from 'lucide-react-native';
 
 import {
@@ -122,6 +123,7 @@ export default function CartScreen({ navigation }) {
   const [backendCartData, setBackendCartData] = useState(null);
   const [loadingCart, setLoadingCart] = useState(false);
   const [updatingCartItemId, setUpdatingCartItemId] = useState(null);
+  const [showDeliveryInfoModal, setShowDeliveryInfoModal] = useState(false);
 
   const refreshCart = async (addressId, couponCode) => {
     const addrId = addressId !== undefined ? addressId : selectedAddress?.id;
@@ -386,7 +388,7 @@ export default function CartScreen({ navigation }) {
 
   // Financial calculations
   const { totalMRP, totalSellingPrice, totalSavings, finalTotal, combinedSavings, shippingCharge } = useMemo(() => {
-    if (backendCartData) {
+    if (backendCartData && Array.isArray(backendCartData.items) && backendCartData.items.length > 0) {
       let mrp = 0;
       const items = backendCartData.items || [];
       items.forEach((item) => {
@@ -398,9 +400,11 @@ export default function CartScreen({ navigation }) {
       const selling = backendCartData.total_price || 0;
       const savings = mrp > selling ? mrp - selling : 0;
       const cDiscount = backendCartData.coupon_discount_amount ?? backendCartData.coupon?.discount_amount ?? 0;
-      const fTotal = backendCartData.final_price ?? Math.max(0, selling - cDiscount);
+      
+      // Override shipping charge: ₹50 for orders below ₹2000, else ₹0
+      const sCharge = (selling > 0 && selling < 2000) ? 50 : 0;
+      const fTotal = Math.max(0, selling - cDiscount) + sCharge;
       const combSavings = savings + cDiscount;
-      const sCharge = backendCartData.shipping_charge ?? 0;
 
       return {
         totalMRP: Math.round(mrp),
@@ -421,7 +425,10 @@ export default function CartScreen({ navigation }) {
     });
     const savings = mrp > selling ? mrp - selling : 0;
     const cDiscount = appliedCoupon ? (couponDiscount || 0) : 0;
-    const fTotal = Math.max(0, selling - cDiscount);
+    
+    // Override shipping charge: ₹50 for orders below ₹2000, else ₹0
+    const sCharge = (selling > 0 && selling < 2000) ? 50 : 0;
+    const fTotal = Math.max(0, selling - cDiscount) + sCharge;
     const combSavings = savings + cDiscount;
 
     return {
@@ -430,7 +437,7 @@ export default function CartScreen({ navigation }) {
       totalSavings: Math.round(savings),
       finalTotal: Math.round(fTotal),
       combinedSavings: Math.round(combSavings),
-      shippingCharge: 0,
+      shippingCharge: sCharge,
     };
   }, [backendCartData, selectedCartItems, appliedCoupon, couponDiscount]);
 
@@ -676,18 +683,21 @@ export default function CartScreen({ navigation }) {
       ) : cartItems.length === 0 ? (
         /* ── Empty Cart View ── */
         <View style={styles.emptyContainer}>
-          <View style={styles.emptyIconCircle}>
-            <Handbag size={48} color={colors.primary} />
+          <View style={styles.emptyRingOuter}>
+            <View style={styles.emptyIconCircle}>
+              <Handbag size={40} color={colors.primary} strokeWidth={2} />
+            </View>
           </View>
           <Text style={styles.emptyTitle}>Your Bag is Empty</Text>
           <Text style={styles.emptySubText}>
-            Looks like you haven't added any products to your bag yet.
+            Looks like you haven't added any products to your bag yet. Add products to get started!
           </Text>
           <TouchableOpacity
             style={styles.shopNowBtn}
             activeOpacity={0.85}
             onPress={() => navigation.navigate('Home')}>
             <Text style={styles.shopNowBtnText}>Start Shopping</Text>
+            <ChevronRight size={18} color="#FFFFFF" strokeWidth={2.5} style={{ marginLeft: 6 }} />
           </TouchableOpacity>
         </View>
       ) : (
@@ -768,7 +778,7 @@ export default function CartScreen({ navigation }) {
                       navigation.navigate('ProductDetail', { productId: item.productId })
                     }>
                     <Image
-                      source={item.image ? { uri: item.image } : DUMMY_IMG}
+                      source={item.image ? { uri: item.image, cache: 'force-cache' } : DUMMY_IMG}
                       style={styles.cartItemImg}
                       resizeMode="cover"
                     />
@@ -951,6 +961,27 @@ export default function CartScreen({ navigation }) {
             </View>
           </View>
 
+          {/* ── Delivery Info Banner ── */}
+          {totalSellingPrice > 0 && (
+            <View style={styles.deliveryInfoBanner}>
+              {totalSellingPrice < 2000 ? (
+                <>
+                  <Truck size={18} color="#EA580C" style={styles.deliveryIcon} />
+                  <Text style={styles.deliveryInfoText}>
+                    Add <Text style={styles.deliveryBoldText}>₹{(2000 - totalSellingPrice).toLocaleString('en-IN')}</Text> more for <Text style={styles.deliveryBoldText}>FREE Delivery</Text> (₹50 delivery charge applies below ₹2,000)
+                  </Text>
+                </>
+              ) : (
+                <>
+                  <Truck size={18} color="#16A34A" style={styles.deliveryIcon} />
+                  <Text style={styles.deliveryInfoText}>
+                    Your order qualifies for <Text style={styles.deliverySuccessText}>FREE Delivery!</Text>
+                  </Text>
+                </>
+              )}
+            </View>
+          )}
+
           {/* ── Price Details Summary Card (Matching User Screenshot 2) ── */}
           <View style={styles.priceDetailsCard}>
             <Text style={styles.priceDetailsHeaderTitle}>Price Details</Text>
@@ -977,7 +1008,15 @@ export default function CartScreen({ navigation }) {
             )}
 
             <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabelText}>Shipping / Platform Fee</Text>
+              <View style={styles.summaryLabelWithIcon}>
+                <Text style={styles.summaryLabelText}>Delivery Charges</Text>
+                <TouchableOpacity
+                  activeOpacity={0.7}
+                  onPress={() => setShowDeliveryInfoModal(true)}
+                  style={styles.infoIconTouch}>
+                  <HelpCircle size={14} color={colors.primary} />
+                </TouchableOpacity>
+              </View>
               <Text style={shippingCharge > 0 ? styles.summaryValueText : styles.summaryFreeText}>
                 {shippingCharge > 0 ? `₹${shippingCharge}` : 'FREE'}
               </Text>
@@ -1237,7 +1276,7 @@ export default function CartScreen({ navigation }) {
         {removingCartItem && (
           <View style={styles.moveItemCard}>
             <Image
-              source={removingCartItem.image ? { uri: removingCartItem.image } : DUMMY_IMG}
+              source={removingCartItem.image ? { uri: removingCartItem.image, cache: 'force-cache' } : DUMMY_IMG}
               style={styles.moveItemImg}
               resizeMode="cover"
             />
@@ -1269,6 +1308,54 @@ export default function CartScreen({ navigation }) {
             ) : (
               <Text style={styles.removeOutlineBtnText}>Remove</Text>
             )}
+          </TouchableOpacity>
+        </View>
+      </BottomSheetModal>
+
+      {/* ── Delivery Info Bottom Sheet Modal ── */}
+      <BottomSheetModal
+        visible={showDeliveryInfoModal}
+        showHandle={true}
+        onClose={() => setShowDeliveryInfoModal(false)}>
+        {/* Sheet Header */}
+        <View style={styles.sheetHeader}>
+          <Text style={styles.sheetTitle}>Delivery Policy</Text>
+          <TouchableOpacity
+            style={styles.closeBtn}
+            activeOpacity={0.7}
+            onPress={() => setShowDeliveryInfoModal(false)}>
+            <X size={22} color="#1A1C1E" />
+          </TouchableOpacity>
+        </View>
+
+        {/* Info Content Container */}
+        <View style={styles.deliveryModalContent}>
+          <View style={styles.deliveryModalIconContainer}>
+            <Truck size={36} color={colors.primary} />
+          </View>
+          <Text style={styles.deliveryModalHeading}>Delivery Fees Breakdown</Text>
+          
+          <View style={styles.deliveryPolicyRow}>
+            <View style={[styles.deliveryStatusDot, { backgroundColor: '#EA580C' }]} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.deliveryPolicyTitle}>Orders below ₹2,000</Text>
+              <Text style={styles.deliveryPolicyDesc}>A flat shipping charge of ₹50 will be applied to your order total.</Text>
+            </View>
+          </View>
+
+          <View style={styles.deliveryPolicyRow}>
+            <View style={[styles.deliveryStatusDot, { backgroundColor: '#16A34A' }]} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.deliveryPolicyTitle}>Orders ₹2,000 or above</Text>
+              <Text style={styles.deliveryPolicyDesc}>Enjoy completely FREE delivery nationwide on all orders.</Text>
+            </View>
+          </View>
+
+          <TouchableOpacity
+            style={styles.deliveryModalGotItBtn}
+            activeOpacity={0.8}
+            onPress={() => setShowDeliveryInfoModal(false)}>
+            <Text style={styles.deliveryModalGotItText}>Got It</Text>
           </TouchableOpacity>
         </View>
       </BottomSheetModal>
@@ -2231,40 +2318,69 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     padding: 30,
+    backgroundColor: '#FFFFFF',
+  },
+  emptyRingOuter: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
+    borderColor: colors.primaryLight ?? '#E8F0FE',
+    backgroundColor: '#FDFEFE',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 20,
   },
   emptyIconCircle: {
     width: 90,
     height: 90,
     borderRadius: 45,
-    backgroundColor: '#FAF5FF',
+    backgroundColor: colors.primaryLight ?? '#FAF5FF',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 16,
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    elevation: 4,
   },
   emptyTitle: {
-    fontSize: moderateScale(20),
+    fontSize: moderateScale(22),
     fontFamily: fonts.big,
-    color: '#1A1C1E',
+    color: '#1E293B',
+    textAlign: 'center',
+    fontWeight: '700',
   },
   emptySubText: {
-    fontSize: moderateScale(13),
+    fontSize: moderateScale(14),
     fontFamily: fonts.medium,
     color: '#64748B',
     textAlign: 'center',
-    marginTop: 6,
-    lineHeight: moderateScale(18),
+    marginTop: 8,
+    lineHeight: moderateScale(20),
+    maxWidth: 270,
   },
   shopNowBtn: {
-    marginTop: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 24,
     backgroundColor: colors.primary,
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 12,
+    paddingHorizontal: 28,
+    paddingVertical: 14,
+    borderRadius: 30,
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 5,
   },
   shopNowBtnText: {
     color: '#FFFFFF',
     fontSize: moderateScale(15),
     fontFamily: fonts.big,
+    fontWeight: '700',
   },
 
   /* Quantity Modal Sheet (Matching Screenshot) */
@@ -2831,5 +2947,105 @@ const styles = StyleSheet.create({
     fontFamily: fonts.medium,
     color: '#475569',
     lineHeight: 18,
+  },
+  deliveryInfoBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFF7ED',
+    borderWidth: 1,
+    borderColor: '#FFEDD5',
+    borderRadius: 8,
+    padding: 12,
+    marginTop: 8,
+    marginBottom: 16,
+    marginHorizontal: 16,
+  },
+  deliveryInfoText: {
+    fontSize: moderateScale(12),
+    fontFamily: fonts.medium,
+    color: '#7C2D12',
+    flex: 1,
+    lineHeight: 16,
+  },
+  deliveryBoldText: {
+    fontFamily: fonts.big,
+    color: '#EA580C',
+  },
+  deliverySuccessText: {
+    fontFamily: fonts.big,
+    color: '#16A34A',
+  },
+  deliveryIcon: {
+    marginRight: 6,
+  },
+  summaryLabelWithIcon: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  infoIconTouch: {
+    padding: 2,
+  },
+  deliveryModalContent: {
+    paddingHorizontal: 20,
+    paddingTop: 10,
+    paddingBottom: 24,
+    alignItems: 'center',
+  },
+  deliveryModalIconContainer: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#EEF2F6',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  deliveryModalHeading: {
+    fontSize: moderateScale(16),
+    fontFamily: fonts.big,
+    color: '#0F172A',
+    marginBottom: 20,
+  },
+  deliveryPolicyRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    width: '100%',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 12,
+    gap: 12,
+  },
+  deliveryStatusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginTop: 6,
+  },
+  deliveryPolicyTitle: {
+    fontSize: moderateScale(14),
+    fontFamily: fonts.big,
+    color: '#1E293B',
+    marginBottom: 2,
+  },
+  deliveryPolicyDesc: {
+    fontSize: moderateScale(12),
+    fontFamily: fonts.medium,
+    color: '#64748B',
+    lineHeight: 16,
+  },
+  deliveryModalGotItBtn: {
+    width: '100%',
+    backgroundColor: colors.primary,
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginTop: 16,
+  },
+  deliveryModalGotItText: {
+    fontSize: moderateScale(14),
+    fontFamily: fonts.big,
+    color: '#FFFFFF',
   },
 });

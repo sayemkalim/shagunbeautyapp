@@ -146,7 +146,7 @@ export default function BrandsScreen({ navigation }) {
                     }>
                     <Image
                       source={
-                        brand.images?.[0] ? { uri: brand.images[0] } : DUMMY_IMG
+                        brand.images?.[0] ? { uri: brand.images[0], cache: 'force-cache' } : DUMMY_IMG
                       }
                       style={styles.brandImage}
                       resizeMode="cover"

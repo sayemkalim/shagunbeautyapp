@@ -11,6 +11,7 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
@@ -33,8 +34,7 @@ import colors from '../theme/colors';
 import fonts from '../theme/typography';
 import { moderateScale } from '../theme/responsive';
 
-const { width, height } = Dimensions.get('window');
-const COLUMN_WIDTH = (width - 40) / 2; // two-column grid with padding
+const { height } = Dimensions.get('window');
 
 const SORT_OPTIONS = [
   "What's new",
@@ -46,6 +46,12 @@ const SORT_OPTIONS = [
 ];
 
 export default function ProductsScreen({ route, navigation }) {
+  const { width } = useWindowDimensions();
+  const isTablet = width >= 600;
+  const numColumns = isTablet ? 3 : 2;
+  const cardGap = 12;
+  const COLUMN_WIDTH = (width - 24 - (cardGap * (numColumns - 1))) / numColumns;
+
   const { categoryId, categoryName, brandId, brandName, headerTitle, filterType, minPrice, maxPrice } = route.params || {};
   const screenTitle = headerTitle || brandName || categoryName || 'Products';
   
@@ -312,7 +318,7 @@ export default function ProductsScreen({ route, navigation }) {
       : 0;
 
     const isFav = !!favorites[item._id];
-    const imageSource = item.images?.[0] ? { uri: item.images[0] } : require('../../assets/dummy_product.png');
+    const imageSource = item.images?.[0] ? { uri: item.images[0], cache: 'force-cache' } : require('../../assets/dummy_product.png');
 
     let brandNameStr = '';
     if (typeof item.brand === 'object' && item.brand?.name) {
@@ -336,7 +342,7 @@ export default function ProductsScreen({ route, navigation }) {
 
     return (
       <TouchableOpacity
-        style={styles.productCard}
+        style={[styles.productCard, { width: COLUMN_WIDTH }]}
         activeOpacity={0.85}
         onPress={() =>
           navigation.navigate('ProductDetail', {
@@ -450,10 +456,11 @@ export default function ProductsScreen({ route, navigation }) {
         </View>
       ) : (
         <FlatList
+          key={`products-grid-${numColumns}`}
           data={processedProducts}
           renderItem={renderProductItem}
           keyExtractor={(item) => item._id}
-          numColumns={2}
+          numColumns={numColumns}
           columnWrapperStyle={styles.columnWrapper}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
@@ -679,12 +686,11 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   productCard: {
-    width: COLUMN_WIDTH,
     backgroundColor: '#FFFFFF',
   },
   imageContainer: {
     width: '100%',
-    height: 180,
+    aspectRatio: 1,
     backgroundColor: '#F8FAFC',
     borderRadius: 16,
     alignItems: 'center',

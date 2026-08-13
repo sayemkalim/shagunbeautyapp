@@ -29,8 +29,8 @@ const FAQ_DATA = [
   {
     id: '1',
     category: 'Orders',
-    q: 'What is the Minimum Order Value (MOV) for B2B?',
-    a: 'The Minimum Order Value for verified wholesale dealers is ₹2,000. Orders below this limit cannot qualify for B2B wholesale prices.',
+    q: 'Is there a Minimum Order Value (MOV)?',
+    a: 'No, there is no minimum order value. You can place an order of any amount, big or small. However, orders below ₹2,000 will attract a delivery charge of ₹50.',
   },
   {
     id: '2',
@@ -54,13 +54,13 @@ const FAQ_DATA = [
     id: '5',
     category: 'Shipping',
     q: 'Are there any shipping charges?',
-    a: 'Delivery is absolutely free for all B2B orders above ₹5,000. For orders below ₹5,000, a flat shipping fee of ₹150 is applied.',
+    a: 'Delivery is absolutely free for all orders above ₹2,000. For orders below ₹2,000, a flat shipping fee of ₹50 is applied.',
   },
   {
     id: '6',
     category: 'Refunds',
     q: 'Can I cancel or return my order?',
-    a: 'Orders can be cancelled before dispatch. Returns are only accepted if you receive damaged or defective stock. Please inform support within 48 hours of delivery.',
+    a: 'Orders can be cancelled before dispatch. Returns are only accepted if you receive damaged or defective stock. Please note that a continuous, unedited unboxing video of the parcel immediately upon delivery is mandatory to claim any returns or replacements. You must inform support within 48 hours of delivery.',
   },
 ];
 

@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
-  Dimensions,
   FlatList,
   Image,
   StatusBar,
@@ -11,6 +10,7 @@ import {
   TouchableOpacity,
   View,
   ActivityIndicator,
+  useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
@@ -32,8 +32,6 @@ import { moderateScale } from '../theme/responsive';
 import { addToCart } from '../redux/cartSlice';
 import { addToCartApi } from '../api/cart';
 
-const { width } = Dimensions.get('window');
-const COLUMN_WIDTH = (width - 40) / 2;
 
 const POPULAR_SEARCHES = [
   'Vitamin C',
@@ -47,6 +45,12 @@ const POPULAR_SEARCHES = [
 const RECENT_SEARCHES_KEY = 'recent_searches';
 
 export default function SearchScreen({ navigation }) {
+  const { width } = useWindowDimensions();
+  const isTablet = width >= 600;
+  const numColumns = isTablet ? 3 : 2;
+  const cardGap = 12;
+  const COLUMN_WIDTH = (width - 24 - (cardGap * (numColumns - 1))) / numColumns;
+
   const [inputText, setInputText] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [showResults, setShowResults] = useState(false);
@@ -310,7 +314,7 @@ export default function SearchScreen({ navigation }) {
       : 0;
 
     const isFav = !!favorites[item._id];
-    const imageSource = item.images?.[0] ? { uri: item.images[0] } : require('../../assets/dummy_product.png');
+    const imageSource = item.images?.[0] ? { uri: item.images[0], cache: 'force-cache' } : require('../../assets/dummy_product.png');
 
     let brandNameStr = '';
     if (typeof item.brand === 'object' && item.brand?.name) {
@@ -334,7 +338,7 @@ export default function SearchScreen({ navigation }) {
 
     return (
       <TouchableOpacity
-        style={styles.productCard}
+        style={[styles.productCard, { width: COLUMN_WIDTH }]}
         activeOpacity={0.85}
         onPress={() =>
           navigation.navigate('ProductDetail', {
@@ -537,11 +541,11 @@ export default function SearchScreen({ navigation }) {
         </View>
       ) : (
         <FlatList
-          key="products-grid"
+          key={`products-grid-${numColumns}`}
           data={filteredProducts}
           renderItem={renderProductItem}
           keyExtractor={(item) => item._id}
-          numColumns={2}
+          numColumns={numColumns}
           columnWrapperStyle={styles.columnWrapper}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
@@ -684,12 +688,11 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   productCard: {
-    width: COLUMN_WIDTH,
     backgroundColor: '#FFFFFF',
   },
   imageContainer: {
     width: '100%',
-    height: 180,
+    aspectRatio: 1,
     backgroundColor: '#F8FAFC',
     borderRadius: 16,
     alignItems: 'center',

@@ -30,3 +30,14 @@ export async function getOrderDetails(orderId) {
     token,
   });
 }
+
+export async function cancelOrder(orderId) {
+  const token = await getToken();
+  console.log('cancelOrder request:', orderId);
+  const res = await apiRequest(`/api/order/payment/${orderId}/cancel`, {
+    method: 'PATCH',
+    token,
+  });
+  console.log('cancelOrder response:', JSON.stringify(res, null, 2));
+  return res;
+}

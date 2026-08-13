@@ -28,6 +28,27 @@ const toNumber = (value) => {
   return Number(value) || 0;
 };
 
+const parsePriceTiers = (raw) => {
+  if (!raw) return null;
+  let parsed = raw;
+  if (typeof raw === 'string') {
+    try {
+      parsed = JSON.parse(raw);
+    } catch (e) {
+      return null;
+    }
+  }
+  if (!Array.isArray(parsed)) return null;
+  return parsed
+    .filter((t) => t && t.quantity !== undefined && t.quantity !== null)
+    .map((t) => ({
+      quantity: Number(t.quantity),
+      price: toNumber(t.price),
+    }))
+    .filter((t) => !isNaN(t.quantity) && t.quantity >= 2)
+    .sort((a, b) => a.quantity - b.quantity);
+};
+
 const recalculateCartTotals = (state) => {
   let qty = 0;
   let amount = 0;
@@ -91,6 +112,7 @@ export const initializeCart = createAsyncThunk('cart/initializeCart', async () =
             quantity: qty,
             price: bPrice,
             discountedPrice: productDiscountedPrice || uPrice,
+            price_tiers: parsePriceTiers(product.price_tiers || product.priceTiers),
           };
         });
 
@@ -165,6 +187,7 @@ const cartSlice = createSlice({
           quantity: qty,
           price: newItem.price || uPrice,
           discountedPrice: newItem.discountedPrice || uPrice,
+          price_tiers: newItem.price_tiers ? parsePriceTiers(newItem.price_tiers) : null,
         });
       }
 
@@ -224,6 +247,7 @@ const cartSlice = createSlice({
             quantity: qty,
             price: bPrice,
             discountedPrice: productDiscountedPrice || uPrice,
+            price_tiers: parsePriceTiers(product.price_tiers || product.priceTiers),
           };
         });
 

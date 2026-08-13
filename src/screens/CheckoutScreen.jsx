@@ -152,9 +152,9 @@ export default function CheckoutScreen({ navigation, route }) {
                 {selectedAddr.isPrimary && (
                   <Text style={styles.defaultLabel}>(Default)</Text>
                 )}
-                <View style={styles.tagBadge}>
+                {/* <View style={styles.tagBadge}>
                   <Text style={styles.tagBadgeText}>HOME</Text>
-                </View>
+                </View> */}
               </View>
               <Text style={styles.addressText}>{selectedAddr.addressText}</Text>
               <Text style={styles.mobileText}>Mobile: {selectedAddr.mobile}</Text>
