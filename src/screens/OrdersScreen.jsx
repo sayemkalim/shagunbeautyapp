@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import {
   FlatList,
   Image,
@@ -9,14 +9,51 @@ import {
   TouchableOpacity,
   View,
   ScrollView,
+  Linking,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ChevronLeft, ShoppingBag, Calendar, ArrowRight } from 'lucide-react-native';
+import { ChevronLeft, ShoppingBag, Calendar, ArrowRight, Check, X } from 'lucide-react-native';
 import colors from '../theme/colors';
 import fonts from '../theme/typography';
 import { moderateScale } from '../theme/responsive';
 import { getOrderHistory } from '../api/order';
 import { OrderCardSkeleton } from '../components/Skeleton';
+import BottomSheetModal from '../components/BottomSheetModal';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const TRACK_STORAGE_KEY = '@shagun_order_track_times';
+
+const getLocalTrackTimes = async () => {
+  try {
+    const raw = await AsyncStorage.getItem(TRACK_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch (e) {
+    console.log('Error reading local track times:', e);
+    return {};
+  }
+};
+
+const saveLocalTrackTimes = async (data) => {
+  try {
+    await AsyncStorage.setItem(TRACK_STORAGE_KEY, JSON.stringify(data));
+  } catch (e) {
+    console.log('Error saving local track times:', e);
+  }
+};
+
+const formatDateTime = (dateString) => {
+  if (!dateString) return '';
+  const date = new Date(dateString);
+  const options = {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  };
+  return date.toLocaleDateString('en-GB', options);
+};
 
 const DUMMY_IMG = require('../../assets/dummy_product.png');
 
@@ -25,6 +62,113 @@ export default function OrdersScreen({ navigation }) {
   const [isLoading, setIsLoading] = useState(true);
   const [isRefetching, setIsRefetching] = useState(false);
   const [isError, setIsError] = useState(false);
+  const [isTrackSheetVisible, setIsTrackSheetVisible] = useState(false);
+  const [activeTrackOrder, setActiveTrackOrder] = useState(null);
+  const [localTrackTimes, setLocalTrackTimes] = useState({});
+
+  useEffect(() => {
+    const loadTimes = async () => {
+      const times = await getLocalTrackTimes();
+      setLocalTrackTimes(times);
+    };
+    loadTimes();
+  }, []);
+
+  const updateLocalTrackTimes = useCallback(async (ordersList) => {
+    try {
+      const currentTimes = await getLocalTrackTimes();
+      let changed = false;
+
+      ordersList.forEach((order) => {
+        const orderId = order._id;
+        const status = String(order.status || '').toLowerCase();
+        const timestamp = order.updatedAt || order.createdAt || new Date().toISOString();
+
+        if (!currentTimes[orderId]) {
+          currentTimes[orderId] = {};
+        }
+
+        // Store placed time if not set
+        if (!currentTimes[orderId].pending) {
+          currentTimes[orderId].pending = order.createdAt || timestamp;
+          changed = true;
+        }
+
+        // Store the current status time if not set yet
+        if (status && !currentTimes[orderId][status]) {
+          currentTimes[orderId][status] = timestamp;
+          changed = true;
+        }
+      });
+
+      if (changed) {
+        await saveLocalTrackTimes(currentTimes);
+        setLocalTrackTimes(currentTimes);
+      }
+    } catch (e) {
+      console.log('Error updating local track times:', e);
+    }
+  }, []);
+
+  const timelineStages = useMemo(() => {
+    if (!activeTrackOrder) return [];
+    
+    const list = [];
+    const orderId = activeTrackOrder._id;
+    const status = String(activeTrackOrder.status || '').toLowerCase();
+    const orderLocalTimes = localTrackTimes[orderId] || {};
+    
+    // Always show Order Placed
+    list.push({
+      title: 'Order Placed',
+      time: formatDateTime(orderLocalTimes.pending || activeTrackOrder.createdAt),
+    });
+    
+    if (status === 'cancelled') {
+      list.push({
+        title: 'Cancelled',
+        time: formatDateTime(orderLocalTimes.cancelled || activeTrackOrder.updatedAt),
+        isCancelled: true,
+      });
+      return list;
+    }
+    
+    if (['confirmed', 'processing', 'shipped', 'delivered'].includes(status)) {
+      const confirmedTimestamp = orderLocalTimes.confirmed || 
+                                 orderLocalTimes.processing || 
+                                 activeTrackOrder.confirmedAt || 
+                                 (status === 'confirmed' || status === 'processing' ? activeTrackOrder.updatedAt : activeTrackOrder.createdAt);
+                                 
+      list.push({
+        title: 'Order Confirmed',
+        time: formatDateTime(confirmedTimestamp),
+      });
+    }
+    
+    if (['shipped', 'delivered'].includes(status)) {
+      const shippedTimestamp = orderLocalTimes.shipped || 
+                               activeTrackOrder.shippedAt || 
+                               (status === 'shipped' ? activeTrackOrder.updatedAt : activeTrackOrder.createdAt);
+                               
+      list.push({
+        title: 'Shipped',
+        time: formatDateTime(shippedTimestamp),
+      });
+    }
+    
+    if (status === 'delivered') {
+      const deliveredTimestamp = orderLocalTimes.delivered || 
+                                 activeTrackOrder.deliveredAt || 
+                                 activeTrackOrder.updatedAt;
+                                 
+      list.push({
+        title: 'Delivered',
+        time: formatDateTime(deliveredTimestamp),
+      });
+    }
+    
+    return list;
+  }, [activeTrackOrder, localTrackTimes]);
 
   const fetchOrders = useCallback(async (showRefetchIndicator = false) => {
     try {
@@ -46,6 +190,7 @@ export default function OrdersScreen({ navigation }) {
       );
 
       setOrders(sorted);
+      updateLocalTrackTimes(sorted);
     } catch (e) {
       console.log('Error fetching orders:', e);
       setIsError(true);
@@ -53,7 +198,7 @@ export default function OrdersScreen({ navigation }) {
       setIsLoading(false);
       setIsRefetching(false);
     }
-  }, []);
+  }, [updateLocalTrackTimes]);
 
   useEffect(() => {
     fetchOrders();
@@ -141,13 +286,42 @@ export default function OrdersScreen({ navigation }) {
 
         {/* Card Footer */}
         <View style={styles.cardFooter}>
-          <Text style={styles.qtyTotalText}>
-            {totalQty} Item{totalQty !== 1 ? 's' : ''}
-          </Text>
-          <View style={styles.priceRow}>
-            <Text style={styles.totalLabel}>Total: </Text>
-            <Text style={styles.totalValue}>₹{Math.round(totalAmount)}</Text>
+          <View>
+            <Text style={styles.qtyTotalText}>
+              {totalQty} Item{totalQty !== 1 ? 's' : ''}
+            </Text>
+            <View style={styles.priceRow}>
+              <Text style={styles.totalLabel}>Total: </Text>
+              <Text style={styles.totalValue}>₹{Math.round(totalAmount)}</Text>
+            </View>
           </View>
+
+          {String(item.status || '').toLowerCase() !== 'delivered' ? (
+            <TouchableOpacity
+              style={styles.trackBtn}
+              activeOpacity={0.7}
+              onPress={(e) => {
+                e.stopPropagation();
+                setActiveTrackOrder(item);
+                setIsTrackSheetVisible(true);
+              }}>
+              <Text style={styles.trackBtnText}>Track Order</Text>
+            </TouchableOpacity>
+          ) : (item.billUrl || item.billurl) ? (
+            <TouchableOpacity
+              style={styles.invoiceBtn}
+              activeOpacity={0.7}
+              onPress={(e) => {
+                e.stopPropagation();
+                const url = item.billUrl || item.billurl;
+                Linking.openURL(url).catch((err) => {
+                  console.log('Error opening bill URL:', err);
+                  Alert.alert('Error', 'Unable to open invoice URL.');
+                });
+              }}>
+              <Text style={styles.invoiceBtnText}>Invoice</Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
       </TouchableOpacity>
     );
@@ -218,6 +392,84 @@ export default function OrdersScreen({ navigation }) {
           }
         />
       )}
+
+      {/* ── Order Tracking Bottom Sheet ── */}
+      <BottomSheetModal
+        visible={isTrackSheetVisible}
+        showHandle={true}
+        onClose={() => {
+          setIsTrackSheetVisible(false);
+          setActiveTrackOrder(null);
+        }}>
+        <View style={styles.sheetHeader}>
+          <Text style={styles.trackSheetTitle}>Track item</Text>
+          <TouchableOpacity
+            style={styles.closeBtn}
+            activeOpacity={0.7}
+            onPress={() => {
+              setIsTrackSheetVisible(false);
+              setActiveTrackOrder(null);
+            }}>
+            <X size={22} color="#1A1C1E" />
+          </TouchableOpacity>
+        </View>
+
+        {activeTrackOrder && (
+          <View style={styles.trackSheetContent}>
+            {/* Delivery Items List */}
+            <View style={styles.itemsListContainer}>
+              <Text style={styles.itemsListTitle}>In This Delivery</Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.itemsListScroll}>
+                {activeTrackOrder.items?.map((subItem, index) => {
+                  const product = subItem.product || {};
+                  const imageSource = product.banner_image || (product.images && product.images[0])
+                    ? { uri: product.banner_image || product.images[0] }
+                    : DUMMY_IMG;
+                  return (
+                    <View key={product._id || index} style={styles.trackProductCard}>
+                      <View style={styles.trackProductImageWrapper}>
+                        <Image source={imageSource} style={styles.trackProductImage} resizeMode="cover" />
+                        <View style={styles.trackProductQtyBadge}>
+                          <Text style={styles.trackProductQtyText}>x{subItem.quantity || 1}</Text>
+                        </View>
+                      </View>
+                      <Text numberOfLines={1} style={styles.trackProductName}>
+                        {product.name || 'Product'}
+                      </Text>
+                    </View>
+                  );
+                })}
+              </ScrollView>
+            </View>
+
+            {/* Timeline listing only completed stages */}
+            <View style={styles.sheetTimelineContainer}>
+              {timelineStages.map((stage, idx) => {
+                const isLast = idx === timelineStages.length - 1;
+                return (
+                  <View key={idx} style={styles.timelineItem}>
+                    <View style={styles.timelineLeft}>
+                      <View style={[styles.timelineDot, styles.timelineDotActive, stage.isCancelled && { backgroundColor: '#EF4444' }]}>
+                        <Check size={10} color="#FFFFFF" strokeWidth={4} />
+                      </View>
+                      {!isLast && <View style={[styles.timelineLine, styles.timelineLineActive, stage.isCancelled && { backgroundColor: '#EF4444' }]} />}
+                    </View>
+                    <View style={styles.timelineRight}>
+                      <Text style={[styles.timelineTitleActive, stage.isCancelled && { color: '#EF4444' }]}>
+                        {stage.title}
+                      </Text>
+                      <Text style={styles.timelineTime}>{stage.time}</Text>
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+          </View>
+        )}
+      </BottomSheetModal>
     </SafeAreaView>
   );
 }
@@ -426,5 +678,168 @@ const styles = StyleSheet.create({
     fontSize: moderateScale(14),
     fontFamily: fonts.big,
     color: '#FFFFFF',
+  },
+  trackBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: colors.primary,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  trackBtnText: {
+    fontSize: moderateScale(13),
+    fontFamily: fonts.big,
+    color: colors.primary,
+  },
+  invoiceBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: '#10B981',
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  invoiceBtnText: {
+    fontSize: moderateScale(13),
+    fontFamily: fonts.big,
+    color: '#10B981',
+  },
+  sheetHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+    marginBottom: 20,
+    width: '100%',
+  },
+  trackSheetTitle: {
+    fontSize: moderateScale(18),
+    fontFamily: fonts.big,
+    color: '#0F172A',
+  },
+  closeBtn: {
+    padding: 4,
+  },
+  trackSheetContent: {
+    paddingTop: 4,
+    paddingBottom: 24,
+    width: '100%',
+  },
+  itemsListContainer: {
+    marginBottom: 20,
+    width: '100%',
+  },
+  itemsListTitle: {
+    fontSize: moderateScale(13),
+    fontFamily: fonts.big,
+    color: '#64748B',
+    marginBottom: 10,
+  },
+  itemsListScroll: {
+    gap: 12,
+    paddingRight: 16,
+  },
+  trackProductCard: {
+    width: 64,
+    alignItems: 'center',
+  },
+  trackProductImageWrapper: {
+    width: 60,
+    height: 60,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    overflow: 'hidden',
+    position: 'relative',
+    backgroundColor: '#FFFFFF',
+  },
+  trackProductImage: {
+    width: '100%',
+    height: '100%',
+  },
+  trackProductQtyBadge: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    backgroundColor: 'rgba(15, 23, 42, 0.75)',
+    borderTopLeftRadius: 6,
+    paddingHorizontal: 4,
+    paddingVertical: 1.5,
+  },
+  trackProductQtyText: {
+    fontSize: moderateScale(8.5),
+    fontFamily: fonts.big,
+    color: '#FFFFFF',
+  },
+  trackProductName: {
+    fontSize: moderateScale(10),
+    fontFamily: fonts.medium,
+    color: '#475569',
+    marginTop: 4,
+    width: '100%',
+    textAlign: 'center',
+  },
+  sheetTimelineContainer: {
+    width: '100%',
+    paddingHorizontal: 4,
+  },
+  timelineItem: {
+    flexDirection: 'row',
+    minHeight: 64,
+  },
+  timelineLeft: {
+    alignItems: 'center',
+    width: 24,
+    marginRight: 12,
+  },
+  timelineDot: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#CBD5E1',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 2,
+  },
+  timelineDotActive: {
+    backgroundColor: colors.primary,
+  },
+  timelineLine: {
+    width: 2,
+    flex: 1,
+    backgroundColor: '#E2E8F0',
+    marginTop: -2,
+    marginBottom: -2,
+    zIndex: 1,
+  },
+  timelineLineActive: {
+    backgroundColor: colors.primary,
+  },
+  timelineRight: {
+    flex: 1,
+    paddingTop: -2,
+  },
+  timelineTitleActive: {
+    fontSize: moderateScale(14),
+    fontFamily: fonts.big,
+    color: '#0F172A',
+  },
+  timelineTitleInactive: {
+    fontSize: moderateScale(14),
+    fontFamily: fonts.medium,
+    color: '#94A3B8',
+  },
+  timelineTime: {
+    fontSize: moderateScale(11),
+    fontFamily: fonts.medium,
+    color: '#64748B',
+    marginTop: 2,
   },
 });

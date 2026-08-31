@@ -209,7 +209,7 @@ export default function OrderDetailScreen({ navigation, route }) {
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Order Details</Text>
         </View>
-        {(order?.billUrl || order?.billurl) && orderStatus !== 'cancelled' ? (
+        {(order?.billUrl || order?.billurl) && orderStatus === 'delivered' ? (
           <TouchableOpacity
             style={styles.receiptButton}
             activeOpacity={0.7}
@@ -247,7 +247,7 @@ export default function OrderDetailScreen({ navigation, route }) {
         </View>
 
         {/* Invoice Card */}
-        {(order?.billUrl || order?.billurl) && orderStatus !== 'cancelled' ? (
+        {(order?.billUrl || order?.billurl) && orderStatus === 'delivered' ? (
           <View style={styles.sectionContainer}>
             <TouchableOpacity
               style={styles.invoiceCard}

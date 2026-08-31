@@ -31,6 +31,7 @@ import {
   Tag,
   X,
   Check,
+  Calendar,
 } from 'lucide-react-native';
 
 import { useDispatch, useSelector } from 'react-redux';
@@ -234,6 +235,7 @@ export default function ProductDetailScreen({ route, navigation }) {
   const {
     data: fetchedProduct,
     isLoading,
+    isFetching,
   } = useProductDetail(productId, initialProduct);
 
   const { data: brands = [] } = useBrands();
@@ -241,6 +243,7 @@ export default function ProductDetailScreen({ route, navigation }) {
   const product = useMemo(() => {
     return fetchedProduct || initialProduct || {};
   }, [fetchedProduct, initialProduct]);
+
 
   // Active UI States
   const [activeImageIndex, setActiveImageIndex] = useState(0);
@@ -658,6 +661,14 @@ export default function ProductDetailScreen({ route, navigation }) {
             </View>
           ) : null}
 
+          {/* Expiry Date Info */}
+          {formattedExpiryDate ? (
+            <View style={styles.expiryRow}>
+              <Calendar size={14} color="#6D7277" />
+              <Text style={styles.expiryText}>Expiry Date: {formattedExpiryDate}</Text>
+            </View>
+          ) : null}
+
           {/* Price Row */}
           <View style={styles.priceContainer}>
             <Text style={styles.discountedPrice}>₹{currentQuantityPricing.totalPrice}</Text>
@@ -673,8 +684,15 @@ export default function ProductDetailScreen({ route, navigation }) {
           </View>
         </View>
 
-        {/* ── Bulk Pricing Preview Banner (ONLY for main base product) ── */}
-        {activePriceTiers.length > 0 && (
+        {/* ── Bulk Pricing Preview Banner ── */}
+        {isFetching && (!activePriceTiers || activePriceTiers.length === 0) ? (
+          <View style={skeletonStyles.bulkBanner}>
+            <Skeleton width={18} height={18} radius={4} />
+            <View style={{ flex: 1, marginLeft: 10 }}>
+              <Skeleton width="55%" height={13} radius={5} />
+            </View>
+          </View>
+        ) : activePriceTiers.length > 0 ? (
           <TouchableOpacity
             style={styles.bulkBanner}
             activeOpacity={0.85}
@@ -683,22 +701,23 @@ export default function ProductDetailScreen({ route, navigation }) {
               <Tag size={18} color={colors.primary} />
               <View>
                 <Text style={styles.bulkBannerTitle}>Bulk Pricing Available</Text>
-                {/* <Text style={styles.bulkBannerSub}>
-                  {activePriceTiers.map((t) => {
-                    const unitP = t.price && typeof t.price === 'object' && '$numberDecimal' in t.price
-                      ? parseFloat(t.price.$numberDecimal) || 0
-                      : Number(t.price) || 0;
-                    return `Qty ${t.quantity} @ ₹${unitP}/unit`;
-                  }).join('  •  ')}
-                </Text> */}
               </View>
             </View>
             <ChevronDown size={18} color={colors.primary} />
           </TouchableOpacity>
-        )}
+        ) : null}
 
-        {/* ── Product Variants / Sizes (ONLY if variants exist) ── */}
-        {product?.variants && product.variants.length > 0 && (
+        {/* ── Product Variants / Sizes ── */}
+        {isFetching && (!product?.variants || product.variants.length === 0) ? (
+          <View style={styles.sectionContainer}>
+            <Skeleton width="40%" height={15} radius={5} style={{ marginBottom: 12 }} />
+            <View style={{ flexDirection: 'row', gap: 12 }}>
+              <Skeleton width={72} height={46} radius={12} />
+              <Skeleton width={72} height={46} radius={12} />
+              <Skeleton width={72} height={46} radius={12} />
+            </View>
+          </View>
+        ) : product?.variants && product.variants.length > 0 ? (
           <View style={styles.sectionContainer}>
             <Text style={styles.sectionTitle}>
               Select Option
@@ -723,7 +742,7 @@ export default function ProductDetailScreen({ route, navigation }) {
               })}
             </View>
           </View>
-        )}
+        ) : null}
 
         {/* ── Product Color (ONLY if color exists) ── */}
         {product?.color && String(product.color).trim() !== '' && (
@@ -1410,6 +1429,17 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: moderateScale(12),
     fontFamily: fonts.big,
+  },
+  expiryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+    gap: 6,
+  },
+  expiryText: {
+    fontSize: moderateScale(13),
+    fontFamily: fonts.medium,
+    color: '#6D7277',
   },
   priceContainer: {
     flexDirection: 'row',

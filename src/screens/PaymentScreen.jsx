@@ -15,7 +15,7 @@ import {
   TextInput,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ChevronLeft, CreditCard, Banknote, X, Copy, CheckCircle2, ShoppingBag, MapPin, QrCode } from 'lucide-react-native';
+import { ChevronLeft, CreditCard, Banknote, X, Copy, CheckCircle2, ShoppingBag, MapPin, QrCode, MessageCircle } from 'lucide-react-native';
 import { useSelector, useDispatch } from 'react-redux';
 import QRCode from 'react-native-qrcode-svg';
 import Clipboard from '@react-native-clipboard/clipboard';
@@ -147,12 +147,31 @@ export default function PaymentScreen({ navigation, route }) {
 
       // 2. Create the order
       const mode = paymentMethod === 'cod' ? 'COD' : 'UPI';
-      await createOrder({ cartId, addressId, couponCode, paymentMode: mode });
+      await createOrder({
+        cartId,
+        addressId,
+        couponCode,
+        paymentMode: mode,
+        ...(mode === 'UPI' ? { utrNumber } : {}),
+      });
 
       // 3. Success - Set orderedItems to preserve details for the overlay
       setOrderedItems([...cartItems]);
       setShowSuccessOverlay(true);
       dispatch(clearCart());
+
+      // Auto-redirect to WhatsApp for UPI payment screenshot
+      if (mode === 'UPI') {
+        const message = `Hello Shagun Beauty, I have placed an online order.\n\nTotal Amount: ₹${totalAmount}\nTransaction ID/UTR: ${utrNumber}\n\nHere is my payment screenshot.`;
+        const whatsappUrl = `https://wa.me/919045791373?text=${encodeURIComponent(message)}`;
+        setTimeout(async () => {
+          try {
+            await Linking.openURL(whatsappUrl);
+          } catch (err) {
+            console.log('Error opening WhatsApp:', err);
+          }
+        }, 800);
+      }
     } catch (e) {
       console.log('Order creation failed:', e);
       Alert.alert('Order Placement Failed', e?.message || 'Something went wrong. Please try again.');
@@ -255,6 +274,28 @@ export default function PaymentScreen({ navigation, route }) {
         {/* Inline Online Payment details if selected */}
         {paymentMethod === 'online' && (
           <View style={styles.onlinePaymentSection}>
+            {/* UTR/Transaction ID Input */}
+            <View style={styles.utrInputGroup}>
+              <Text style={styles.utrLabel}>Transaction ID / UTR Number (Required)</Text>
+              <TextInput
+                style={styles.utrInput}
+                placeholder="Enter 12-digit Transaction ID or UTR number"
+                placeholderTextColor="#94A3B8"
+                keyboardType="number-pad"
+                value={utrNumber}
+                onChangeText={setUtrNumber}
+              />
+            </View>
+
+            {/* View QR & Bank Details Button */}
+            <TouchableOpacity
+              style={styles.viewDetailsBtn}
+              activeOpacity={0.8}
+              onPress={() => setShowQrModal(true)}>
+              <QrCode size={18} color={colors.primary} style={{ marginRight: 8 }} />
+              <Text style={styles.viewDetailsBtnText}>View QR Code & Bank Details</Text>
+            </TouchableOpacity>
+
             {/* Warning Banner */}
             <View style={styles.warningBanner}>
               <Text style={styles.warningTitle}>⚠️ Important Payment Process / महत्वपूर्ण भुगतान प्रक्रिया</Text>
@@ -262,7 +303,7 @@ export default function PaymentScreen({ navigation, route }) {
               {/* English */}
               <Text style={[styles.warningText, { fontFamily: fonts.big, color: '#D97706' }]}>English:</Text>
               <Text style={styles.warningText}>
-                After completing the payment, please enter your Transaction ID / UTR Number below and send the payment screenshot on WhatsApp (+91 90457 91373).
+                After completing the payment, please enter your Transaction ID / UTR Number above and send the payment screenshot on WhatsApp (+91 90457 91373).
               </Text>
               <Text style={[styles.warningText, { marginTop: 2, fontFamily: fonts.big }]}>
                 Tapping the "CONFIRM ORDER" button below is mandatory to place your order.
@@ -274,7 +315,7 @@ export default function PaymentScreen({ navigation, route }) {
               {/* Hindi */}
               <Text style={[styles.warningText, { fontFamily: fonts.big, color: '#D97706' }]}>Hindi:</Text>
               <Text style={styles.warningText}>
-                पेमेंट पूरा करने के बाद कृपया नीचे अपना Transaction ID / UTR Number दर्ज करें, और पेमेंट स्क्रीनशॉट व्हाट्सएप (+91 90457 91373) पर भेजें।
+                पेमेंट पूरा करने के बाद कृपया ऊपर अपना Transaction ID / UTR Number दर्ज करें, और पेमेंट स्क्रीनशॉट व्हाट्सएप (+91 90457 91373) पर भेजें।
               </Text>
               <Text style={[styles.warningText, { marginTop: 2, fontFamily: fonts.big }]}>
                 अपना ऑर्डर प्लेस करने के लिए नीचे "CONFIRM ORDER" बटन दबाना अनिवार्य है।
@@ -305,28 +346,6 @@ export default function PaymentScreen({ navigation, route }) {
                 </Text>
                 <Copy size={12} color="#B45309" style={{ marginLeft: 6 }} />
               </TouchableOpacity>
-            </View>
-
-            {/* View QR & Bank Details Button */}
-            <TouchableOpacity
-              style={styles.viewDetailsBtn}
-              activeOpacity={0.8}
-              onPress={() => setShowQrModal(true)}>
-              <QrCode size={18} color={colors.primary} style={{ marginRight: 8 }} />
-              <Text style={styles.viewDetailsBtnText}>View QR Code & Bank Details</Text>
-            </TouchableOpacity>
-
-            {/* UTR/Transaction ID Input */}
-            <View style={styles.utrInputGroup}>
-              <Text style={styles.utrLabel}>Transaction ID / UTR Number (Required)</Text>
-              <TextInput
-                style={styles.utrInput}
-                placeholder="Enter 12-digit Transaction ID or UTR number"
-                placeholderTextColor="#94A3B8"
-                keyboardType="number-pad"
-                value={utrNumber}
-                onChangeText={setUtrNumber}
-              />
             </View>
           </View>
         )}
@@ -582,6 +601,24 @@ export default function PaymentScreen({ navigation, route }) {
 
             {/* Actions */}
             <View style={styles.overlayActions}>
+              {paymentMethod === 'online' && (
+                <TouchableOpacity
+                  style={styles.whatsappBtn}
+                  activeOpacity={0.85}
+                  onPress={async () => {
+                    const message = `Hello Shagun Beauty, I have placed an online order.\n\nTotal Amount: ₹${totalAmount}\nTransaction ID/UTR: ${utrNumber}\n\nHere is my payment screenshot.`;
+                    const whatsappUrl = `https://wa.me/919045791373?text=${encodeURIComponent(message)}`;
+                    try {
+                      await Linking.openURL(whatsappUrl);
+                    } catch (err) {
+                      Alert.alert('Error', 'Could not open WhatsApp. Please make sure WhatsApp is installed.');
+                    }
+                  }}>
+                  <MessageCircle size={18} color="#FFFFFF" />
+                  <Text style={styles.whatsappText}>Send Screenshot on WhatsApp</Text>
+                </TouchableOpacity>
+              )}
+
               <TouchableOpacity
                 style={styles.continueShopBtn}
                 activeOpacity={0.85}
@@ -987,22 +1024,21 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   utrLabel: {
-    fontSize: moderateScale(11),
+    fontSize: moderateScale(12),
     fontFamily: fonts.big,
-    color: '#475569',
-    marginBottom: 6,
-    marginTop: 4,
+    color: colors.primary,
+    marginBottom: 8,
   },
   utrInput: {
-    height: 44,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    fontSize: moderateScale(13),
+    height: 48,
+    borderWidth: 1.5,
+    borderColor: colors.primaryLight,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    fontSize: moderateScale(14),
     fontFamily: fonts.medium,
-    color: '#0F172A',
-    backgroundColor: '#F8FAFC',
+    color: '#1A1C1E',
+    backgroundColor: '#FAF8FF',
   },
   overlayContainer: {
     position: 'absolute',
@@ -1165,6 +1201,26 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   continueShopText: {
+    fontSize: moderateScale(14),
+    fontFamily: fonts.big,
+    color: '#FFFFFF',
+  },
+  whatsappBtn: {
+    width: '100%',
+    paddingVertical: 14,
+    borderRadius: 14,
+    backgroundColor: '#25D366',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#25D366',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 3,
+    flexDirection: 'row',
+    gap: 8,
+  },
+  whatsappText: {
     fontSize: moderateScale(14),
     fontFamily: fonts.big,
     color: '#FFFFFF',

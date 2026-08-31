@@ -18,6 +18,7 @@ import fonts from '../theme/typography';
 import { useBrands } from '../hooks/useBrands';
 import { Skeleton } from '../components/Skeleton';
 import { moderateScale } from '../theme/responsive';
+import LinearGradient from 'react-native-linear-gradient';
 
 const DUMMY_IMG = require('../../assets/dummy_product.png');
 
@@ -109,7 +110,7 @@ export default function BrandsScreen({ navigation }) {
 
           {/* Sleek Search bar at the top of scrollable content */}
           <View style={styles.searchBarContainerInside}>
-            <Search size={16} color="#94A3B8" style={styles.searchIcon} />
+            <Search size={18} color={colors.primary} style={styles.searchIcon} />
             <View style={styles.searchInputWrapper}>
               {search.length === 0 && (
                 <Text style={styles.searchPlaceholderText} pointerEvents="none">
@@ -124,7 +125,7 @@ export default function BrandsScreen({ navigation }) {
             </View>
           </View>
 
-          <Text style={styles.brandFocusTitle}>Brand Focus</Text>
+          <Text style={styles.brandFocusTitle}>Explore Brands</Text>
 
           {filtered.length === 0 ? (
             <Text style={styles.emptyText}>
@@ -144,13 +145,19 @@ export default function BrandsScreen({ navigation }) {
                         brandName: brand.name,
                       })
                     }>
-                    <Image
-                      source={
-                        brand.images?.[0] ? { uri: brand.images[0], cache: 'force-cache' } : DUMMY_IMG
-                      }
-                      style={styles.brandImage}
-                      resizeMode="cover"
-                    />
+                    <LinearGradient
+                      colors={['rgba(255, 255, 255, 0.95)', 'rgba(215, 185, 255, 0.35)', 'rgba(255, 255, 255, 0.98)']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={styles.brandCardGradient}>
+                      <Image
+                        source={
+                          brand.images?.[0] ? { uri: brand.images[0], cache: 'force-cache' } : DUMMY_IMG
+                        }
+                        style={styles.brandImage}
+                        resizeMode="contain"
+                      />
+                    </LinearGradient>
                     {brand.newly_launched ? (
                       <View style={styles.newBadge}>
                         <Text style={styles.newBadgeText}>New</Text>
@@ -198,14 +205,19 @@ const styles = StyleSheet.create({
   searchBarContainerInside: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F4F6FA',
-    borderWidth: 0.8,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
     borderColor: '#E2E8F0',
-    borderRadius: 6,
-    height: 40,
-    paddingHorizontal: 12,
+    borderRadius: 12,
+    height: 48,
+    paddingHorizontal: 16,
     marginTop: 10,
-    marginBottom: 16,
+    marginBottom: 20,
+    shadowColor: '#6B7280',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
   },
   searchIcon: {
     marginRight: 8,
@@ -282,16 +294,26 @@ const styles = StyleSheet.create({
   brandCard: {
     flex: 1,
     aspectRatio: 1,
-    borderRadius: 4,
-    padding: 0,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#F0ECFF',
+    borderRadius: 0,
+    borderWidth: 1,
+    borderColor: 'rgba(212, 175, 55, 0.35)',
     overflow: 'hidden',
+    shadowColor: '#6B7280',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 2,
   },
-  brandImage: {
+  brandCardGradient: {
+    flex: 1,
     width: '100%',
     height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  brandImage: {
+    width: '80%',
+    height: '80%',
   },
   newBadge: {
     position: 'absolute',

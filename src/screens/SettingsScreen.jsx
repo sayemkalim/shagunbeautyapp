@@ -20,7 +20,6 @@ import {
   PhoneCall,
   ShieldCheck,
   FileText,
-  RotateCcw,
   LogOut,
   ChevronRight,
 } from 'lucide-react-native';
@@ -215,7 +214,7 @@ export default function SettingsScreen({ navigation }) {
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={styles.menuItem}
+              style={[styles.menuItem, styles.noBorderItem]}
               activeOpacity={0.7}
               onPress={() => navigation.navigate('TermsConditions')}>
               <View style={styles.menuLeft}>
@@ -223,18 +222,6 @@ export default function SettingsScreen({ navigation }) {
                   <FileText size={19} color="#1E293B" />
                 </View>
                 <Text style={styles.menuText}>Terms & Conditions</Text>
-              </View>
-              <ChevronRight size={18} color="#CBD5E1" />
-            </TouchableOpacity>
-
-            <TouchableOpacity 
-              style={[styles.menuItem, styles.noBorderItem]} 
-              activeOpacity={0.7}>
-              <View style={styles.menuLeft}>
-                <View style={styles.iconBox}>
-                  <RotateCcw size={19} color="#1E293B" />
-                </View>
-                <Text style={styles.menuText}>Refund & Cancellation</Text>
               </View>
               <ChevronRight size={18} color="#CBD5E1" />
             </TouchableOpacity>

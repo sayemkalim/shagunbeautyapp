@@ -1,7 +1,7 @@
 import { apiRequest } from './client';
 import { getToken } from './authStorage';
 
-export async function createOrder({ cartId, addressId, couponCode, paymentMode }) {
+export async function createOrder({ cartId, addressId, couponCode, paymentMode, utr_number, utrNumber }) {
   const token = await getToken();
   return apiRequest('/api/order/', {
     method: 'POST',
@@ -10,6 +10,7 @@ export async function createOrder({ cartId, addressId, couponCode, paymentMode }
       addressId,
       ...(couponCode ? { couponCode } : {}),
       ...(paymentMode ? { paymentMode } : {}),
+      ...(utr_number || utrNumber ? { utr_number: utr_number || utrNumber } : {}),
     },
     token,
   });

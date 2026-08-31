@@ -22,7 +22,7 @@ export default function BottomSheetModal({
       visible={visible}
       transparent={true}
       animationType="slide"
-      statusBarTranslucent={true}
+      statusBarTranslucent={false}
       onRequestClose={onClose}>
       <View style={styles.modalOverlay}>
         <TouchableWithoutFeedback onPress={onClose}>

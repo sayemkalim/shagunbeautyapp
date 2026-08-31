@@ -48,6 +48,8 @@ import { addToCartApi } from '../api/cart';
 import { Skeleton } from '../components/Skeleton';
 
 import fonts from '../theme/typography';
+
+const DUMMY_IMG = require('../../assets/dummy_product.png');
 import colors from '../theme/colors';
 import { moderateScale } from '../theme/responsive';
 
@@ -211,6 +213,14 @@ const BUDGET_STORES = [
   { id: 'b4', title: 'Under ₹999', subtitle: 'Luxury Indulgence', maxPrice: 999, colors: ['#FFFBEB', '#FEF3C7'], accent: '#D97706', priceText: '₹999', badge: 'PREMIUM', image: require('../../assets/under_999.png') },
 ];
 
+const DEALS_TITLES_ROTATION = [
+  { title: 'Deals Of The Day', subtitle: 'Here today, gone tomorrow.' },
+  { title: 'Exclusive Wholesale Picks', subtitle: 'Handpicked bulk discounts just for you.' },
+  { title: 'Steal Deals of the Week', subtitle: 'Unbeatable prices on trending items.' },
+  { title: 'Hot Selling Favorites', subtitle: 'Best rates on top salon and beauty stock.' },
+  { title: 'Flash Wholesale Special', subtitle: 'Limited stock offers, act fast!' },
+];
+
 export default function HomeScreen({ navigation }) {
   const isFocused = useIsFocused();
   const dispatch = useDispatch();
@@ -221,6 +231,32 @@ export default function HomeScreen({ navigation }) {
   const { data: realProducts = [], isLoading: productsLoading } = useProducts({ per_page: 12 });
   const { data: brands = [] } = useBrands();
   const { data: banners = [], isLoading: bannersLoading } = useBanners();
+
+  // Seeded daily shuffle of brands (exactly 8 elements)
+  const shuffledBrands = useMemo(() => {
+    if (!brands || brands.length === 0) return [];
+    
+    const d = new Date();
+    const dateStr = `${d.getFullYear()}${d.getMonth() + 1}${d.getDate()}`;
+    const seed = parseInt(dateStr, 10);
+    
+    // Seeded pseudorandom generator
+    const seededRandom = (s) => {
+      const x = Math.sin(s) * 10000;
+      return x - Math.floor(x);
+    };
+
+    const shuffled = [...brands];
+    let currentSeed = seed;
+    
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const r = seededRandom(currentSeed);
+      currentSeed += 1;
+      const j = Math.floor(r * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    return shuffled.slice(0, 8);
+  }, [brands]);
 
   const [refreshing, setRefreshing] = useState(false);
 
@@ -239,6 +275,14 @@ export default function HomeScreen({ navigation }) {
       setRefreshing(false);
     }
   }, [queryClient]);
+
+  // Dynamic deals title that changes automatically every 4 days
+  const currentDealsHeader = useMemo(() => {
+    const fourDaysInMs = 1000 * 60 * 60 * 24 * 4;
+    const periodIndex = Math.floor(Date.now() / fourDaysInMs);
+    const index = periodIndex % DEALS_TITLES_ROTATION.length;
+    return DEALS_TITLES_ROTATION[index];
+  }, []);
   const bannerSlides = useMemo(
     () =>
       banners.length > 0
@@ -618,11 +662,13 @@ export default function HomeScreen({ navigation }) {
             </ScrollView>
           </View>
 
+    
+
           {/* ── Budget Beauty Store Section ── */}
           <View style={styles.budgetSection}>
             <View style={styles.budgetHeader}>
               <Text style={styles.budgetTitle}>Budget Beauty Store</Text>
-              <Text style={styles.budgetSubtitle}>Premium beauty for every pocket</Text>
+              {/* <Text style={styles.budgetSubtitle}>Premium beauty for every pocket</Text> */}
             </View>
 
             <ScrollView
@@ -683,8 +729,8 @@ export default function HomeScreen({ navigation }) {
             {/* Centered Banner Header */}
             <View style={styles.dealsHeaderCard}>
               <View style={{ alignItems: 'center' }}>
-                <Text style={styles.dealsTitle}>Deals Of The Day</Text>
-                <Text style={styles.dealsSubtitle}>Here today, gone tomorrow.</Text>
+                <Text style={styles.dealsTitle}>{currentDealsHeader.title}</Text>
+                <Text style={styles.dealsSubtitle}>{currentDealsHeader.subtitle}</Text>
               </View>
             </View>
 
@@ -804,6 +850,18 @@ export default function HomeScreen({ navigation }) {
               style={styles.bottomGradientFade}
             />
           </LinearGradient>
+
+          {/* Premium Home Screen Footer */}
+          <View style={styles.homeFooter}>
+            <Text style={styles.homeFooterTitle}>
+              Empower{"\n"}Your Beauty!
+            </Text>
+            <View style={styles.homeFooterSubtitleRow}>
+              <Text style={styles.homeFooterSubtitle}>Made with </Text>
+              <Text style={styles.heartText}>❤️</Text>
+              <Text style={styles.homeFooterSubtitle}> in India</Text>
+            </View>
+          </View>
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -1268,5 +1326,111 @@ const styles = StyleSheet.create({
     fontSize: moderateScale(16),
     fontFamily: fonts.big,
     color: '#FFFFFF',
+  },
+  homeFooter: {
+    alignItems: 'flex-start',
+    justifyContent: 'center',
+    paddingVertical: 56,
+    paddingHorizontal: 36,
+    backgroundColor: '#FFFFFF',
+    borderTopWidth: 1,
+    borderTopColor: '#F1F5F9',
+    marginTop: 18,
+    width: '100%',
+  },
+  homeFooterTitle: {
+    fontSize: moderateScale(48),
+    fontFamily: fonts.big,
+    color: '#82868B',
+    textAlign: 'left',
+    lineHeight: moderateScale(52),
+    fontWeight: 'bold',
+  },
+  homeFooterSubtitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 18,
+  },
+  homeFooterSubtitle: {
+    fontSize: moderateScale(14),
+    fontFamily: fonts.medium,
+    color: '#9C9FA3',
+  },
+  heartText: {
+    fontSize: moderateScale(14),
+    color: '#EF4444',
+  },
+  brandsSection: {
+    paddingVertical: 20,
+    paddingHorizontal: 16,
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 8,
+    borderBottomColor: '#F8FAFC',
+  },
+  brandsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  brandsTitleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  brandsTitle: {
+    fontSize: moderateScale(16),
+    fontFamily: fonts.big,
+    color: '#1E1B4B',
+  },
+  brandsViewAll: {
+    fontSize: moderateScale(13),
+    fontFamily: fonts.bold,
+    color: colors.primary,
+  },
+  brandsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    rowGap: 16,
+  },
+  brandGridItem: {
+    width: '23%',
+    alignItems: 'center',
+  },
+  brandGridImageContainer: {
+    width: '100%',
+    aspectRatio: 1,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    shadowColor: '#6B7280',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  brandGridImage: {
+    width: '76%',
+    height: '76%',
+  },
+  brandGridName: {
+    fontSize: moderateScale(11),
+    fontFamily: fonts.big,
+    color: '#1E1B4B',
+    marginTop: 8,
+    width: '100%',
+    textAlign: 'center',
+  },
+  brandGridExplore: {
+    fontSize: moderateScale(8.5),
+    fontFamily: fonts.bold,
+    color: colors.primary,
+    letterSpacing: 1.2,
+    marginTop: 2,
+    opacity: 0.8,
   },
 });

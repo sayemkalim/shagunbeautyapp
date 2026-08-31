@@ -21,6 +21,7 @@ import {
   X,
   Tag,
   Handbag,
+  Inbox,
 } from 'lucide-react-native';
 
 import { useDispatch, useSelector } from 'react-redux';
@@ -452,7 +453,13 @@ export default function ProductsScreen({ route, navigation }) {
         </View>
       ) : processedProducts.length === 0 ? (
         <View style={styles.centerContainer}>
-          <Text style={styles.emptyText}>No products found matching active filters.</Text>
+          <View style={styles.emptyIconContainer}>
+            <Inbox size={48} color={colors.primary} />
+          </View>
+          <Text style={styles.emptyTitle}>No Products Found</Text>
+          <Text style={styles.emptySubtitle}>
+            We couldn't find any products in this brand or matching your selection.
+          </Text>
         </View>
       ) : (
         <FlatList
@@ -664,12 +671,51 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 32,
+    backgroundColor: '#FFFFFF',
   },
-  emptyText: {
-    fontSize: moderateScale(15),
+  emptyIconContainer: {
+    width: 90,
+    height: 90,
+    borderRadius: 45,
+    backgroundColor: '#FAF5FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 20,
+    borderWidth: 1.5,
+    borderColor: '#F3E8FF',
+  },
+  emptyTitle: {
+    fontSize: moderateScale(18),
+    fontFamily: fonts.big,
+    color: '#1A1C1E',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  emptySubtitle: {
+    fontSize: moderateScale(14),
     fontFamily: fonts.medium,
     color: '#64748B',
     textAlign: 'center',
+    lineHeight: moderateScale(20),
+  },
+  clearFilterBtn: {
+    marginTop: 24,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: colors.primary,
+    backgroundColor: '#FFFFFF',
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  clearFilterBtnText: {
+    fontSize: moderateScale(13),
+    fontFamily: fonts.big,
+    color: colors.primary,
   },
   listContent: {
     paddingHorizontal: 12,
