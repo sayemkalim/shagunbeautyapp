@@ -55,9 +55,11 @@ import { moderateScale } from '../theme/responsive';
 
 const { width: screenWidth } = Dimensions.get('window');
 const BANNER_WIDTH = screenWidth - 32;
-const DEALS_GAP = 14;
+const DEALS_GAP = 12;
 const DEAL_CARD_WIDTH = (screenWidth - 16 * 2 - DEALS_GAP) / 2;
-const DEALS_SNAP_INTERVAL = (DEAL_CARD_WIDTH + DEALS_GAP) * 2;
+const BESTSELLER_GAP = 12;
+const BESTSELLER_CARD_WIDTH = (screenWidth - 16 * 2 - BESTSELLER_GAP) / 2;
+const BESTSELLER_SNAP_INTERVAL = (BESTSELLER_CARD_WIDTH + BESTSELLER_GAP) * 2;
 
 function CategorySkeleton() {
   return (
@@ -111,16 +113,16 @@ function DealCardSkeleton() {
       style={{
         width: DEAL_CARD_WIDTH,
         backgroundColor: '#FFFFFF',
-        borderRadius: 12,
+        borderRadius: 16,
         borderWidth: 1,
         borderColor: '#F1F5F9',
-        padding: 8,
+        padding: 10,
       }}>
       <Skeleton width="100%" height={150} radius={12} />
       <Skeleton width="90%" height={11} radius={5} style={{ marginTop: 10 }} />
       <Skeleton width="60%" height={11} radius={5} style={{ marginTop: 6 }} />
       <Skeleton width="50%" height={14} radius={5} style={{ marginTop: 8 }} />
-      <Skeleton width="100%" height={30} radius={8} style={{ marginTop: 8 }} />
+      <Skeleton width="100%" height={36} radius={10} style={{ marginTop: 12 }} />
     </View>
   );
 }
@@ -226,9 +228,9 @@ export default function HomeScreen({ navigation }) {
   const dispatch = useDispatch();
   const queryClient = useQueryClient();
   const [activeSlide, setActiveSlide] = useState(0);
-  const [dealsActivePage, setDealsActivePage] = useState(0);
+  const [bestsellerActivePage, setBestsellerActivePage] = useState(0);
   const { data: categories = [], isLoading: categoriesLoading } = useCategories();
-  const { data: realProducts = [], isLoading: productsLoading } = useProducts({ per_page: 12 });
+  const { data: realProducts = [], isLoading: productsLoading } = useProducts({ per_page: 30 });
   const { data: brands = [] } = useBrands();
   const { data: banners = [], isLoading: bannersLoading } = useBanners();
 
@@ -313,7 +315,7 @@ export default function HomeScreen({ navigation }) {
   );
   const dealsProducts = useMemo(
     () =>
-      realProducts.map((item) => {
+      realProducts.slice(0, 30).map((item) => {
         const itemId = item._id || item.id;
         const originalPrice = item.price || 0;
         const finalPrice = item.discounted_price || item.price || 0;
@@ -351,6 +353,64 @@ export default function HomeScreen({ navigation }) {
       }),
     [realProducts, brands]
   );
+
+  const bestsellerProducts = useMemo(() => {
+    const tagged = realProducts.filter(
+      (p) =>
+        p.is_best_seller === true ||
+        p.isBestSeller === true ||
+        p.is_bestseller === true ||
+        p.tag === 'bestseller' ||
+        (Array.isArray(p.tags) &&
+          p.tags.some((t) => {
+            const s = String(t).toLowerCase();
+            return s === 'bestseller' || s === 'best seller';
+          }))
+    );
+
+    return tagged.map((item) => {
+      const itemId = item._id || item.id;
+      const originalPrice = item.price || 0;
+      const finalPrice = item.discounted_price || item.price || 0;
+      const discount =
+        originalPrice > finalPrice
+          ? Math.round(((originalPrice - finalPrice) / originalPrice) * 100)
+          : 0;
+      const imageSource = item.images?.[0]
+        ? { uri: item.images[0], cache: 'force-cache' }
+        : item.image
+        ? { uri: item.image, cache: 'force-cache' }
+        : require('../../assets/dummy_product.png');
+
+      let brandNameStr = '';
+      if (typeof item.brand === 'object' && item.brand?.name) {
+        brandNameStr = item.brand.name;
+      } else if (item.brandName) {
+        brandNameStr = item.brandName;
+      } else if (typeof item.brand === 'string') {
+        if (/^[0-9a-fA-F]{24}$/.test(item.brand)) {
+          const found = brands.find((b) => b._id === item.brand);
+          brandNameStr = found ? found.name : '';
+        } else {
+          brandNameStr = item.brand;
+        }
+      }
+
+      const titleText = brandNameStr
+        ? item.name.toLowerCase().startsWith(brandNameStr.toLowerCase())
+          ? item.name.slice(brandNameStr.length).trim()
+          : item.name
+        : item.name;
+
+      return { item, itemId, originalPrice, finalPrice, discount, imageSource, brandNameStr, titleText };
+    });
+  }, [realProducts, brands]);
+
+  useEffect(() => {
+    bestsellerProducts.forEach(({ imageSource }) => {
+      if (imageSource?.uri) Image.prefetch(imageSource.uri);
+    });
+  }, [bestsellerProducts]);
 
   useEffect(() => {
     bannerItems.forEach(({ imageSource }) => {
@@ -437,10 +497,10 @@ export default function HomeScreen({ navigation }) {
     setActiveSlide(activeIndex);
   };
 
-  const handleDealsScroll = (event) => {
+  const handleBestsellerScroll = (event) => {
     const offset = event.nativeEvent.contentOffset.x;
-    const pageIndex = Math.round(offset / DEALS_SNAP_INTERVAL);
-    setDealsActivePage(pageIndex);
+    const pageIndex = Math.round(offset / BESTSELLER_SNAP_INTERVAL);
+    setBestsellerActivePage(pageIndex);
   };
 
 
@@ -722,6 +782,131 @@ export default function HomeScreen({ navigation }) {
             </ScrollView>
           </View>
 
+          {/* ── Best Sellers Slider Section ── */}
+          {(productsLoading || refreshing || bestsellerProducts.length > 0) ? (
+            <View style={styles.bestsellerSection}>
+              <View style={styles.bestsellerHeader}>
+                <Text style={styles.bestsellerTitle}>Best Sellers</Text>
+              </View>
+
+              {(productsLoading || refreshing) ? (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  snapToInterval={BESTSELLER_SNAP_INTERVAL}
+                  decelerationRate="fast"
+                  snapToAlignment="start"
+                  contentContainerStyle={styles.bestsellerScrollContent}>
+                  {Array.from({ length: 4 }).map((_, i) => (
+                    <View key={i} style={styles.bestsellerCard}>
+                      <Skeleton width="100%" height={150} radius={12} />
+                      <Skeleton width="90%" height={11} radius={5} style={{ marginTop: 10 }} />
+                      <Skeleton width="60%" height={11} radius={5} style={{ marginTop: 6 }} />
+                      <Skeleton width="50%" height={14} radius={5} style={{ marginTop: 8 }} />
+                      <Skeleton width="100%" height={36} radius={10} style={{ marginTop: 12 }} />
+                    </View>
+                  ))}
+                </ScrollView>
+              ) : (
+                <>
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    snapToInterval={BESTSELLER_SNAP_INTERVAL}
+                    decelerationRate="fast"
+                    snapToAlignment="start"
+                    onScroll={handleBestsellerScroll}
+                    scrollEventThrottle={16}
+                    contentContainerStyle={styles.bestsellerScrollContent}>
+                    {bestsellerProducts.map(({ item, itemId, originalPrice, finalPrice, discount, imageSource, brandNameStr, titleText }) => {
+                      const isInCart = cartItems.some((ci) => (ci.productId || ci.id) === itemId);
+                      const isLoadingThis = loadingProductId === itemId;
+
+                      return (
+                        <TouchableOpacity
+                          key={item._id || item.id}
+                          style={styles.bestsellerCard}
+                          activeOpacity={0.85}
+                          onPress={() =>
+                            navigation.navigate('ProductDetail', {
+                              productId: item._id || item.id,
+                              product: item,
+                            })
+                          }>
+                          {/* Image Box */}
+                          <View style={styles.imageContainer}>
+                            <LinearGradient
+                              colors={['#A78BFA', colors.primary]}
+                              start={{ x: 0, y: 0 }}
+                              end={{ x: 1, y: 0 }}
+                              style={styles.gradientBadge}>
+                              <Text style={styles.gradientBadgeText}>BESTSELLER</Text>
+                            </LinearGradient>
+                            <RemoteImage
+                              source={imageSource}
+                              defaultSource={require('../../assets/dummy_product.png')}
+                              style={styles.productImage}
+                              resizeMode="cover"
+                            />
+                          </View>
+
+                          {/* Details Container */}
+                          <View style={styles.detailsContainer}>
+                            <View>
+                              <Text numberOfLines={2} style={styles.productTitle}>
+                                {brandNameStr ? <Text style={styles.brandText}>{brandNameStr} </Text> : null}
+                                {titleText}
+                              </Text>
+
+                              {/* Price Row */}
+                              <View style={styles.priceRow}>
+                                {discount > 0 ? (
+                                  <>
+                                    <Text style={styles.originalPrice}>₹{originalPrice}</Text>
+                                    <Text style={styles.finalPrice}>₹{finalPrice}</Text>
+                                    <Text style={styles.discountText}>{discount}% OFF</Text>
+                                  </>
+                                ) : (
+                                  <Text style={styles.finalPrice}>₹{finalPrice}</Text>
+                                )}
+                              </View>
+                            </View>
+
+                            {/* ADD TO BAG / GO TO BAG Button with Spinner */}
+                            <TouchableOpacity
+                              style={[styles.addToBagButton, isInCart && styles.goToBagButton]}
+                              activeOpacity={0.85}
+                              disabled={isLoadingThis}
+                              onPress={() => handleAddToCart(item)}>
+                              {isLoadingThis ? (
+                                <ActivityIndicator size="small" color={isInCart ? '#FFFFFF' : colors.primary} />
+                              ) : (
+                                <Text style={[styles.addToBagText, isInCart && styles.goToBagText]}>
+                                  {isInCart ? 'GO TO BAG' : 'ADD TO BAG'}
+                                </Text>
+                              )}
+                            </TouchableOpacity>
+                          </View>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
+
+                  {bestsellerProducts.length > 2 && (
+                    <View style={styles.bestsellerDotsRow}>
+                      {Array.from({ length: Math.min(6, Math.ceil(bestsellerProducts.length / 2)) }).map((_, i) => (
+                        <View
+                          key={i}
+                          style={[styles.bestsellerDot, bestsellerActivePage === i && styles.bestsellerDotActive]}
+                        />
+                      ))}
+                    </View>
+                  )}
+                </>
+              )}
+            </View>
+          ) : null}
+
           {/* ── Deals Of The Day (Light Primary Purple LinearGradient Background) ── */}
           <LinearGradient
             colors={['#F3E8FF', '#FAF5FF', '#FFFFFF']}
@@ -735,27 +920,13 @@ export default function HomeScreen({ navigation }) {
             </View>
 
             {(productsLoading || refreshing) ? (
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                snapToInterval={DEALS_SNAP_INTERVAL}
-                decelerationRate="fast"
-                snapToAlignment="start"
-                contentContainerStyle={styles.dealsSwiperContent}>
-                {Array.from({ length: 3 }).map((_, i) => (
+              <View style={styles.dealsGrid}>
+                {Array.from({ length: 4 }).map((_, i) => (
                   <DealCardSkeleton key={i} />
                 ))}
-              </ScrollView>
+              </View>
             ) : realProducts.length > 0 ? (
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                snapToInterval={DEALS_SNAP_INTERVAL}
-                decelerationRate="fast"
-                snapToAlignment="start"
-                onScroll={handleDealsScroll}
-                scrollEventThrottle={16}
-                contentContainerStyle={styles.dealsSwiperContent}>
+              <View style={styles.dealsGrid}>
                 {dealsProducts.map(({ item, itemId, originalPrice, finalPrice, discount, imageSource, brandNameStr, titleText }) => {
                   const isInCart = cartItems.some((ci) => (ci.productId || ci.id) === itemId);
                   const isLoadingThis = loadingProductId === itemId;
@@ -763,7 +934,7 @@ export default function HomeScreen({ navigation }) {
                   return (
                     <TouchableOpacity
                       key={item._id || item.id}
-                      style={styles.swiperProductCard}
+                      style={styles.dealProductCard}
                       activeOpacity={0.85}
                       onPress={() =>
                         navigation.navigate('ProductDetail', {
@@ -830,19 +1001,8 @@ export default function HomeScreen({ navigation }) {
                     </TouchableOpacity>
                   );
                 })}
-              </ScrollView>
-            ) : null}
-
-            {!productsLoading && realProducts.length > 2 && (
-              <View style={styles.dealsDotsRow}>
-                {Array.from({ length: Math.ceil(realProducts.length / 2) }).map((_, i) => (
-                  <View
-                    key={i}
-                    style={[styles.dealsDot, dealsActivePage === i && styles.dealsDotActive]}
-                  />
-                ))}
               </View>
-            )}
+            ) : null}
 
             {/* Bottom Soft Purple Fade */}
             <LinearGradient
@@ -1027,6 +1187,52 @@ const styles = StyleSheet.create({
     height: '100%',
   },
 
+  /* Best Sellers Section */
+  bestsellerSection: {
+    marginTop: 24,
+  },
+  bestsellerHeader: {
+    paddingHorizontal: 16,
+    marginBottom: 12,
+  },
+  bestsellerTitle: {
+    fontSize: moderateScale(18),
+    fontFamily: fonts.big,
+    color: '#000000',
+  },
+  bestsellerScrollContent: {
+    paddingHorizontal: 16,
+    gap: BESTSELLER_GAP,
+    paddingBottom: 4,
+  },
+  bestsellerCard: {
+    width: BESTSELLER_CARD_WIDTH,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
+    padding: 10,
+  },
+  bestsellerDotsRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 12,
+  },
+  bestsellerDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#D8B4FE',
+  },
+  bestsellerDotActive: {
+    width: 20,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: colors.primary,
+  },
+
   /* Deals Of The Day Section (LinearGradient Background) */
   dealsLinearSection: {
     marginTop: 24,
@@ -1065,26 +1271,14 @@ const styles = StyleSheet.create({
     color: '#475569',
     marginTop: 2,
   },
-  dealsSwiperContent: {
-    paddingHorizontal: 16,
-    gap: 14,
-    paddingBottom: 8,
-  },
-  dealsDotsRow: {
+  dealsGrid: {
     flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 6,
-    marginTop: 12,
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    rowGap: 14,
   },
-  dealsDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#D8B4FE' },
-  dealsDotActive: { width: 20, height: 6, borderRadius: 3, backgroundColor: colors.primary },
-  productsLoadingBox: {
-    height: 140,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  swiperProductCard: {
+  dealProductCard: {
     width: DEAL_CARD_WIDTH,
     backgroundColor: '#FFFFFF',
     borderRadius: 16,

@@ -41,6 +41,8 @@ import { addToCartApi } from '../api/cart';
 
 import { useProductDetail } from '../hooks/useProducts';
 import { useBrands } from '../hooks/useBrands';
+import { useCategories } from '../hooks/useCategories';
+import { useSubCategories } from '../hooks/useSubCategories';
 import BottomSheetModal from '../components/BottomSheetModal';
 import { Skeleton } from '../components/Skeleton';
 import colors from '../theme/colors';
@@ -229,6 +231,113 @@ const skeletonStyles = StyleSheet.create({
   },
 });
 
+function formatProductWeightOrVolume(weightVal, product, variant) {
+  if (weightVal === undefined || weightVal === null || weightVal === '') {
+    return null;
+  }
+
+  const rawStr = String(weightVal).trim();
+  if (!rawStr) return null;
+
+  // 1. If weight value already contains a unit (e.g. "100ml", "50g", "200 gm", "1 L")
+  const matchUnitInVal = rawStr.match(/^([\d.]+)\s*(ml|l|ltr|litre|liter|g|gm|gram|grams|kg|pcs|piece|pieces|oz)$/i);
+  if (matchUnitInVal) {
+    const num = matchUnitInVal[1];
+    let unit = matchUnitInVal[2].toLowerCase();
+    if (unit === 'gm' || unit === 'gram' || unit === 'grams') unit = 'g';
+    if (unit === 'ltr' || unit === 'litre' || unit === 'liter') unit = 'L';
+    return {
+      value: num,
+      unit: unit,
+      formatted: `${num} ${unit}`,
+      label: (unit === 'ml' || unit === 'l' || unit === 'L') ? 'Volume' : 'Weight',
+    };
+  }
+
+  // 2. Check explicit unit property on variant or product
+  const explicitUnit = (
+    variant?.unit ||
+    variant?.weight_unit ||
+    variant?.size_unit ||
+    variant?.measurement_unit ||
+    variant?.quantity_unit ||
+    product?.unit ||
+    product?.weight_unit ||
+    product?.size_unit ||
+    product?.measurement_unit ||
+    product?.quantity_unit
+  );
+
+  if (explicitUnit && typeof explicitUnit === 'string') {
+    let u = explicitUnit.trim().toLowerCase();
+    if (u === 'gm' || u === 'gram' || u === 'grams') u = 'g';
+    if (u === 'ltr' || u === 'litre' || u === 'liter') u = 'L';
+    if (u === 'ml' || u === 'g' || u === 'kg' || u === 'l' || u === 'L' || u === 'pcs') {
+      return {
+        value: rawStr,
+        unit: u,
+        formatted: `${rawStr} ${u}`,
+        label: (u === 'ml' || u === 'l' || u === 'L') ? 'Volume' : 'Weight',
+      };
+    }
+  }
+
+  // 3. Check variant name (e.g., variant.name = "100ml", "200 ml", "50g")
+  if (variant?.name && typeof variant.name === 'string') {
+    const matchVar = variant.name.match(/(\d+(?:\.\d+)?)\s*(ml|l|ltr|litre|liter|g|gm|gram|grams|kg)\b/i);
+    if (matchVar) {
+      let u = matchVar[2].toLowerCase();
+      if (u === 'gm' || u === 'gram' || u === 'grams') u = 'g';
+      if (u === 'ltr' || u === 'litre' || u === 'liter') u = 'L';
+      return {
+        value: rawStr,
+        unit: u,
+        formatted: `${rawStr} ${u}`,
+        label: (u === 'ml' || u === 'l' || u === 'L') ? 'Volume' : 'Weight',
+      };
+    }
+  }
+
+  // 4. Check product name & description for unit patterns (e.g. "Face Wash 100ml", "Serum 30 ml")
+  const prodName = product?.name || '';
+  const matchName = prodName.match(/(\d+(?:\.\d+)?)\s*(ml|l|ltr|litre|liter|g|gm|gram|grams|kg)\b/i);
+  if (matchName) {
+    let u = matchName[2].toLowerCase();
+    if (u === 'gm' || u === 'gram' || u === 'grams') u = 'g';
+    if (u === 'ltr' || u === 'litre' || u === 'liter') u = 'L';
+    return {
+      value: rawStr,
+      unit: u,
+      formatted: `${rawStr} ${u}`,
+      label: (u === 'ml' || u === 'l' || u === 'L') ? 'Volume' : 'Weight',
+    };
+  }
+
+  // 5. Check product type/name keywords for liquid cosmetics (ml) vs solids (g)
+  const nameLower = prodName.toLowerCase();
+  const typeLower = String(product?.consumed_type || '').toLowerCase();
+  const descLower = String(product?.small_description || '').toLowerCase();
+  const fullText = `${nameLower} ${typeLower} ${descLower}`;
+
+  const liquidKeywords = [
+    'ml', 'liquid', 'shampoo', 'conditioner', 'serum', 'oil', 'wash', 'facewash',
+    'face wash', 'cleanser', 'lotion', 'toner', 'spray', 'mist', 'perfume',
+    'deodorant', 'deo', 'sanitizer', 'syrup', 'solution', 'fluid', 'drops',
+    'nail polish', 'remover', 'micellar', 'gel', 'shower gel', 'rose water',
+    'gulabari', 'mouthwash', 'moisturizer', 'sunscreen'
+  ];
+
+  const isLiquid = liquidKeywords.some((kw) => fullText.includes(kw));
+  const detectedUnit = isLiquid ? 'ml' : 'g';
+
+  return {
+    value: rawStr,
+    unit: detectedUnit,
+    formatted: `${rawStr} ${detectedUnit}`,
+    label: isLiquid ? 'Volume' : 'Weight',
+  };
+}
+
 export default function ProductDetailScreen({ route, navigation }) {
   const { productId, product: initialProduct } = route.params || {};
 
@@ -239,6 +348,8 @@ export default function ProductDetailScreen({ route, navigation }) {
   } = useProductDetail(productId, initialProduct);
 
   const { data: brands = [] } = useBrands();
+  const { data: categories = [] } = useCategories();
+  const { data: subCategories = [] } = useSubCategories();
 
   const product = useMemo(() => {
     return fetchedProduct || initialProduct || {};
@@ -288,9 +399,14 @@ export default function ProductDetailScreen({ route, navigation }) {
     ? Math.round(((price - discountedPrice) / price) * 100)
     : 0;
 
-  const displayWeight = currentVariant && currentVariant.weight_in_grams !== undefined
+  const rawWeight = currentVariant && currentVariant.weight_in_grams !== undefined
     ? currentVariant.weight_in_grams
     : product?.weight_in_grams;
+
+  const displayWeightInfo = useMemo(
+    () => formatProductWeightOrVolume(rawWeight, product, currentVariant),
+    [rawWeight, product, currentVariant]
+  );
 
   const displaySku = currentVariant && currentVariant.sku
     ? currentVariant.sku
@@ -434,6 +550,58 @@ export default function ProductDetailScreen({ route, navigation }) {
     }
     return '';
   }, [product, brands]);
+
+  // Subcategory / Type resolution (converts Mongo ObjectId or Subcategory ID to Name)
+  const displayType = useMemo(() => {
+    const rawSubcat =
+      product?.sub_category ||
+      product?.subcategory ||
+      product?.subCategory ||
+      product?.subcategoryId ||
+      product?.sub_category_id ||
+      product?.subCategoryId ||
+      product?.consumed_type ||
+      product?.type;
+
+    if (!rawSubcat) return '';
+
+    // Direct object with name/title
+    if (typeof rawSubcat === 'object' && rawSubcat !== null) {
+      if (rawSubcat.name) return rawSubcat.name;
+      if (rawSubcat.title) return rawSubcat.title;
+    }
+
+    if (product?.subcategory_name) return product.subcategory_name;
+    if (product?.subcategoryName) return product.subcategoryName;
+    if (product?.sub_category_name) return product.sub_category_name;
+    if (product?.subCategoryName) return product.subCategoryName;
+
+    if (typeof rawSubcat === 'string') {
+      const trimmed = rawSubcat.trim();
+      // If it looks like a Mongo ObjectId or numeric ID
+      if (/^[0-9a-fA-F]{24}$/.test(trimmed) || /^[0-9]+$/.test(trimmed)) {
+        // Search in subCategories list
+        const foundSub = subCategories.find((s) => (s._id || s.id) === trimmed);
+        if (foundSub) {
+          return foundSub.name || foundSub.title || '';
+        }
+        // Search in categories list fallback
+        const foundCat = categories.find((c) => (c._id || c.id) === trimmed);
+        if (foundCat) {
+          return foundCat.name || foundCat.title || '';
+        }
+      } else {
+        // Already a descriptive text name (e.g. "Hair Oil", "Serum", "Cream")
+        return trimmed;
+      }
+    }
+
+    if (typeof product?.consumed_type === 'string' && !/^[0-9a-fA-F]{24}$/.test(product.consumed_type.trim())) {
+      return product.consumed_type.trim();
+    }
+
+    return '';
+  }, [product, subCategories, categories]);
 
   // Format expiry date cleanly if provided
   const formattedExpiryDate = useMemo(() => {
@@ -732,7 +900,13 @@ export default function ProductDetailScreen({ route, navigation }) {
                     activeOpacity={0.8}
                     onPress={() => setSelectedVariantIndex(isSelected ? null : idx)}>
                     <Text style={[styles.variantName, isSelected && styles.variantNameActive]}>
-                      {v.weight_in_grams ? `${v.weight_in_grams} g` : (v.name || `Option ${idx + 1}`)}
+                      {(() => {
+                        if (v.name && v.name.trim() !== '') {
+                          if (/[a-zA-Z]/.test(v.name)) return v.name;
+                        }
+                        const vWeightInfo = formatProductWeightOrVolume(v.weight_in_grams ?? v.name, product, v);
+                        return vWeightInfo ? vWeightInfo.formatted : (v.name || `Option ${idx + 1}`);
+                      })()}
                     </Text>
                     <Text style={[styles.variantPrice, isSelected && styles.variantPriceActive]}>
                       ₹{v.discounted_price || v.price}
@@ -835,8 +1009,8 @@ export default function ProductDetailScreen({ route, navigation }) {
           product.small_description ||
           formattedExpiryDate ||
           product.manufacturer ||
-          displayWeight ||
-          product.consumed_type ||
+          displayWeightInfo ||
+          displayType ||
           displaySku) && (
           <View style={styles.sectionContainer}>
             <TouchableOpacity
@@ -874,17 +1048,17 @@ export default function ProductDetailScreen({ route, navigation }) {
                   </View>
                 ) : null}
 
-                {product.consumed_type ? (
+                {displayType ? (
                   <View style={styles.specRow}>
                     <Text style={styles.specLabel}>Type</Text>
-                    <Text style={styles.specValue}>{product.consumed_type}</Text>
+                    <Text style={styles.specValue}>{displayType}</Text>
                   </View>
                 ) : null}
 
-                {displayWeight ? (
+                {displayWeightInfo ? (
                   <View style={styles.specRow}>
-                    <Text style={styles.specLabel}>Weight</Text>
-                    <Text style={styles.specValue}>{displayWeight} g</Text>
+                    <Text style={styles.specLabel}>{displayWeightInfo.label}</Text>
+                    <Text style={styles.specValue}>{displayWeightInfo.formatted}</Text>
                   </View>
                 ) : null}
 

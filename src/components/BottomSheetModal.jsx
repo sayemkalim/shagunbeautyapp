@@ -6,6 +6,7 @@ import {
   TouchableWithoutFeedback,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function BottomSheetModal({
   visible,
@@ -15,7 +16,10 @@ export default function BottomSheetModal({
   contentStyle,
   containerStyle,
 }) {
+  const insets = useSafeAreaInsets();
   if (!visible) return null;
+
+  const bottomPadding = insets.bottom > 0 ? insets.bottom + 10 : 14;
 
   return (
     <Modal
@@ -29,7 +33,7 @@ export default function BottomSheetModal({
           <View style={styles.backdropTouch} />
         </TouchableWithoutFeedback>
 
-        <View style={[styles.sheetContentContainer, containerStyle]}>
+        <View style={[styles.sheetContentContainer, { paddingBottom: bottomPadding }, containerStyle]}>
           {showHandle && (
             <View style={styles.handleContainer}>
               <View style={styles.handleBar} />

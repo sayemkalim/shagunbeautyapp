@@ -13,7 +13,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useDispatch, useSelector } from 'react-redux';
 import { useFocusEffect } from '@react-navigation/native';
 import { getUser } from '../api/authStorage';
@@ -114,6 +114,7 @@ const getCouponEligibility = (coupon = {}, orderValue = 0) => {
 };
 
 export default function CartScreen({ navigation }) {
+  const insets = useSafeAreaInsets();
   const dispatch = useDispatch();
   const queryClient = useQueryClient();
   const cartItems = useSelector(selectCartItems);
@@ -1062,7 +1063,7 @@ export default function CartScreen({ navigation }) {
 
       {/* ── Fixed Bottom Sticky Action Bar (Matching User Screenshots) ── */}
       {cartItems.length > 0 && (
-        <View style={styles.fixedBottomContainer}>
+        <View style={[styles.fixedBottomContainer, { paddingBottom: insets.bottom }]}>
           <View style={styles.selectedCountBanner}>
             <Text style={styles.selectedCountText}>
               {selectedCartItems.length} Item{selectedCartItems.length !== 1 ? 's' : ''} selected for order

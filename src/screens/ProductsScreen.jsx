@@ -13,7 +13,7 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   ChevronLeft,
   ArrowUpDown,
@@ -47,6 +47,7 @@ const SORT_OPTIONS = [
 ];
 
 export default function ProductsScreen({ route, navigation }) {
+  const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const isTablet = width >= 600;
   const numColumns = isTablet ? 3 : 2;
@@ -492,7 +493,7 @@ export default function ProductsScreen({ route, navigation }) {
 
       {/* Sort Drawer Bottom Sheet */}
       {activeModal === 'sort' && (
-        <View style={styles.bottomSheet}>
+        <View style={[styles.bottomSheet, { paddingBottom: 92 + insets.bottom }]}>
           <View style={styles.sheetHeader}>
             <View style={styles.sheetTitleRow}>
               <ArrowUpDown size={18} color="#1A1C1E" />
@@ -527,7 +528,7 @@ export default function ProductsScreen({ route, navigation }) {
 
       {/* Brand Selector Bottom Sheet */}
       {activeModal === 'brand' && (
-        <View style={[styles.bottomSheet, styles.brandSheet]}>
+        <View style={[styles.bottomSheet, styles.brandSheet, { paddingBottom: 92 + insets.bottom }]}>
           <View style={styles.sheetHeader}>
             <View style={styles.sheetTitleRow}>
               <Tag size={18} color="#1A1C1E" />
@@ -603,7 +604,7 @@ export default function ProductsScreen({ route, navigation }) {
       )}
 
       {/* Persistent Bottom Filter Bar */}
-      <View style={styles.floatingFilterBar}>
+      <View style={[styles.floatingFilterBar, { bottom: 20 + insets.bottom }]}>
         <TouchableOpacity
           style={styles.filterTab}
           activeOpacity={0.7}
