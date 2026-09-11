@@ -154,7 +154,11 @@ export default function SignInScreen({ navigation, route }) {
       });
       dispatch(clearCart());
       await dispatch(initializeCart());
+      const pendingProductId = route?.params?.pendingProductId;
       navigation.replace('BottomTabs');
+      if (pendingProductId) {
+        navigation.navigate('ProductDetail', { productId: pendingProductId });
+      }
     } catch (err) {
       setErrorMessage(
         err?.message || 'Something went wrong.',

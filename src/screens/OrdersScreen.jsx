@@ -57,6 +57,31 @@ const formatDateTime = (dateString) => {
 
 const DUMMY_IMG = require('../../assets/dummy_product.png');
 
+const extractImgUrl = (img) => {
+  if (!img) return null;
+  if (typeof img === 'string' && img.trim()) return img.trim();
+  if (typeof img === 'object') {
+    return img.url || img.secure_url || img.uri || img.path || img.image || null;
+  }
+  return null;
+};
+
+const resolveImageUrl = (url) => {
+  if (!url || typeof url !== 'string') return null;
+  const trimmed = url.trim();
+  if (!trimmed) return null;
+  if (
+    trimmed.startsWith('http://') ||
+    trimmed.startsWith('https://') ||
+    trimmed.startsWith('data:') ||
+    trimmed.startsWith('file:')
+  ) {
+    return trimmed;
+  }
+  const cleanPath = trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
+  return `https://shagunbeautybe.onrender.com${cleanPath}`;
+};
+
 export default function OrdersScreen({ navigation }) {
   const [orders, setOrders] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -264,11 +289,32 @@ export default function OrdersScreen({ navigation }) {
             data={orderItems}
             horizontal
             showsHorizontalScrollIndicator={false}
-            keyExtractor={(subItem, index) => `${subItem.product?._id || index}`}
+            keyExtractor={(subItem, index) => `${subItem._id || subItem.product?._id || 'item'}-${index}`}
             renderItem={({ item: subItem }) => {
               const product = subItem.product || {};
-              const imageSource = product.banner_image || (product.images && product.images[0])
-                ? { uri: product.banner_image || product.images[0], cache: 'force-cache' }
+              const variantObj = (subItem.variant_sku && Array.isArray(product.variants))
+                ? product.variants.find((v) => v.sku === subItem.variant_sku || v._id === subItem.variant_sku || String(v._id) === String(subItem.variant_sku))
+                : null;
+
+              // Banner image first, fallback to first product image if no banner image
+              const bannerImg =
+                extractImgUrl(variantObj?.banner_image) ||
+                extractImgUrl(product.banner_image) ||
+                extractImgUrl(subItem.banner_image) ||
+                extractImgUrl(product.bannerImage) ||
+                extractImgUrl(subItem.bannerImage);
+
+              const firstProductImg =
+                extractImgUrl(variantObj?.images && variantObj.images[0]) ||
+                extractImgUrl(variantObj?.image) ||
+                extractImgUrl(product.images && product.images[0]) ||
+                extractImgUrl(product.image) ||
+                extractImgUrl(subItem.image);
+
+              const rawUri = bannerImg || firstProductImg;
+              const imageUri = resolveImageUrl(rawUri);
+              const imageSource = imageUri
+                ? { uri: imageUri, cache: 'force-cache' }
                 : DUMMY_IMG;
               return (
                 <View style={styles.productImageWrapper}>
@@ -379,7 +425,7 @@ export default function OrdersScreen({ navigation }) {
       ) : (
         <FlatList
           data={orders}
-          keyExtractor={(item) => item._id}
+          keyExtractor={(item, index) => (item._id ? `${item._id}-${index}` : `${index}`)}
           renderItem={renderOrderItem}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
@@ -425,11 +471,32 @@ export default function OrdersScreen({ navigation }) {
                 contentContainerStyle={styles.itemsListScroll}>
                 {activeTrackOrder.items?.map((subItem, index) => {
                   const product = subItem.product || {};
-                  const imageSource = product.banner_image || (product.images && product.images[0])
-                    ? { uri: product.banner_image || product.images[0] }
+                  const variantObj = (subItem.variant_sku && Array.isArray(product.variants))
+                    ? product.variants.find((v) => v.sku === subItem.variant_sku || v._id === subItem.variant_sku || String(v._id) === String(subItem.variant_sku))
+                    : null;
+
+                  // Banner image first, fallback to first product image if no banner image
+                  const bannerImg =
+                    extractImgUrl(variantObj?.banner_image) ||
+                    extractImgUrl(product.banner_image) ||
+                    extractImgUrl(subItem.banner_image) ||
+                    extractImgUrl(product.bannerImage) ||
+                    extractImgUrl(subItem.bannerImage);
+
+                  const firstProductImg =
+                    extractImgUrl(variantObj?.images && variantObj.images[0]) ||
+                    extractImgUrl(variantObj?.image) ||
+                    extractImgUrl(product.images && product.images[0]) ||
+                    extractImgUrl(product.image) ||
+                    extractImgUrl(subItem.image);
+
+                  const rawUri = bannerImg || firstProductImg;
+                  const imageUri = resolveImageUrl(rawUri);
+                  const imageSource = imageUri
+                    ? { uri: imageUri }
                     : DUMMY_IMG;
                   return (
-                    <View key={product._id || index} style={styles.trackProductCard}>
+                    <View key={`${subItem._id || product._id || 'track'}-${index}`} style={styles.trackProductCard}>
                       <View style={styles.trackProductImageWrapper}>
                         <Image source={imageSource} style={styles.trackProductImage} resizeMode="cover" />
                         <View style={styles.trackProductQtyBadge}>
@@ -437,7 +504,7 @@ export default function OrdersScreen({ navigation }) {
                         </View>
                       </View>
                       <Text numberOfLines={1} style={styles.trackProductName}>
-                        {product.name || 'Product'}
+                        {variantObj?.name || product.name || 'Product'}
                       </Text>
                     </View>
                   );

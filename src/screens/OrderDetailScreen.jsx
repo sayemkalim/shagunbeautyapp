@@ -19,6 +19,31 @@ import { moderateScale } from '../theme/responsive';
 import { getOrderDetails, cancelOrder } from '../api/order';
 import BottomSheetModal from '../components/BottomSheetModal';
 
+const extractImgUrl = (img) => {
+  if (!img) return null;
+  if (typeof img === 'string' && img.trim()) return img.trim();
+  if (typeof img === 'object') {
+    return img.url || img.secure_url || img.uri || img.path || img.image || null;
+  }
+  return null;
+};
+
+const resolveImageUrl = (url) => {
+  if (!url || typeof url !== 'string') return null;
+  const trimmed = url.trim();
+  if (!trimmed) return null;
+  if (
+    trimmed.startsWith('http://') ||
+    trimmed.startsWith('https://') ||
+    trimmed.startsWith('data:') ||
+    trimmed.startsWith('file:')
+  ) {
+    return trimmed;
+  }
+  const cleanPath = trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
+  return `https://shagunbeautybe.onrender.com${cleanPath}`;
+};
+
 export default function OrderDetailScreen({ navigation, route }) {
   const { orderId, orderData } = route.params || {};
   const [order, setOrder] = useState(orderData || null);
@@ -307,7 +332,26 @@ export default function OrderDetailScreen({ navigation, route }) {
           <View style={styles.card}>
             {items.map((item, index) => {
               const product = item.product || {};
-              const imageUrl = product.banner_image || (product.images && product.images[0]);
+              const variantObj = (item.variant_sku && Array.isArray(product.variants))
+                ? product.variants.find((v) => v.sku === item.variant_sku || v._id === item.variant_sku || String(v._id) === String(item.variant_sku))
+                : null;
+              const bannerImg =
+                extractImgUrl(variantObj?.banner_image) ||
+                extractImgUrl(product.banner_image) ||
+                extractImgUrl(item.banner_image) ||
+                extractImgUrl(product.bannerImage) ||
+                extractImgUrl(item.bannerImage);
+
+              const firstProductImg =
+                extractImgUrl(variantObj?.images && variantObj.images[0]) ||
+                extractImgUrl(variantObj?.image) ||
+                extractImgUrl(product.images && product.images[0]) ||
+                extractImgUrl(product.image) ||
+                extractImgUrl(item.image);
+
+              const rawUri = bannerImg || firstProductImg;
+              const imageUrl = resolveImageUrl(rawUri);
+              const itemName = variantObj?.name || product.name || 'Product';
 
               let brandName = '';
               if (typeof product.brand === 'object' && product.brand?.name) {
@@ -325,14 +369,19 @@ export default function OrderDetailScreen({ navigation, route }) {
               const actualTotalPrice = parseFloat(item.total_amount?.$numberDecimal || item.total_amount || 0);
               const actualUnitPrice = Math.round(actualTotalPrice / qty);
 
+              const targetVariantSku = item.variant_sku || variantObj?.sku || null;
+
               return (
-                <View key={product._id || index}>
+                <View key={`${item._id || product._id || 'item'}-${index}`}>
                   <TouchableOpacity
                     style={styles.itemRow}
                     activeOpacity={0.7}
                     onPress={() => {
                       if (product._id) {
-                        navigation.navigate('ProductDetail', { productId: product._id });
+                        navigation.navigate('ProductDetail', {
+                          productId: product._id,
+                          variantSku: targetVariantSku,
+                        });
                       }
                     }}>
                     <View style={styles.itemImageWrapper}>
@@ -347,7 +396,7 @@ export default function OrderDetailScreen({ navigation, route }) {
                     <View style={styles.itemDetails}>
                       {/* <Text style={styles.itemBrand}>{brandName || 'Brand'}</Text> */}
                       <Text numberOfLines={2} style={styles.itemName}>
-                        {product.name}
+                        {itemName}
                       </Text>
                       <Text style={styles.itemQtyPrice}>
                         Qty: {qty} • {actualUnitPrice > unitPrice ? (

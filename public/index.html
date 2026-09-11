@@ -1,0 +1,810 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Shagun Beauty | Luxury Cosmetics & Skincare</title>
+  <meta name="description" content="Explore luxury beauty, skincare, and authentic cosmetics on Shagun Beauty. Open directly in the Shagun Beauty mobile app." />
+  <meta property="og:title" content="Shagun Beauty" />
+  <meta property="og:description" content="Explore luxury cosmetics and beauty products on Shagun Beauty." />
+  <meta property="og:type" content="website" />
+  
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <style>
+    :root {
+      --primary: #7209b7;
+      --primary-dark: #5c0793;
+      --primary-light: #f5edfc;
+      --primary-border: #e9d5ff;
+      --accent: #f43f5e;
+      --text-main: #1A1C1E;
+      --text-muted: #6D7277;
+      --bg: #F8FAFC;
+      --card-bg: #FFFFFF;
+      --border: #EEF1F3;
+      --success: #2d6a4f;
+      --success-bg: #ecfdf5;
+      --shadow-sm: 0 2px 8px rgba(114, 9, 183, 0.04);
+      --shadow-lg: 0 16px 40px -8px rgba(114, 9, 183, 0.12), 0 4px 16px -2px rgba(0, 0, 0, 0.04);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: var(--bg);
+      background-image: 
+        radial-gradient(at 0% 0%, rgba(114, 9, 183, 0.08) 0px, transparent 50%),
+        radial-gradient(at 100% 100%, rgba(244, 63, 94, 0.06) 0px, transparent 50%);
+      color: var(--text-main);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 24px 16px;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 440px;
+      background: var(--card-bg);
+      border-radius: 28px;
+      padding: 32px 24px;
+      box-shadow: var(--shadow-lg);
+      border: 1px solid rgba(114, 9, 183, 0.08);
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .top-glow {
+      position: absolute;
+      top: -60px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 240px;
+      height: 120px;
+      background: radial-gradient(circle, rgba(114, 9, 183, 0.22) 0%, rgba(255, 255, 255, 0) 70%);
+      pointer-events: none;
+    }
+
+    /* Auto-Redirecting Android Transition Overlay */
+    .redirect-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: #FFFFFF;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 32px 24px;
+      z-index: 50;
+      transition: opacity 0.35s ease, visibility 0.35s ease;
+    }
+
+    .redirect-overlay.active {
+      display: flex;
+    }
+
+    .redirect-overlay.fade-out {
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+    }
+
+    .spinner-wrapper {
+      width: 76px;
+      height: 76px;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 24px;
+    }
+
+    .spinner-ring {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      border-radius: 50%;
+      border: 3px solid #FAF5FF;
+      border-top-color: var(--primary);
+      animation: spin 1s linear infinite;
+    }
+
+    .spinner-icon {
+      width: 38px;
+      height: 38px;
+      color: var(--primary);
+      animation: pulse 1.8s ease-in-out infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    @keyframes pulse {
+      0%, 100% { transform: scale(0.92); opacity: 0.85; }
+      50% { transform: scale(1.08); opacity: 1; }
+    }
+
+    .redirect-title {
+      font-size: 20px;
+      font-weight: 800;
+      color: var(--text-main);
+      margin-bottom: 8px;
+      letter-spacing: -0.3px;
+    }
+
+    .redirect-desc {
+      font-size: 13.5px;
+      color: var(--text-muted);
+      line-height: 1.5;
+      margin-bottom: 20px;
+    }
+
+    .redirect-fallback-btn {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--primary);
+      background: var(--primary-light);
+      border: 1px solid var(--primary-border);
+      padding: 10px 18px;
+      border-radius: 999px;
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .brand-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      background: var(--primary-light);
+      border: 1px solid var(--primary-border);
+      color: var(--primary);
+      padding: 6px 14px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.8px;
+      margin-bottom: 20px;
+      text-transform: uppercase;
+    }
+
+    .brand-badge svg {
+      width: 15px;
+      height: 15px;
+    }
+
+    /* Product Image / Icon Display */
+    .media-container {
+      width: 130px;
+      height: 130px;
+      margin: 0 auto 20px auto;
+      border-radius: 24px;
+      background: linear-gradient(135deg, #FAF5FF 0%, #F3E8FF 100%);
+      border: 1.5px solid var(--primary-border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      overflow: hidden;
+      box-shadow: 0 8px 20px rgba(114, 9, 183, 0.08);
+    }
+
+    .media-container img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: none;
+      border-radius: 22px;
+    }
+
+    .media-container .placeholder-icon {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--primary);
+    }
+
+    .media-container .placeholder-icon svg {
+      width: 56px;
+      height: 56px;
+    }
+
+    .brand-tag {
+      display: none;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--primary);
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      margin-bottom: 6px;
+    }
+
+    h1.title {
+      font-size: 20px;
+      font-weight: 800;
+      color: var(--text-main);
+      margin-bottom: 8px;
+      line-height: 1.35;
+      letter-spacing: -0.4px;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    p.subtitle {
+      font-size: 13.5px;
+      color: var(--text-muted);
+      line-height: 1.5;
+      margin-bottom: 18px;
+    }
+
+    /* Status Banner for app detection */
+    .status-banner {
+      display: none;
+      align-items: center;
+      gap: 8px;
+      background: #FFF7ED;
+      border: 1px solid #FFEDD5;
+      color: #9A3412;
+      padding: 10px 14px;
+      border-radius: 12px;
+      font-size: 12.5px;
+      font-weight: 600;
+      text-align: left;
+      margin-bottom: 18px;
+      line-height: 1.4;
+    }
+
+    .status-banner svg {
+      flex-shrink: 0;
+      width: 16px;
+      height: 16px;
+      color: #EA580C;
+    }
+
+    /* Price Section */
+    .price-box {
+      display: none;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      margin-bottom: 18px;
+    }
+
+    .price-current {
+      font-size: 22px;
+      font-weight: 800;
+      color: var(--primary);
+    }
+
+    .price-original {
+      font-size: 15px;
+      color: var(--text-muted);
+      text-decoration: line-through;
+      font-weight: 500;
+    }
+
+    .discount-badge {
+      background: var(--success-bg);
+      color: var(--success);
+      border: 1px solid #bbf7d0;
+      font-size: 11.5px;
+      font-weight: 800;
+      padding: 2px 8px;
+      border-radius: 6px;
+    }
+
+    /* Product ID Card */
+    .product-id-box {
+      background: #F8FAFC;
+      border: 1px dashed #CBD5E1;
+      border-radius: 14px;
+      padding: 10px 14px;
+      margin-bottom: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .product-id-info {
+      text-align: left;
+      overflow: hidden;
+    }
+
+    .product-id-info strong {
+      display: block;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text-muted);
+      font-weight: 700;
+    }
+
+    .product-id-info span {
+      display: block;
+      font-size: 12.5px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      color: var(--text-main);
+      font-weight: 600;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .copy-btn {
+      background: #FFFFFF;
+      border: 1px solid #E2E8F0;
+      border-radius: 8px;
+      padding: 6px 10px;
+      font-size: 11.5px;
+      font-weight: 600;
+      color: var(--text-main);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      transition: all 0.15s ease;
+      white-space: nowrap;
+    }
+
+    .copy-btn:hover {
+      background: #F1F5F9;
+      border-color: #CBD5E1;
+    }
+
+    /* Actions Section */
+    .actions {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      width: 100%;
+      padding: 15px 20px;
+      border-radius: 16px;
+      font-size: 15px;
+      font-weight: 700;
+      text-decoration: none;
+      transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+      cursor: pointer;
+      border: none;
+    }
+
+    .btn:active {
+      transform: scale(0.98);
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+      color: #FFFFFF;
+      box-shadow: 0 6px 20px rgba(114, 9, 183, 0.35);
+    }
+
+    .btn-primary:hover {
+      opacity: 0.96;
+      box-shadow: 0 8px 24px rgba(114, 9, 183, 0.45);
+    }
+
+    /* Prominent Google Play Button */
+    .btn-playstore-highlight {
+      background: #0F172A;
+      color: #FFFFFF;
+      box-shadow: 0 4px 14px rgba(15, 23, 42, 0.25);
+    }
+
+    .btn-playstore-highlight:hover {
+      background: #1E293B;
+      color: #FFFFFF;
+      box-shadow: 0 6px 18px rgba(15, 23, 42, 0.35);
+    }
+
+    /* Fallback Box for users without the app */
+    .fallback-card {
+      background: #FAFAFA;
+      border: 1px solid #E5E7EB;
+      border-radius: 18px;
+      padding: 18px 16px;
+      text-align: left;
+    }
+
+    .fallback-card-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13.5px;
+      font-weight: 700;
+      color: var(--text-main);
+      margin-bottom: 6px;
+    }
+
+    .fallback-card-header svg {
+      color: var(--primary);
+    }
+
+    .fallback-card p {
+      font-size: 12px;
+      color: var(--text-muted);
+      line-height: 1.45;
+      margin-bottom: 14px;
+    }
+
+    .footer {
+      margin-top: 20px;
+      font-size: 12px;
+      color: #94A3B8;
+    }
+
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%) translateY(100px);
+      background: #1E293B;
+      color: #FFFFFF;
+      padding: 10px 18px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 600;
+      opacity: 0;
+      transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+      box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+      z-index: 100;
+      pointer-events: none;
+    }
+
+    .toast.show {
+      transform: translateX(-50%) translateY(0);
+      opacity: 1;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="top-glow"></div>
+
+    <!-- Android Automatic Launching Overlay -->
+    <div class="redirect-overlay" id="redirectOverlay">
+      <div class="spinner-wrapper">
+        <div class="spinner-ring"></div>
+        <svg class="spinner-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+        </svg>
+      </div>
+      <div class="redirect-title">Opening Shagun Beauty...</div>
+      <div class="redirect-desc">Taking you directly to the product inside the app.</div>
+      <a class="redirect-fallback-btn" id="overlayOpenBtn" href="#">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect>
+          <line x1="12" y1="18" x2="12.01" y2="18"></line>
+        </svg>
+        Tap here if not opening
+      </a>
+    </div>
+
+    <!-- Brand Header Badge -->
+    <div class="brand-badge">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+      </svg>
+      Shagun Beauty
+    </div>
+
+    <!-- Product / App Visual Icon or Image -->
+    <div class="media-container" id="mediaContainer">
+      <div class="placeholder-icon" id="placeholderIcon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"></path>
+          <line x1="3" y1="6" x2="21" y2="6"></line>
+          <path d="M16 10a4 4 0 0 1-8 0"></path>
+        </svg>
+      </div>
+      <img id="productImage" alt="Shagun Beauty Product" />
+    </div>
+
+    <div class="brand-tag" id="brandTag"></div>
+    <h1 class="title" id="pageTitle">Viewing Shagun Beauty Product</h1>
+    <p class="subtitle" id="pageSubtitle">Open directly in the Shagun Beauty mobile app for full details, ratings, and exclusive offers.</p>
+
+    <!-- Status banner shown if Android app didn't open -->
+    <div class="status-banner" id="statusBanner">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"></circle>
+        <line x1="12" y1="8" x2="12" y2="12"></line>
+        <line x1="12" y1="16" x2="12.01" y2="16"></line>
+      </svg>
+      <span>App not installed? Download free from Google Play below to view this product.</span>
+    </div>
+
+    <!-- Optional Price Container (hydrated if API succeeds) -->
+    <div class="price-box" id="priceBox">
+      <span class="price-current" id="priceCurrent"></span>
+      <span class="price-original" id="priceOriginal"></span>
+      <span class="discount-badge" id="discountBadge"></span>
+    </div>
+
+    <!-- Product Reference Box -->
+    <div class="product-id-box" id="productIdBox" style="display: none;">
+      <div class="product-id-info">
+        <strong>Product Reference</strong>
+        <span id="productIdLabel"></span>
+      </div>
+      <button class="copy-btn" id="btnCopyLink" type="button">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+        </svg>
+        Copy Link
+      </button>
+    </div>
+
+    <!-- Actions Section -->
+    <div class="actions">
+      <a id="btnOpenApp" class="btn btn-primary" href="#">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect>
+          <line x1="12" y1="18" x2="12.01" y2="18"></line>
+        </svg>
+        Open in Shagun Beauty App
+      </a>
+    </div>
+
+    <!-- Prominent Fallback Section for Users without the app installed -->
+    <div class="fallback-card">
+      <div class="fallback-card-header">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"></circle>
+          <line x1="12" y1="16" x2="12" y2="12"></line>
+          <line x1="12" y1="8" x2="12.01" y2="8"></line>
+        </svg>
+        Don't have the app installed?
+      </div>
+      <p>Download the free Shagun Beauty app on Google Play to view this product, unlock app-only discounts, and track your orders.</p>
+      <a id="btnPlayStore" class="btn btn-playstore-highlight" href="https://play.google.com/store/apps/details?id=com.shagunbeauty" target="_blank" rel="noopener noreferrer">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="5 3 19 12 5 21 5 3"></polygon>
+        </svg>
+        Download on Google Play
+      </a>
+    </div>
+
+    <div class="footer">
+      &copy; Shagun Beauty &bull; Luxury Cosmetics &amp; Skincare
+    </div>
+  </div>
+
+  <div class="toast" id="toast">Link copied to clipboard!</div>
+
+  <script>
+    // ========================================================================
+    // SHAGUN BEAUTY CONFIGURATION
+    // ========================================================================
+    const APP_SCHEME = 'shagunbeauty';
+    const PLAY_STORE_URL = 'https://play.google.com/store/apps/details?id=com.shagunbeauty';
+    const BACKEND_API_BASE = 'https://shagunbeautybe.onrender.com';
+
+    // 1. Extract productId from URL: matches /product/:productId or query parameter
+    function getProductId() {
+      const path = window.location.pathname;
+      const match = path.match(/\/products?\/([a-zA-Z0-9_\-\.]+)/i);
+      if (match && match[1]) {
+        return match[1];
+      }
+      const searchParams = new URLSearchParams(window.location.search);
+      return searchParams.get('productId') || searchParams.get('id') || '';
+    }
+
+    const productId = getProductId();
+
+    // DOM Elements
+    const redirectOverlay = document.getElementById('redirectOverlay');
+    const overlayOpenBtn = document.getElementById('overlayOpenBtn');
+    const statusBanner = document.getElementById('statusBanner');
+    const pageTitle = document.getElementById('pageTitle');
+    const pageSubtitle = document.getElementById('pageSubtitle');
+    const brandTag = document.getElementById('brandTag');
+    const mediaContainer = document.getElementById('mediaContainer');
+    const placeholderIcon = document.getElementById('placeholderIcon');
+    const productImage = document.getElementById('productImage');
+    const priceBox = document.getElementById('priceBox');
+    const priceCurrent = document.getElementById('priceCurrent');
+    const priceOriginal = document.getElementById('priceOriginal');
+    const discountBadge = document.getElementById('discountBadge');
+    const productIdBox = document.getElementById('productIdBox');
+    const productIdLabel = document.getElementById('productIdLabel');
+    const btnOpenApp = document.getElementById('btnOpenApp');
+    const btnPlayStore = document.getElementById('btnPlayStore');
+    const btnCopyLink = document.getElementById('btnCopyLink');
+    const toast = document.getElementById('toast');
+
+    // Toast helper
+    function showToast(msg) {
+      toast.textContent = msg;
+      toast.classList.add('show');
+      setTimeout(() => toast.classList.remove('show'), 2200);
+    }
+
+    btnPlayStore.href = PLAY_STORE_URL;
+
+    if (productId) {
+      const encodedProductId = encodeURIComponent(productId);
+
+      // Custom scheme deep link: shagunbeauty://product/:productId
+      const appDeepLink = `${APP_SCHEME}://product/${encodedProductId}`;
+
+      // Android Intent URL for reliable automatic launch in Android Chrome
+      const androidIntentUrl = `intent://product/${encodedProductId}#Intent;scheme=${APP_SCHEME};package=com.shagunbeauty;end`;
+      
+      btnOpenApp.href = appDeepLink;
+      overlayOpenBtn.href = appDeepLink;
+
+      // Display Product Reference Box
+      productIdBox.style.display = 'flex';
+      productIdLabel.textContent = productId;
+
+      // Copy link button handler
+      btnCopyLink.addEventListener('click', async () => {
+        try {
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(window.location.href);
+          } else {
+            const input = document.createElement('input');
+            input.value = window.location.href;
+            document.body.appendChild(input);
+            input.select();
+            document.execCommand('copy');
+            document.body.removeChild(input);
+          }
+          showToast('Product link copied!');
+        } catch (e) {
+          showToast('Failed to copy link');
+        }
+      });
+
+      // ========================================================================
+      // AUTOMATIC ANDROID DEEP LINKING LOGIC
+      // ========================================================================
+      const isAndroid = /Android/i.test(navigator.userAgent);
+      const redirectKey = 'sb_redirect_attempted_' + productId;
+      const alreadyAttempted = sessionStorage.getItem(redirectKey) === 'true';
+
+      if (isAndroid && !alreadyAttempted) {
+        // Mark attempted in this session to prevent infinite back-button loops
+        sessionStorage.setItem(redirectKey, 'true');
+
+        // Show brief opening transition overlay
+        redirectOverlay.classList.add('active');
+
+        // First attempt launching via Android Intent URL
+        setTimeout(() => {
+          window.location.href = androidIntentUrl;
+        }, 150);
+
+        // Fallback timer: If app is not installed or launch is blocked,
+        // user stays in browser. After 1400ms, hide overlay and reveal fallback UI.
+        setTimeout(() => {
+          // If browser tab is still active and visible, app did not take over
+          if (!document.hidden && !document.webkitHidden) {
+            redirectOverlay.classList.add('fade-out');
+            setTimeout(() => {
+              redirectOverlay.classList.remove('active');
+            }, 350);
+
+            // Inform user that app wasn't detected so they can download or retry
+            if (statusBanner) {
+              statusBanner.style.display = 'flex';
+            }
+          }
+        }, 1400);
+
+        // If user switches back to browser tab from app, hide overlay immediately
+        window.addEventListener('visibilitychange', () => {
+          if (!document.hidden) {
+            redirectOverlay.classList.add('fade-out');
+            setTimeout(() => {
+              redirectOverlay.classList.remove('active');
+            }, 350);
+          }
+        });
+      }
+
+      // Gracefully fetch product details from public API
+      fetchProductDetails(productId);
+
+    } else {
+      // General homepage or non-product fallback
+      pageTitle.textContent = 'Welcome to Shagun Beauty';
+      pageSubtitle.textContent = 'Explore luxury beauty, skincare, and cosmetics directly in the Shagun Beauty mobile app.';
+      btnOpenApp.href = `${APP_SCHEME}://`;
+      btnOpenApp.textContent = 'Open Shagun Beauty App';
+    }
+
+    // Graceful product fetch
+    async function fetchProductDetails(id) {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 3500);
+
+        const res = await fetch(`${BACKEND_API_BASE}/api/product/${encodeURIComponent(id)}`, {
+          signal: controller.signal,
+          headers: { 'Accept': 'application/json' }
+        });
+        clearTimeout(timeoutId);
+
+        if (!res.ok) return;
+        const json = await res.json();
+        
+        if (json && json.success && json.data) {
+          const p = json.data;
+
+          // Hydrate Title
+          if (p.name) {
+            pageTitle.textContent = p.name;
+            document.title = `${p.name} | Shagun Beauty`;
+          }
+
+          // Hydrate Brand
+          if (p.brand && p.brand.name) {
+            brandTag.textContent = p.brand.name;
+            brandTag.style.display = 'block';
+          }
+
+          // Hydrate Image
+          const imgUrl = (p.images && p.images.length > 0) ? p.images[0] : (p.banner_image || null);
+          if (imgUrl) {
+            productImage.src = imgUrl;
+            productImage.onload = () => {
+              placeholderIcon.style.display = 'none';
+              productImage.style.display = 'block';
+            };
+          }
+
+          // Hydrate Pricing
+          if (p.discounted_price || p.price) {
+            priceBox.style.display = 'flex';
+            const finalPrice = p.discounted_price || p.price;
+            priceCurrent.textContent = `₹${finalPrice}`;
+
+            if (p.discounted_price && p.price && p.discounted_price < p.price) {
+              priceOriginal.textContent = `₹${p.price}`;
+              const discountPercent = Math.round(((p.price - p.discounted_price) / p.price) * 100);
+              if (discountPercent > 0) {
+                discountBadge.textContent = `${discountPercent}% OFF`;
+                discountBadge.style.display = 'inline-block';
+              }
+            }
+          }
+        }
+      } catch (err) {
+        // Silently preserve the clean fallback UI if fetch fails or times out
+        console.debug('Product fetch fallback used:', err.message);
+      }
+    }
+  </script>
+</body>
+</html>

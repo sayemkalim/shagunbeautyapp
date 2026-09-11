@@ -70,6 +70,193 @@ const toNumber = (value) => {
   return Number(value) || 0;
 };
 
+const isColorLight = (hexColor) => {
+  if (!hexColor || typeof hexColor !== 'string') return false;
+  const trimmed = hexColor.trim().toLowerCase();
+  if (['white', '#fff', '#ffffff', 'ivory', 'cream', 'yellow', 'beige', 'lightgray', 'lightgrey'].includes(trimmed)) {
+    return true;
+  }
+  const hex = trimmed.replace('#', '');
+  if (hex.length === 3) {
+    const r = parseInt(hex[0] + hex[0], 16);
+    const g = parseInt(hex[1] + hex[1], 16);
+    const b = parseInt(hex[2] + hex[2], 16);
+    return (r * 299 + g * 587 + b * 114) / 1000 > 175;
+  }
+  if (hex.length === 6) {
+    const r = parseInt(hex.substring(0, 2), 16);
+    const g = parseInt(hex.substring(2, 4), 16);
+    const b = parseInt(hex.substring(4, 6), 16);
+    return (r * 299 + g * 587 + b * 114) / 1000 > 175;
+  }
+  return false;
+};
+
+const extractCartItemOption = (item) => {
+  if (!item) return null;
+
+  const v = item.variant || {};
+
+  // 1. Color extraction
+  let rawColor =
+    item.color ||
+    v.color ||
+    v.color_code ||
+    v.colorCode ||
+    v.hex ||
+    v.attributes?.color ||
+    v.attributes?.shade ||
+    v.attributes?.hex ||
+    v.attributes?.['Color'] ||
+    v.attributes?.['Colour'] ||
+    v.attributes?.['Color Code'];
+
+  if (rawColor && typeof rawColor === 'object') {
+    rawColor = rawColor.hex || rawColor.code || rawColor.value || rawColor.color || rawColor.name;
+  }
+
+  let color = null;
+  if (typeof rawColor === 'string' && rawColor.trim() !== '') {
+    const trimmed = rawColor.trim();
+    if (
+      /^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(trimmed) ||
+      /^rgb/i.test(trimmed) ||
+      /^hsl/i.test(trimmed) ||
+      /^(red|blue|green|yellow|orange|purple|pink|brown|black|white|grey|gray|beige|gold|silver|maroon|navy|teal|coral|turquoise|lavender|magenta|cyan|olive|plum|peach|ivory|charcoal|burgundy|crimson|ruby|nude|bronze|copper|amber)$/i.test(trimmed)
+    ) {
+      color = trimmed;
+    }
+  }
+
+  // 2. Shade Name extraction
+  let rawShade =
+    v.shade ||
+    v.shade_name ||
+    v.shadeName ||
+    v.color_name ||
+    v.colorName ||
+    v.attributes?.shade ||
+    v.attributes?.['Shade'] ||
+    v.attributes?.color_name ||
+    v.attributes?.['Color Name'];
+
+  if (rawShade && typeof rawShade === 'object') {
+    rawShade = rawShade.name || rawShade.label || rawShade.title || rawShade.shade;
+  }
+
+  let shadeName = '';
+  if (typeof rawShade === 'string' && rawShade.trim() !== '') {
+    shadeName = rawShade.trim();
+  } else if (typeof v.name === 'string' && v.name.trim() !== '') {
+    const vName = v.name.trim();
+    if (vName.includes(' - ')) {
+      const parts = vName.split(' - ');
+      const last = parts[parts.length - 1].trim();
+      if (last && last.length < 35 && !/^\d+\s*(?:ml|g|kg)$/i.test(last)) {
+        shadeName = last;
+      }
+    } else if (vName.includes('-')) {
+      const parts = vName.split('-');
+      const last = parts[parts.length - 1].trim();
+      if (last && last.length < 35 && !/^\d+\s*(?:ml|g|kg)$/i.test(last)) {
+        shadeName = last;
+      }
+    } else if (vName.includes(':')) {
+      const parts = vName.split(':');
+      const last = parts[parts.length - 1].trim();
+      if (last && last.length < 35) {
+        shadeName = last;
+      }
+    }
+  }
+
+  // 3. Size / Weight / Volume extraction
+  let sizeLabel = '';
+  if (v.weight_in_grams !== undefined && v.weight_in_grams !== null && v.weight_in_grams !== '') {
+    const isMl = (item.name && /ml/i.test(item.name)) || (v.name && /ml/i.test(v.name)) || (item.variantName && /ml/i.test(item.variantName));
+    sizeLabel = `${v.weight_in_grams} ${isMl ? 'ml' : 'g'}`;
+  } else if (v.weight !== undefined && v.weight !== null && v.weight !== '') {
+    const isMl = (item.name && /ml/i.test(item.name)) || (v.name && /ml/i.test(v.name));
+    sizeLabel = `${v.weight} ${isMl ? 'ml' : 'g'}`;
+  } else if (typeof item.variantName === 'string') {
+    const cleanVarName = item.variantName.replace(/^Option:\s*/i, '').replace(/^Size:\s*/i, '').trim();
+    const match = cleanVarName.match(/^\d+(?:\.\d+)?\s*(?:ml|l|ltr|g|gm|kg|pcs)$/i);
+    if (match) {
+      sizeLabel = match[0];
+    }
+  }
+
+  if (!sizeLabel && typeof v.name === 'string') {
+    const match = v.name.match(/\b\d+(?:\.\d+)?\s*(?:ml|l|ltr|g|gm|kg|pcs)\b/i);
+    if (match && (v.name.length < 20 || /^\d/.test(v.name))) {
+      sizeLabel = match[0];
+    }
+  }
+
+  // 4. Fallback option name if no color, no shade, no size
+  let fallbackOption = '';
+  if (!color && !sizeLabel && !shadeName) {
+    if (item.variantName) {
+      const clean = item.variantName.replace(/^(?:Option|Size|Net Vol|Net Wt):\s*/i, '').trim();
+      if (!clean.startsWith('SKU-')) {
+        fallbackOption = clean;
+      }
+    }
+    if (!fallbackOption && v.name && v.name !== item.name) {
+      fallbackOption = v.name;
+    }
+    if (!fallbackOption && item.variantName) {
+      fallbackOption = item.variantName.replace(/^SKU-/, '');
+    }
+  }
+
+  // If no variant information at all, don't show pill
+  if (!color && !sizeLabel && !shadeName && !fallbackOption) {
+    return null;
+  }
+
+  // Formulate display info
+  if (color) {
+    let label = shadeName || (color.startsWith('#') ? '' : color);
+    if (label) {
+      label = label
+        .replace(/\s*•.*$/i, '')
+        .replace(/\s*\(\s*\d+(?:\.\d+)?\s*(?:ml|l|ltr|g|gm|kg|pcs)\s*\)/i, '')
+        .replace(/\s+\d+(?:\.\d+)?\s*(?:ml|l|ltr|g|gm|kg|pcs)$/i, '')
+        .trim();
+    }
+    return {
+      color,
+      labelPrefix: '',
+      displayText: label || color,
+    };
+  }
+
+  if (sizeLabel) {
+    const isVolume = /\b(?:ml|l|ltr|litre|liter)\b/i.test(sizeLabel) || (item.name && /ml/i.test(item.name)) || (v.name && /ml/i.test(v.name));
+    const prefix = isVolume ? 'Net Vol' : 'Net Wt';
+    return {
+      color: null,
+      labelPrefix: prefix,
+      displayText: sizeLabel,
+    };
+  }
+
+  if (shadeName) {
+    return {
+      color: null,
+      labelPrefix: '',
+      displayText: shadeName,
+    };
+  }
+
+  return {
+    color: null,
+    labelPrefix: 'Option',
+    displayText: fallbackOption,
+  };
+};
+
 const getCouponCode = (coupon) => coupon?.code || coupon?.couponCode || coupon?.name || '';
 
 // Builds a short "FLAT ₹X OFF" / "X% OFF" label from whatever discount fields the API sends.
@@ -226,11 +413,13 @@ export default function CartScreen({ navigation }) {
       return () => {
         isMounted = false;
       };
+      // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
   );
 
   useEffect(() => {
     refreshCart(selectedAddress?.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedAddress]);
 
   // Coupon state
@@ -389,12 +578,18 @@ export default function CartScreen({ navigation }) {
 
   // Financial calculations
   const { totalMRP, totalSellingPrice, totalSavings, finalTotal, combinedSavings, shippingCharge } = useMemo(() => {
-    if (backendCartData && Array.isArray(backendCartData.items) && backendCartData.items.length > 0) {
+    const allSelected = cartItems.length > 0 && selectedCartItems.length === cartItems.length;
+    if (allSelected && backendCartData && Array.isArray(backendCartData.items) && backendCartData.items.length > 0) {
       let mrp = 0;
       const items = backendCartData.items || [];
       items.forEach((item) => {
         const prod = item.product || {};
-        const basePrice = toNumber(prod.price) || toNumber(item.price) || 0;
+        const variantObj = (item.variant_sku && Array.isArray(prod.variants))
+          ? prod.variants.find((v) => v.sku === item.variant_sku || v._id === item.variant_sku || String(v._id) === String(item.variant_sku))
+          : null;
+        const vPrice = toNumber(variantObj?.price);
+        const pPrice = toNumber(prod.price);
+        const basePrice = vPrice > 0 ? vPrice : (pPrice > 0 ? pPrice : (toNumber(item.price) || 0));
         mrp += basePrice * (item.quantity || 1);
       });
 
@@ -440,7 +635,7 @@ export default function CartScreen({ navigation }) {
       combinedSavings: Math.round(combSavings),
       shippingCharge: sCharge,
     };
-  }, [backendCartData, selectedCartItems, appliedCoupon, couponDiscount]);
+  }, [backendCartData, selectedCartItems, cartItems.length, appliedCoupon, couponDiscount]);
 
   // Best coupon teaser for the collapsed coupon card — prefers the biggest
   // already-eligible saving, falling back to whichever coupon is closest to unlocking.
@@ -751,6 +946,16 @@ export default function CartScreen({ navigation }) {
                 ? Math.round(basePrice * item.quantity - displayPrice)
                 : 0;
 
+            const optionInfo = extractCartItemOption(item);
+            const targetVariantSku = item.variant?.sku || item.variant?._id || item.variant_sku || null;
+            const openProductDetail = () => {
+              navigation.navigate('ProductDetail', {
+                productId: item.productId,
+                variantSku: targetVariantSku,
+                quantity: item.quantity,
+              });
+            };
+
             return (
               <View key={item.cartItemId} style={styles.cartCard}>
                 {/* Remove Trash Button */}
@@ -775,9 +980,7 @@ export default function CartScreen({ navigation }) {
                   {/* Product Image Thumbnail - Opens Product Detail */}
                   <TouchableOpacity
                     activeOpacity={0.85}
-                    onPress={() =>
-                      navigation.navigate('ProductDetail', { productId: item.productId })
-                    }>
+                    onPress={openProductDetail}>
                     <Image
                       source={item.image ? { uri: item.image, cache: 'force-cache' } : DUMMY_IMG}
                       style={styles.cartItemImg}
@@ -785,30 +988,49 @@ export default function CartScreen({ navigation }) {
                     />
                   </TouchableOpacity>
 
-                  {/* Product Details Right */}
-                  <View style={styles.cartItemRight}>
-                    <TouchableOpacity
-                      activeOpacity={0.85}
-                      onPress={() =>
-                        navigation.navigate('ProductDetail', { productId: item.productId })
-                      }>
-                      {item.brandName ? (
-                        <Text style={styles.itemBrandName}>{item.brandName}</Text>
-                      ) : null}
-                      <Text style={styles.itemName} numberOfLines={2}>
-                        {item.name}
-                      </Text>
-                    </TouchableOpacity>
-
-                    {/* Option / Variant & Quantity Dropdown Pills */}
-                    <View style={styles.pillsRow}>
-                      {item.variantName ? (
-                        <View style={styles.dropdownPill}>
-                          <Text style={styles.dropdownPillText}>
-                            Option: {item.variantName}
+                      {/* Product Details Right */}
+                      <View style={styles.cartItemRight}>
+                        <TouchableOpacity
+                          activeOpacity={0.85}
+                          onPress={openProductDetail}>
+                          {item.brandName ? (
+                            <Text style={styles.itemBrandName}>{item.brandName}</Text>
+                          ) : null}
+                          <Text style={styles.itemName} numberOfLines={2}>
+                            {item.name}
                           </Text>
-                        </View>
-                      ) : null}
+                        </TouchableOpacity>
+
+                        {/* Option / Variant & Quantity Stepper */}
+                        <View style={styles.pillsRow}>
+                          {optionInfo ? (
+                            <TouchableOpacity
+                              style={styles.optionPill}
+                              activeOpacity={0.75}
+                              onPress={openProductDetail}>
+                              {optionInfo.color ? (
+                                <View
+                                  style={[
+                                    styles.optionColorDot,
+                                    { backgroundColor: optionInfo.color },
+                                    isColorLight(optionInfo.color) && styles.optionColorDotLight,
+                                  ]}
+                                />
+                              ) : null}
+                              {optionInfo.labelPrefix ? (
+                                <Text style={styles.optionPillLabel} numberOfLines={1}>
+                                  {optionInfo.labelPrefix}:{' '}
+                                  <Text style={styles.optionPillValue}>
+                                    {optionInfo.displayText}
+                                  </Text>
+                                </Text>
+                              ) : (
+                                <Text style={styles.optionPillValue} numberOfLines={1}>
+                                  {optionInfo.displayText}
+                                </Text>
+                              )}
+                            </TouchableOpacity>
+                          ) : null}
 
                       {/* Beautiful Quantity Stepper (+ / -) */}
                       <View style={styles.stepperContainer}>
@@ -1740,20 +1962,58 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
     marginTop: 8,
+    flexWrap: 'wrap',
   },
-  dropdownPill: {
-    backgroundColor: '#F1F5F9',
+  optionPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    height: 32,
     paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 8,
+    borderRadius: 9,
     borderWidth: 1,
     borderColor: '#E2E8F0',
+    backgroundColor: '#F8FAFC',
+    alignSelf: 'flex-start',
+    maxWidth: '100%',
+  },
+  optionColorDot: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    marginRight: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 0, 0, 0.12)',
+  },
+  optionColorDotLight: {
+    borderColor: 'rgba(0, 0, 0, 0.25)',
+    borderWidth: 1.5,
+  },
+  optionPillLabel: {
+    fontSize: moderateScale(11.5),
+    fontFamily: fonts.medium,
+    color: '#64748B',
+    flexShrink: 1,
+  },
+  optionPillValue: {
+    fontSize: moderateScale(12),
+    fontFamily: fonts.big,
+    color: '#0F172A',
+  },
+  dropdownPill: {
+    backgroundColor: '#F8FAFC',
+    paddingHorizontal: 10,
+    height: 32,
+    borderRadius: 9,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   dropdownPillTrigger: {
-    backgroundColor: '#F1F5F9',
+    backgroundColor: '#F8FAFC',
     paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 8,
+    height: 32,
+    borderRadius: 9,
     borderWidth: 1,
     borderColor: '#E2E8F0',
     flexDirection: 'row',
@@ -1763,7 +2023,7 @@ const styles = StyleSheet.create({
   dropdownPillText: {
     fontSize: moderateScale(12),
     fontFamily: fonts.big,
-    color: '#1A1C1E',
+    color: '#0F172A',
   },
   stepperContainer: {
     flexDirection: 'row',

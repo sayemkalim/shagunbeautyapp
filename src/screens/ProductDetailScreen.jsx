@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -7,6 +7,7 @@ import {
   Modal,
   Platform,
   ScrollView,
+  Share,
   StatusBar,
   StyleSheet,
   Text,
@@ -32,9 +33,12 @@ import {
   X,
   Check,
   Calendar,
+  Share2,
 } from 'lucide-react-native';
 
 import { useDispatch, useSelector } from 'react-redux';
+import { useFocusEffect } from '@react-navigation/native';
+import { useQueryClient } from '@tanstack/react-query';
 import LinearGradient from 'react-native-linear-gradient';
 import { addToCart, selectCartItems, selectCartTotalQuantity } from '../redux/cartSlice';
 import { addToCartApi } from '../api/cart';
@@ -338,14 +342,188 @@ function formatProductWeightOrVolume(weightVal, product, variant) {
   };
 }
 
+function extractCleanShadeName(v, product, idx = 0) {
+  if (!v) return '';
+
+  // 1. Direct shade / color name attribute if provided
+  const directShade =
+    v.shade ||
+    v.shade_name ||
+    v.shadeName ||
+    v.color_name ||
+    v.colorName ||
+    v.attributes?.shade ||
+    v.attributes?.['Shade'] ||
+    v.attributes?.color_name ||
+    v.attributes?.['Color Name'];
+
+  if (typeof directShade === 'string' && directShade.trim() !== '') {
+    return directShade.trim();
+  }
+
+  // 2. Parse clean shade name from variant.name
+  if (typeof v.name === 'string' && v.name.trim() !== '') {
+    const vName = v.name.trim();
+
+    // Check if separated by " - " or "-" or ":"
+    if (vName.includes(' - ')) {
+      const parts = vName.split(' - ');
+      const lastPart = parts[parts.length - 1].trim();
+      if (lastPart && lastPart.length < 35) {
+        return lastPart;
+      }
+    } else if (vName.includes('-')) {
+      const parts = vName.split('-');
+      const lastPart = parts[parts.length - 1].trim();
+      if (lastPart && lastPart.length < 35 && !/^\d+g$/i.test(lastPart)) {
+        return lastPart;
+      }
+    } else if (vName.includes(':')) {
+      const parts = vName.split(':');
+      const lastPart = parts[parts.length - 1].trim();
+      if (lastPart && lastPart.length < 35) {
+        return lastPart;
+      }
+    }
+
+    // If variant.name itself is short and distinct from product.name
+    if (vName.length <= 25 && vName.toLowerCase() !== String(product?.name || '').trim().toLowerCase()) {
+      return vName;
+    }
+  }
+
+  return `Shade ${idx + 1}`;
+}
+
+function getVariantCardDetails(v, product, idx = 0) {
+  if (!v) return { weightLabel: '', color: null, shadeName: '' };
+
+  // 1. Color extraction (from v.color, v.attributes, v.hex, v.color_code, etc.)
+  let colorValue = null;
+  const rawColor =
+    v.color ||
+    v.color_code ||
+    v.colorCode ||
+    v.hex ||
+    v.attributes?.color ||
+    v.attributes?.shade ||
+    v.attributes?.hex ||
+    v.attributes?.['Color'] ||
+    v.attributes?.['Colour'] ||
+    v.attributes?.['shade'] ||
+    v.attributes?.['Shade'] ||
+    v.attributes?.['Color Code'];
+
+  if (typeof rawColor === 'string' && rawColor.trim() !== '') {
+    const trimmedColor = rawColor.trim();
+    if (
+      /^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(trimmedColor) ||
+      /^rgb/i.test(trimmedColor) ||
+      /^hsl/i.test(trimmedColor) ||
+      /^(red|blue|green|yellow|orange|purple|pink|brown|black|white|grey|gray|beige|gold|silver|maroon|navy|teal|coral|turquoise|lavender|magenta|cyan|olive|plum|peach|ivory|charcoal|burgundy|crimson|ruby|nude|bronze|copper|amber)$/i.test(trimmedColor)
+    ) {
+      colorValue = trimmedColor;
+    }
+  }
+
+  // 2. Weight / Volume extraction (gram, ml, etc.)
+  let weightLabel = '';
+  const rawWeight =
+    v.weight_in_grams !== undefined && v.weight_in_grams !== null && v.weight_in_grams !== ''
+      ? v.weight_in_grams
+      : v.weight !== undefined && v.weight !== null && v.weight !== ''
+      ? v.weight
+      : v.attributes?.size || v.attributes?.weight || v.attributes?.Size || v.attributes?.Weight;
+
+  if (rawWeight !== undefined && rawWeight !== null && String(rawWeight).trim() !== '') {
+    const info = formatProductWeightOrVolume(rawWeight, product, v);
+    if (info) {
+      weightLabel = info.formatted;
+    }
+  } else if (v.name && typeof v.name === 'string') {
+    const matchNum = v.name.match(/\b\d+(?:\.\d+)?\s*(?:g|gm|gram|grams|ml|l|ltr|kg|pcs)?\b/i);
+    if (matchNum) {
+      const info = formatProductWeightOrVolume(matchNum[0], product, v);
+      if (info) {
+        weightLabel = info.formatted;
+      }
+    }
+  }
+
+  // If no variant weight found, fallback to product weight
+  if (!weightLabel && product?.weight_in_grams) {
+    const info = formatProductWeightOrVolume(product.weight_in_grams, product, v);
+    if (info) {
+      weightLabel = info.formatted;
+    }
+  }
+
+  const cleanShade = extractCleanShadeName(v, product, idx);
+
+  return {
+    weightLabel,
+    color: colorValue,
+    shadeName: cleanShade,
+  };
+}
+
+function isColorLight(hexColor) {
+  if (!hexColor || typeof hexColor !== 'string') return false;
+  const hex = hexColor.replace('#', '').trim();
+  if (hex.length === 3) {
+    const r = parseInt(hex[0] + hex[0], 16);
+    const g = parseInt(hex[1] + hex[1], 16);
+    const b = parseInt(hex[2] + hex[2], 16);
+    return (r * 299 + g * 587 + b * 114) / 1000 > 160;
+  }
+  if (hex.length === 6) {
+    const r = parseInt(hex.substring(0, 2), 16);
+    const g = parseInt(hex.substring(2, 4), 16);
+    const b = parseInt(hex.substring(4, 6), 16);
+    return (r * 299 + g * 587 + b * 114) / 1000 > 160;
+  }
+  const low = hexColor.toLowerCase();
+  if (low === 'white' || low === 'ivory' || low === 'yellow' || low === 'beige' || low === 'gold') {
+    return true;
+  }
+  return false;
+}
+
+function resolveImageUrl(url) {
+  if (!url || typeof url !== 'string') return null;
+  const trimmed = url.trim();
+  if (trimmed === '') return null;
+  if (
+    trimmed.startsWith('http://') ||
+    trimmed.startsWith('https://') ||
+    trimmed.startsWith('data:') ||
+    trimmed.startsWith('file:')
+  ) {
+    return trimmed;
+  }
+  const cleanPath = trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
+  return `https://shagunbeautybe.onrender.com${cleanPath}`;
+}
+
 export default function ProductDetailScreen({ route, navigation }) {
-  const { productId, product: initialProduct } = route.params || {};
+  const queryClient = useQueryClient();
+  const { productId, id, _id, product: initialProduct, variantSku, variant_sku, sku, variantId, quantity: initialQty } = route.params || {};
+  const resolvedProductId = productId || id || _id || initialProduct?._id;
+  const targetVariantSku = variantSku || variant_sku || sku || variantId;
 
   const {
     data: fetchedProduct,
     isLoading,
     isFetching,
-  } = useProductDetail(productId, initialProduct);
+    refetch,
+  } = useProductDetail(resolvedProductId, initialProduct);
+
+  // Always refetch latest live product data & prices from API on focus
+  useFocusEffect(
+    React.useCallback(() => {
+      refetch?.();
+    }, [refetch])
+  );
 
   const { data: brands = [] } = useBrands();
   const { data: categories = [] } = useCategories();
@@ -355,11 +533,9 @@ export default function ProductDetailScreen({ route, navigation }) {
     return fetchedProduct || initialProduct || {};
   }, [fetchedProduct, initialProduct]);
 
-
   // Active UI States
   const [activeImageIndex, setActiveImageIndex] = useState(0);
   const [selectedVariantIndex, setSelectedVariantIndex] = useState(null); // null = base product selected by default
-  const [isColorSelected, setIsColorSelected] = useState(true); // color is selected by default
   const [quantity, setQuantity] = useState(1);
   const [tempQty, setTempQty] = useState(1);
   const [selectedTierQty, setSelectedTierQty] = useState(1);
@@ -369,6 +545,30 @@ export default function ProductDetailScreen({ route, navigation }) {
   const [isImageModalOpen, setIsImageModalOpen] = useState(false);
   const [isQtyChanged, setIsQtyChanged] = useState(false);
 
+  // Automatically pre-select variant if passed via navigation params (e.g. from Cart)
+  useEffect(() => {
+    if (targetVariantSku && Array.isArray(product?.variants) && product.variants.length > 0) {
+      const idx = product.variants.findIndex(
+        (v) =>
+          v.sku === targetVariantSku ||
+          v._id === targetVariantSku ||
+          String(v._id) === String(targetVariantSku) ||
+          (v.name && v.name === targetVariantSku)
+      );
+      if (idx !== -1) {
+        setSelectedVariantIndex(idx);
+      }
+    }
+  }, [product?.variants, targetVariantSku]);
+
+  // Automatically sync initial quantity if passed
+  useEffect(() => {
+    if (initialQty && typeof initialQty === 'number' && initialQty > 0) {
+      setQuantity(initialQty);
+      setTempQty(initialQty);
+    }
+  }, [initialQty]);
+
   // Scroll View Refs
   const mainCarouselRef = useRef(null);
   const modalScrollRef = useRef(null);
@@ -376,19 +576,106 @@ export default function ProductDetailScreen({ route, navigation }) {
   // Selected Variant & Pricing
   const currentVariant = selectedVariantIndex !== null ? product?.variants?.[selectedVariantIndex] : null;
 
-  // Extract images edge-to-edge
+  // Extract images edge-to-edge (with full variant image support)
   const images = useMemo(() => {
     let list = [];
-    if (currentVariant && Array.isArray(currentVariant.images) && currentVariant.images.length > 0) {
-      list = [...currentVariant.images];
-    } else {
-      if (product?.banner_image) list.push(product.banner_image);
-      if (Array.isArray(product?.images)) {
-        list = [...list, ...product.images.filter((img) => img !== product.banner_image)];
+
+    const appendImg = (val) => {
+      if (!val) return;
+      if (typeof val === 'string' && val.trim() !== '') {
+        const resolved = resolveImageUrl(val);
+        if (resolved && !list.includes(resolved)) list.push(resolved);
+      } else if (typeof val === 'object' && val !== null) {
+        const url = val.url || val.secure_url || val.uri || val.path || val.image || val.src;
+        if (typeof url === 'string' && url.trim() !== '') {
+          const resolved = resolveImageUrl(url);
+          if (resolved && !list.includes(resolved)) list.push(resolved);
+        }
+      }
+    };
+
+    // 1. If a variant is selected, extract ONLY variant-specific images
+    if (currentVariant) {
+      appendImg(currentVariant.banner_image);
+      appendImg(currentVariant.image);
+      appendImg(currentVariant.color_image);
+      appendImg(currentVariant.shade_image);
+      appendImg(currentVariant.swatch_image);
+      appendImg(currentVariant.photo);
+      appendImg(currentVariant.thumbnail);
+      appendImg(currentVariant.avatar);
+      appendImg(currentVariant.img);
+      appendImg(currentVariant.picture);
+      appendImg(currentVariant.url);
+      appendImg(currentVariant.src);
+
+      // Array of images on variant
+      if (Array.isArray(currentVariant.images) && currentVariant.images.length > 0) {
+        currentVariant.images.forEach(appendImg);
+      } else if (typeof currentVariant.images === 'string' && currentVariant.images.trim() !== '') {
+        try {
+          const parsed = JSON.parse(currentVariant.images);
+          if (Array.isArray(parsed)) parsed.forEach(appendImg);
+          else appendImg(parsed);
+        } catch (e) {
+          appendImg(currentVariant.images);
+        }
+      }
+
+      // Attributes on variant
+      if (currentVariant.attributes && typeof currentVariant.attributes === 'object') {
+        appendImg(currentVariant.attributes.image);
+        appendImg(currentVariant.attributes.images);
+        appendImg(currentVariant.attributes.photo);
+        appendImg(currentVariant.attributes.color_image);
+        appendImg(currentVariant.attributes.shade_image);
+        appendImg(currentVariant.attributes.Image);
+        appendImg(currentVariant.attributes.image);
+        appendImg(currentVariant.attributes['Image URL']);
+        appendImg(currentVariant.attributes['Shade Image']);
+        appendImg(currentVariant.attributes['Color Image']);
+      }
+
+      // If variant has images of its own, return ONLY variant images!
+      if (list.length > 0) {
+        return list;
+      }
+
+      // Fallback ONLY if variant has absolutely no images of its own:
+      // Show ONLY the primary base product image as a single fallback so the screen is not blank
+      appendImg(product?.banner_image || product?.image || (Array.isArray(product?.images) ? product.images[0] : null));
+      return list.length > 0 ? list : [null];
+    }
+
+    // 2. Base product images (used when no variant is selected, or variant has no images)
+    appendImg(product?.banner_image);
+    if (Array.isArray(product?.images)) {
+      product.images.forEach(appendImg);
+    } else if (typeof product?.images === 'string' && product.images.trim() !== '') {
+      try {
+        const parsed = JSON.parse(product.images);
+        if (Array.isArray(parsed)) parsed.forEach(appendImg);
+        else appendImg(parsed);
+      } catch (e) {
+        appendImg(product.images);
       }
     }
+    appendImg(product?.image);
+
     return list.length > 0 ? list : [null];
   }, [product, currentVariant]);
+
+  // Reset carousel index and scroll when variant changes
+  useEffect(() => {
+    setActiveImageIndex(0);
+    if (mainCarouselRef.current && mainCarouselRef.current.scrollTo) {
+      try {
+        mainCarouselRef.current.scrollTo({ x: 0, animated: false });
+      } catch (e) {
+        // Safe fallback
+      }
+    }
+  }, [selectedVariantIndex]);
 
   const price = currentVariant ? (currentVariant.price ?? product?.price ?? 0) : (product?.price ?? 0);
   const discountedPrice = currentVariant
@@ -407,6 +694,92 @@ export default function ProductDetailScreen({ route, navigation }) {
     () => formatProductWeightOrVolume(rawWeight, product, currentVariant),
     [rawWeight, product, currentVariant]
   );
+
+  // Group all shades (Main product base color + Variant colors)
+  const allShadeItems = useMemo(() => {
+    const list = [];
+
+    // 1. If base product has a color, add it as Main Shade (index: null)
+    if (product?.color && String(product.color).trim() !== '') {
+      const baseShadeName = extractCleanShadeName(
+        {
+          name: product.name,
+          shade: product.shade || product.shade_name || product.shadeName,
+          color: product.color,
+          attributes: product.attributes,
+        },
+        product,
+        0
+      ) || 'Main Shade';
+
+      list.push({
+        id: 'main-base-shade',
+        index: null, // null means base product
+        variant: null,
+        color: String(product.color).trim(),
+        shadeName: baseShadeName,
+        price: product.discounted_price || product.price,
+      });
+    }
+
+    // 2. Add all variant shades (index: idx)
+    if (Array.isArray(product?.variants)) {
+      product.variants.forEach((v, idx) => {
+        const details = getVariantCardDetails(v, product, idx);
+        if (details.color) {
+          list.push({
+            id: v.sku || `variant-shade-${idx}`,
+            index: idx,
+            variant: v,
+            color: details.color,
+            shadeName: details.shadeName || `Shade ${idx + 1}`,
+            price: v.discounted_price || v.price,
+          });
+        }
+      });
+    }
+
+    return list;
+  }, [product]);
+
+  const variantWeightItems = useMemo(() => {
+    if (!product?.variants || product.variants.length === 0) return [];
+    const hasAnyColor = product.variants.some((v, idx) => !!getVariantCardDetails(v, product, idx).color);
+    if (hasAnyColor) {
+      // If product has color variants, non-color variants go to Select Option
+      return product.variants
+        .map((v, idx) => ({
+          variant: v,
+          index: idx,
+          details: getVariantCardDetails(v, product, idx),
+        }))
+        .filter((item) => !item.details.color);
+    }
+    return product.variants.map((v, idx) => ({
+      variant: v,
+      index: idx,
+      details: getVariantCardDetails(v, product, idx),
+    }));
+  }, [product]);
+
+  const activeShadeLabel = useMemo(() => {
+    if (selectedVariantIndex !== null) {
+      const activeShade = allShadeItems.find((s) => s.index === selectedVariantIndex);
+      if (activeShade) return activeShade.shadeName;
+      if (currentVariant) {
+        const details = getVariantCardDetails(currentVariant, product, selectedVariantIndex);
+        return details.shadeName || '';
+      }
+    }
+    // If base product is selected (selectedVariantIndex === null)
+    const baseShade = allShadeItems.find((s) => s.index === null);
+    if (baseShade) return baseShade.shadeName;
+
+    if (allShadeItems.length > 0) {
+      return allShadeItems[0].shadeName;
+    }
+    return '';
+  }, [selectedVariantIndex, allShadeItems, currentVariant, product]);
 
   const displaySku = currentVariant && currentVariant.sku
     ? currentVariant.sku
@@ -652,13 +1025,25 @@ export default function ProductDetailScreen({ route, navigation }) {
     }
 
     const pId = product._id || productId;
+    const resolvedColor =
+      currentVariant?.color ||
+      currentVariant?.color_code ||
+      currentVariant?.colorCode ||
+      currentVariant?.hex ||
+      currentVariant?.attributes?.color ||
+      currentVariant?.attributes?.shade ||
+      currentVariant?.attributes?.['Color'] ||
+      product?.color ||
+      null;
+
     const itemToAdd = {
       productId: pId,
       name: displayTitle || product.name,
       brandName: brandName || '',
       image: images[0] || null,
-      variant: currentVariant || null,
-      variantName: currentVariant?.name || null,
+      variant: currentVariant ? { ...currentVariant, color: resolvedColor || currentVariant.color } : null,
+      variantName: displayWeightInfo?.formatted || currentVariant?.color || currentVariant?.name || null,
+      color: resolvedColor,
       unitPrice: currentQuantityPricing.unitPrice,
       totalPrice: currentQuantityPricing.totalPrice,
       quantity: quantity,
@@ -675,10 +1060,12 @@ export default function ProductDetailScreen({ route, navigation }) {
         quantity,
         variantSku: currentVariant?.sku,
       });
+      queryClient.invalidateQueries({ queryKey: ['cart'] });
     } catch (err) {
       // Non-blocking fallback to local Redux state for guest/offline scenarios
     } finally {
       dispatch(addToCart(itemToAdd));
+      queryClient.invalidateQueries({ queryKey: ['cart'] });
       setIsAdding(false);
       setIsQtyChanged(false);
       setShowToast(true);
@@ -697,6 +1084,35 @@ export default function ProductDetailScreen({ route, navigation }) {
   const handleOpenImageModal = (index) => {
     setActiveImageIndex(index);
     setIsImageModalOpen(true);
+  };
+
+  const handleShareProduct = async () => {
+    try {
+      const prodId = product?._id || productId || id || _id;
+      const prodName = product?.name || 'Product';
+
+      // Firebase Hosting App Link / Web URL
+      const productUrl = `https://shagunbeauty-f00bd.web.app/product/${encodeURIComponent(prodId)}`;
+      const shareMessage = `Check out ${prodName} on Shagun Beauty! ${productUrl}`;
+
+      await Share.share(
+        Platform.OS === 'ios'
+          ? {
+              message: shareMessage,
+              url: productUrl,
+              title: prodName,
+            }
+          : {
+              message: shareMessage,
+              title: prodName,
+            },
+        {
+          dialogTitle: `Share ${prodName}`,
+        }
+      );
+    } catch (error) {
+      console.log('Error sharing product:', error);
+    }
   };
 
   if (isLoading && !product?.name) {
@@ -752,6 +1168,7 @@ export default function ProductDetailScreen({ route, navigation }) {
         {/* ── Edge-to-Edge Full Width Image Gallery Carousel ── */}
         <View style={styles.fullWidthCarousel}>
           <ScrollView
+            key={`carousel-${selectedVariantIndex ?? 'base'}`}
             ref={mainCarouselRef}
             horizontal
             pagingEnabled
@@ -763,20 +1180,31 @@ export default function ProductDetailScreen({ route, navigation }) {
               if (slide !== activeImageIndex) setActiveImageIndex(slide);
             }}
             scrollEventThrottle={16}>
-            {images.map((imgUri, index) => (
-              <TouchableOpacity
-                key={index}
-                activeOpacity={0.9}
-                onPress={() => handleOpenImageModal(index)}>
-                <Image
-                  source={imgUri ? { uri: imgUri, cache: 'force-cache' } : DUMMY_IMG}
-                  defaultSource={DUMMY_IMG}
-                  style={styles.fullWidthImage}
-                  resizeMode="cover"
-                />
-              </TouchableOpacity>
-            ))}
+            {images.map((imgUri, index) => {
+              const fullUri = resolveImageUrl(imgUri);
+              return (
+                <TouchableOpacity
+                  key={`img-${selectedVariantIndex ?? 'base'}-${index}-${fullUri || 'default'}`}
+                  activeOpacity={0.9}
+                  onPress={() => handleOpenImageModal(index)}>
+                  <Image
+                    source={fullUri ? { uri: fullUri } : DUMMY_IMG}
+                    defaultSource={DUMMY_IMG}
+                    style={styles.fullWidthImage}
+                    resizeMode="cover"
+                  />
+                </TouchableOpacity>
+              );
+            })}
           </ScrollView>
+
+          {/* Floating Share Button on Image Carousel */}
+          <TouchableOpacity
+            style={styles.floatingShareBtn}
+            activeOpacity={0.8}
+            onPress={handleShareProduct}>
+            <Share2 size={19} color="#1A1C1E" />
+          </TouchableOpacity>
 
           {/* Optional Bestseller Badge (ONLY if is_best_seller is true) */}
           {(product?.is_best_seller || product?.isBestSeller || product?.is_bestseller || product?.tag === 'bestseller') ? (
@@ -830,12 +1258,12 @@ export default function ProductDetailScreen({ route, navigation }) {
           ) : null}
 
           {/* Expiry Date Info */}
-          {formattedExpiryDate ? (
+          {/* {formattedExpiryDate ? (
             <View style={styles.expiryRow}>
               <Calendar size={14} color="#6D7277" />
               <Text style={styles.expiryText}>Expiry Date: {formattedExpiryDate}</Text>
             </View>
-          ) : null}
+          ) : null} */}
 
           {/* Price Row */}
           <View style={styles.priceContainer}>
@@ -885,30 +1313,47 @@ export default function ProductDetailScreen({ route, navigation }) {
               <Skeleton width={72} height={46} radius={12} />
             </View>
           </View>
-        ) : product?.variants && product.variants.length > 0 ? (
+        ) : null}
+
+        {/* ── Select Option (Weight / Size Pills) ── */}
+        {variantWeightItems.length > 0 && (
           <View style={styles.sectionContainer}>
             <Text style={styles.sectionTitle}>
               Select Option
             </Text>
             <View style={styles.variantsRow}>
-              {product.variants.map((v, idx) => {
+              {variantWeightItems.map(({ variant: v, index: idx, details }) => {
                 const isSelected = selectedVariantIndex === idx;
+                const { weightLabel, shadeName } = details;
+
                 return (
                   <TouchableOpacity
                     key={v.sku || idx}
-                    style={[styles.variantCard, isSelected && styles.variantCardActive]}
+                    style={styles.variantItemWrapper}
                     activeOpacity={0.8}
                     onPress={() => setSelectedVariantIndex(isSelected ? null : idx)}>
-                    <Text style={[styles.variantName, isSelected && styles.variantNameActive]}>
-                      {(() => {
-                        if (v.name && v.name.trim() !== '') {
-                          if (/[a-zA-Z]/.test(v.name)) return v.name;
-                        }
-                        const vWeightInfo = formatProductWeightOrVolume(v.weight_in_grams ?? v.name, product, v);
-                        return vWeightInfo ? vWeightInfo.formatted : (v.name || `Option ${idx + 1}`);
-                      })()}
-                    </Text>
-                    <Text style={[styles.variantPrice, isSelected && styles.variantPriceActive]}>
+                    
+                    {/* The Option Box / Pill */}
+                    <View style={[styles.variantCard, isSelected && styles.variantCardActive]}>
+                      <View style={styles.variantInfoRow}>
+                        {weightLabel ? (
+                          <Text style={[styles.variantName, isSelected && styles.variantNameActive]}>
+                            {weightLabel}
+                          </Text>
+                        ) : shadeName ? (
+                          <Text style={[styles.variantName, isSelected && styles.variantNameActive]}>
+                            {shadeName}
+                          </Text>
+                        ) : (
+                          <Text style={[styles.variantName, isSelected && styles.variantNameActive]}>
+                            {v.weight_in_grams ? `${v.weight_in_grams} g` : `#${idx + 1}`}
+                          </Text>
+                        )}
+                      </View>
+                    </View>
+
+                    {/* Price Shown Below the Box */}
+                    <Text style={styles.variantPriceBelow}>
                       ₹{v.discounted_price || v.price}
                     </Text>
                   </TouchableOpacity>
@@ -916,27 +1361,58 @@ export default function ProductDetailScreen({ route, navigation }) {
               })}
             </View>
           </View>
-        ) : null}
+        )}
 
-        {/* ── Product Color (ONLY if color exists) ── */}
-        {product?.color && String(product.color).trim() !== '' && (
+        {/* ── Product Shades & Colors (Main Shade + Variant Shades) ── */}
+        {allShadeItems.length > 0 && (
           <View style={styles.sectionContainer}>
-            <Text style={styles.sectionTitle}>Select Shade / Color</Text>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 4 }}>
-              <TouchableOpacity
-                activeOpacity={0.8}
-                onPress={() => setIsColorSelected(!isColorSelected)}
-                style={[
-                  styles.colorSwatchContainer,
-                  isColorSelected && styles.colorSwatchContainerActive
-                ]}>
-                <View style={[styles.colorSwatchCircle, { backgroundColor: product.color }]}>
-                  {isColorSelected && (
-                    <Check size={22} color="#FFFFFF" strokeWidth={3} />
-                  )}
-                </View>
-              </TouchableOpacity>
+            <View style={styles.shadeHeaderRow}>
+              <Text style={styles.sectionTitleNoMargin}>Select Shade / Color</Text>
+              {activeShadeLabel ? (
+                <Text numberOfLines={1} ellipsizeMode="tail" style={styles.activeShadeLabel}>
+                  {activeShadeLabel}
+                </Text>
+              ) : null}
             </View>
+
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.colorSwatchesScrollContent}>
+              {allShadeItems.map((item) => {
+                const isSelected = item.index === null
+                  ? selectedVariantIndex === null
+                  : selectedVariantIndex === item.index;
+
+                return (
+                  <TouchableOpacity
+                    key={item.id}
+                    activeOpacity={0.8}
+                    onPress={() => {
+                      if (item.index === null) {
+                        setSelectedVariantIndex(null);
+                      } else {
+                        setSelectedVariantIndex(isSelected ? null : item.index);
+                      }
+                    }}
+                    style={styles.colorSwatchItemWrapper}>
+                    <View
+                      style={[
+                        styles.colorSwatchContainer,
+                        isSelected && styles.colorSwatchContainerActive,
+                      ]}>
+                      <View style={[styles.colorSwatchSquare, { backgroundColor: item.color }]} />
+                    </View>
+
+                    {item.price ? (
+                      <Text style={styles.shadeItemPrice}>
+                        ₹{item.price}
+                      </Text>
+                    ) : null}
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
           </View>
         )}
 
@@ -1131,16 +1607,19 @@ export default function ProductDetailScreen({ route, navigation }) {
                 }
               }}
               scrollEventThrottle={16}>
-              {images.map((imgUri, index) => (
-                <View key={index} style={styles.fullscreenImageSlide}>
-                  <Image
-                    source={imgUri ? { uri: imgUri, cache: 'force-cache' } : DUMMY_IMG}
-                    defaultSource={DUMMY_IMG}
-                    style={styles.fullscreenMainImage}
-                    resizeMode="contain"
-                  />
-                </View>
-              ))}
+              {images.map((imgUri, index) => {
+                const fullUri = resolveImageUrl(imgUri);
+                return (
+                  <View key={`modal-img-${selectedVariantIndex ?? 'base'}-${index}`} style={styles.fullscreenImageSlide}>
+                    <Image
+                      source={fullUri ? { uri: fullUri } : DUMMY_IMG}
+                      defaultSource={DUMMY_IMG}
+                      style={styles.fullscreenMainImage}
+                      resizeMode="contain"
+                    />
+                  </View>
+                );
+              })}
             </ScrollView>
           </View>
 
@@ -1457,7 +1936,7 @@ const styles = StyleSheet.create({
   gradientBadge: {
     position: 'absolute',
     top: 16,
-    right: 16,
+    left: 16,
     borderRadius: 6,
     paddingVertical: 4,
     paddingHorizontal: 10,
@@ -1466,6 +1945,23 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 3,
+    elevation: 3,
+  },
+  floatingShareBtn: {
+    position: 'absolute',
+    top: 14,
+    right: 14,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 15,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 4,
     elevation: 3,
   },
   gradientBadgeText: {
@@ -1695,12 +2191,15 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: 12,
   },
+  variantItemWrapper: {
+    alignItems: 'center',
+  },
   variantCard: {
-    paddingHorizontal: 18,
-    paddingVertical: 12,
+    paddingHorizontal: 22,
+    paddingVertical: 13,
     borderRadius: 14,
     borderWidth: 1.5,
-    borderColor: '#94A3B8',
+    borderColor: '#CBD5E1',
     backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1708,40 +2207,40 @@ const styles = StyleSheet.create({
   },
   variantCardActive: {
     borderColor: colors.primary,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#FAF5FF',
     shadowColor: colors.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 6,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  variantInfoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+  },
+  variantColorCircle: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.15)',
   },
   variantName: {
-    fontSize: moderateScale(13),
+    fontSize: moderateScale(14),
     fontFamily: fonts.big,
     color: '#1E293B',
   },
   variantNameActive: {
     color: colors.primary,
   },
-  variantPriceRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginTop: 4,
-  },
-  variantOriginalPrice: {
-    fontSize: moderateScale(10),
-    fontFamily: fonts.regular,
-    color: '#94A3B8',
-    textDecorationLine: 'line-through',
-  },
-  variantPrice: {
-    fontSize: moderateScale(12),
-    fontFamily: fonts.medium,
+  variantPriceBelow: {
+    fontSize: moderateScale(12.5),
+    fontFamily: fonts.big,
     color: '#475569',
-  },
-  variantPriceActive: {
-    color: colors.primary,
+    marginTop: 6,
+    textAlign: 'center',
   },
 
   tagsHeader: {
@@ -2304,8 +2803,8 @@ const styles = StyleSheet.create({
     fontFamily: fonts.big,
   },
   colorSwatchContainer: {
-    padding: 3,
-    borderRadius: 32,
+    padding: 3.5,
+    borderRadius: 16,
     borderWidth: 2,
     borderColor: 'transparent',
     alignItems: 'center',
@@ -2313,19 +2812,54 @@ const styles = StyleSheet.create({
   },
   colorSwatchContainerActive: {
     borderColor: colors.primary,
+    backgroundColor: '#FAF5FF',
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.18,
+    shadowRadius: 4,
+    elevation: 2,
   },
-  colorSwatchCircle: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+  colorSwatchSquare: {
+    width: 62,
+    height: 62,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
-    alignItems: 'center',
-    justifyContent: 'center',
+    borderColor: 'rgba(0,0,0,0.12)',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 1.5,
-    elevation: 1,
+    shadowOpacity: 0.08,
+    shadowRadius: 2,
+    elevation: 1.5,
+  },
+  shadeHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+    gap: 10,
+  },
+  activeShadeLabel: {
+    fontSize: moderateScale(13),
+    fontFamily: fonts.big,
+    color: colors.primary,
+    maxWidth: '55%',
+    textAlign: 'right',
+  },
+  colorSwatchesScrollContent: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    paddingVertical: 3,
+    paddingHorizontal: 2,
+  },
+  colorSwatchItemWrapper: {
+    alignItems: 'center',
+  },
+  shadeItemPrice: {
+    fontSize: moderateScale(13),
+    fontFamily: fonts.big,
+    color: '#475569',
+    marginTop: 6,
+    textAlign: 'center',
   },
 });

@@ -43,9 +43,11 @@ import { useCategories } from '../hooks/useCategories';
 import { useProducts } from '../hooks/useProducts';
 import { useBrands } from '../hooks/useBrands';
 import { useBanners } from '../hooks/useBanners';
+import { useMarquee } from '../hooks/useMarquee';
 import { addToCart } from '../redux/cartSlice';
 import { addToCartApi } from '../api/cart';
 import { Skeleton } from '../components/Skeleton';
+import MarqueeBanner from '../components/MarqueeBanner';
 
 import fonts from '../theme/typography';
 
@@ -233,6 +235,30 @@ export default function HomeScreen({ navigation }) {
   const { data: realProducts = [], isLoading: productsLoading } = useProducts({ per_page: 30 });
   const { data: brands = [] } = useBrands();
   const { data: banners = [], isLoading: bannersLoading } = useBanners();
+  const { data: activeMarquees = [] } = useMarquee();
+
+  const marqueeItems = useMemo(() => {
+    if (!Array.isArray(activeMarquees) || activeMarquees.length === 0) {
+      return [];
+    }
+    const texts = [];
+    activeMarquees.forEach((m) => {
+      const raw = typeof m === 'string' ? m : m?.text;
+      if (raw && typeof raw === 'string') {
+        if (raw.includes('•') || raw.includes('●')) {
+          const separatorChar = raw.includes('•') ? '•' : '●';
+          raw.split(separatorChar).forEach((part) => {
+            const trimmed = part.trim();
+            if (trimmed) texts.push(trimmed);
+          });
+        } else {
+          const trimmed = raw.trim();
+          if (trimmed) texts.push(trimmed);
+        }
+      }
+    });
+    return texts;
+  }, [activeMarquees]);
 
   // Seeded daily shuffle of brands (exactly 8 elements)
   const shuffledBrands = useMemo(() => {
@@ -270,6 +296,7 @@ export default function HomeScreen({ navigation }) {
         queryClient.invalidateQueries({ queryKey: ['products'] }),
         queryClient.invalidateQueries({ queryKey: ['brands'] }),
         queryClient.invalidateQueries({ queryKey: ['banners'] }),
+        queryClient.invalidateQueries({ queryKey: ['marquee'] }),
       ]);
     } catch (error) {
       console.error('Home refresh error:', error);
@@ -563,6 +590,19 @@ export default function HomeScreen({ navigation }) {
 
         {/* ── Top Lavender Grid Section ── */}
         <GridBackground style={styles.topLavenderSection}>
+          {/* Continuous Sliding Marquee Sale Banner (Only rendered when active marquee exists from API) */}
+          {marqueeItems.length > 0 && (
+            <MarqueeBanner
+              items={marqueeItems}
+              onPress={() =>
+                navigation.navigate('Products', {
+                  filterType: 'supersaver',
+                  headerTitle: 'Super Festive Sale',
+                })
+              }
+            />
+          )}
+
           {/* Weekend Sale Banner */}
           <TouchableOpacity style={styles.saleBannerContainer} activeOpacity={0.9}>
             <Image

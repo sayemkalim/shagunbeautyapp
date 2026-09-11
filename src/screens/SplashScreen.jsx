@@ -1,8 +1,14 @@
 import React, { useEffect } from 'react';
-import { View, Image, StyleSheet } from 'react-native';
+import { View, Image, StyleSheet, Linking } from 'react-native';
 import { getToken } from '../api/authStorage';
 
-const SplashScreen = ({ navigation }) => {
+const extractProductId = (url) => {
+  if (!url || typeof url !== 'string') return null;
+  const match = url.match(/\/product\/([a-zA-Z0-9_-]+)/i);
+  return match ? match[1] : null;
+};
+
+const SplashScreen = ({ navigation, route }) => {
   useEffect(() => {
     let isMounted = true;
 
@@ -11,7 +17,28 @@ const SplashScreen = ({ navigation }) => {
       if (!isMounted) {
         return;
       }
-      navigation.replace(token ? 'BottomTabs' : 'SignIn');
+
+      // Check if launched via deep link URL on cold start
+      let deepLinkProductId = route?.params?.productId;
+      if (!deepLinkProductId) {
+        try {
+          const initialUrl = await Linking.getInitialURL();
+          deepLinkProductId = extractProductId(initialUrl);
+        } catch (e) {
+          // ignore
+        }
+      }
+
+      if (token) {
+        navigation.replace('BottomTabs');
+        if (deepLinkProductId) {
+          navigation.navigate('ProductDetail', { productId: deepLinkProductId });
+        }
+      } else {
+        navigation.replace('SignIn', {
+          pendingProductId: deepLinkProductId,
+        });
+      }
     };
 
     const timer = setTimeout(goNext, 3000);
@@ -20,7 +47,7 @@ const SplashScreen = ({ navigation }) => {
       isMounted = false;
       clearTimeout(timer);
     };
-  }, [navigation]);
+  }, [navigation, route]);
 
   return (
     <View style={styles.container}>

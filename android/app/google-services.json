@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "99210687549",
+    "project_id": "shagunbeauty-f00bd",
+    "storage_bucket": "shagunbeauty-f00bd.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:99210687549:android:c639811cac565f622ae654",
+        "android_client_info": {
+          "package_name": "com.shagunbeauty"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDm55b2VXWwPe-70PKRClh2OxYR2Xlle20"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
