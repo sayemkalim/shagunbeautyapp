@@ -21,6 +21,7 @@ import { getOrderHistory } from '../api/order';
 import { OrderCardSkeleton } from '../components/Skeleton';
 import BottomSheetModal from '../components/BottomSheetModal';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getImageSource } from '../utils/imageOptimizer';
 
 const TRACK_STORAGE_KEY = '@shagun_order_track_times';
 
@@ -312,10 +313,7 @@ export default function OrdersScreen({ navigation }) {
                 extractImgUrl(subItem.image);
 
               const rawUri = bannerImg || firstProductImg;
-              const imageUri = resolveImageUrl(rawUri);
-              const imageSource = imageUri
-                ? { uri: imageUri, cache: 'force-cache' }
-                : DUMMY_IMG;
+              const imageSource = getImageSource(rawUri, 'THUMBNAIL', DUMMY_IMG);
               return (
                 <View style={styles.productImageWrapper}>
                   <Image source={imageSource} style={styles.productImage} resizeMode="cover" />
@@ -491,10 +489,7 @@ export default function OrdersScreen({ navigation }) {
                     extractImgUrl(subItem.image);
 
                   const rawUri = bannerImg || firstProductImg;
-                  const imageUri = resolveImageUrl(rawUri);
-                  const imageSource = imageUri
-                    ? { uri: imageUri }
-                    : DUMMY_IMG;
+                  const imageSource = getImageSource(rawUri, 'THUMBNAIL', DUMMY_IMG);
                   return (
                     <View key={`${subItem._id || product._id || 'track'}-${index}`} style={styles.trackProductCard}>
                       <View style={styles.trackProductImageWrapper}>

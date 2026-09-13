@@ -26,6 +26,7 @@ import BottomSheetModal from '../components/BottomSheetModal';
 import { moderateScale } from '../theme/responsive';
 import { getCart } from '../api/cart';
 import { createOrder } from '../api/order';
+import { getImageSource } from '../utils/imageOptimizer';
 
 const UPI_ID = '9045791373-3@ybl';
 const UPI_PAYEE_NAME = 'ShagunBeauty';
@@ -560,7 +561,7 @@ export default function PaymentScreen({ navigation, route }) {
               <View style={styles.overlayDivider} />
               
               {orderedItems.map((item, index) => {
-                const imageSource = item.image ? { uri: item.image } : null;
+                const imageSource = item.image ? getImageSource(item.image, 'THUMBNAIL', null) : null;
                 return (
                   <View key={item.cartItemId || index}>
                     <View style={styles.overlayItemRow}>

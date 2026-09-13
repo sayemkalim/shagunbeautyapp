@@ -21,6 +21,7 @@ import { AddressCardSkeleton } from '../components/Skeleton';
 import { getUserAddresses } from '../api/address';
 import { getUser } from '../api/authStorage';
 import { moderateScale } from '../theme/responsive';
+import { getImageSource } from '../utils/imageOptimizer';
 
 const DUMMY_IMG = require('../../assets/dummy_product.png');
 
@@ -189,7 +190,7 @@ export default function CheckoutScreen({ navigation, route }) {
           {estimates.map((item, index) => (
             <View key={item.cartItemId || index} style={styles.estimateItem}>
               <Image
-                source={item.image ? { uri: item.image } : DUMMY_IMG}
+                source={getImageSource(item.image, 'THUMBNAIL', DUMMY_IMG)}
                 style={styles.itemImage}
                 resizeMode="contain"
               />

@@ -58,6 +58,7 @@ import { AddressCardSkeleton, Skeleton } from '../components/Skeleton';
 import colors from '../theme/colors';
 import fonts from '../theme/typography';
 import { moderateScale } from '../theme/responsive';
+import { getImageSource } from '../utils/imageOptimizer';
 
 const { width, height } = Dimensions.get('window');
 const DUMMY_IMG = require('../../assets/dummy_product.png');
@@ -982,7 +983,7 @@ export default function CartScreen({ navigation }) {
                     activeOpacity={0.85}
                     onPress={openProductDetail}>
                     <Image
-                      source={item.image ? { uri: item.image, cache: 'force-cache' } : DUMMY_IMG}
+                      source={getImageSource(item.image, 'THUMBNAIL', DUMMY_IMG)}
                       style={styles.cartItemImg}
                       resizeMode="cover"
                     />
@@ -1499,7 +1500,7 @@ export default function CartScreen({ navigation }) {
         {removingCartItem && (
           <View style={styles.moveItemCard}>
             <Image
-              source={removingCartItem.image ? { uri: removingCartItem.image, cache: 'force-cache' } : DUMMY_IMG}
+              source={getImageSource(removingCartItem.image, 'THUMBNAIL', DUMMY_IMG)}
               style={styles.moveItemImg}
               resizeMode="cover"
             />

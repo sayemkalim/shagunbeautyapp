@@ -3,7 +3,6 @@ import {
   ActivityIndicator,
   Dimensions,
   FlatList,
-  Image,
   RefreshControl,
   StatusBar,
   StyleSheet,
@@ -31,6 +30,7 @@ import { useBrands } from '../hooks/useBrands';
 import { addToCart } from '../redux/cartSlice';
 import { addToCartApi } from '../api/cart';
 import { ProductCardSkeleton } from '../components/Skeleton';
+import OptimizedImage from '../components/OptimizedImage';
 import colors from '../theme/colors';
 import fonts from '../theme/typography';
 import { moderateScale } from '../theme/responsive';
@@ -46,6 +46,15 @@ const SORT_OPTIONS = [
   "Customer Rating",
 ];
 
+const parsePrice = (value) => {
+  if (value === null || value === undefined) return 0;
+  if (typeof value === 'object' && '$numberDecimal' in value) {
+    return parseFloat(value.$numberDecimal) || 0;
+  }
+  const parsed = parseFloat(value);
+  return isNaN(parsed) ? 0 : parsed;
+};
+
 export default function ProductsScreen({ route, navigation }) {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
@@ -54,8 +63,24 @@ export default function ProductsScreen({ route, navigation }) {
   const cardGap = 12;
   const COLUMN_WIDTH = (width - 24 - (cardGap * (numColumns - 1))) / numColumns;
 
-  const { categoryId, categoryName, brandId, brandName, headerTitle, filterType, minPrice, maxPrice } = route.params || {};
-  const screenTitle = headerTitle || brandName || categoryName || 'Products';
+  const {
+    categoryId,
+    categoryName,
+    brandId,
+    brandName,
+    headerTitle,
+    filterType,
+    minPrice,
+    maxPrice,
+    bannerProducts,
+  } = route.params || {};
+
+  const hasBannerProducts = Array.isArray(bannerProducts) && bannerProducts.length > 0;
+  const screenTitle =
+    headerTitle ||
+    brandName ||
+    categoryName ||
+    (hasBannerProducts ? 'Special Offers' : 'Products');
   
   // Sheet state: null | 'sort' | 'brand' | 'gender' | 'filters'
   const [activeModal, setActiveModal] = useState(null);
@@ -83,8 +108,8 @@ export default function ProductsScreen({ route, navigation }) {
 
     setLoadingProductId(pId);
 
-    const originalPrice = product.price || 0;
-    const finalPrice = product.discounted_price || product.price || 999;
+    const originalPrice = parsePrice(product.price);
+    const finalPrice = parsePrice(product.discounted_price) || originalPrice || 999;
     
     let bName = '';
     if (typeof product.brand === 'object' && product.brand?.name) {
@@ -135,11 +160,50 @@ export default function ProductsScreen({ route, navigation }) {
 
   // API calls
   const {
-    data: products = [],
+    data: fetchedProducts = [],
     isLoading: isProductsLoading,
     isRefetching,
     refetch,
-  } = useProducts({ category: categoryId, brand: brandId });
+  } = useProducts(
+    hasBannerProducts
+      ? { per_page: 500 }
+      : { category: categoryId, brand: brandId }
+  );
+
+  const products = useMemo(() => {
+    if (hasBannerProducts) {
+      return bannerProducts.map((bp) => {
+        const bpId = bp._id || bp.id;
+        const catalogMatch = fetchedProducts.find((p) => (p._id || p.id) === bpId);
+        const merged = catalogMatch ? { ...catalogMatch, ...bp } : bp;
+
+        const origPrice = parsePrice(bp.price) || parsePrice(catalogMatch?.price) || 0;
+        const discPrice =
+          parsePrice(bp.discounted_price) ||
+          parsePrice(catalogMatch?.discounted_price) ||
+          origPrice;
+
+        return {
+          ...merged,
+          price: origPrice,
+          discounted_price: discPrice,
+          images:
+            catalogMatch?.images?.length > 0
+              ? catalogMatch.images
+              : bp.images?.length > 0
+              ? bp.images
+              : bp.banner_image
+              ? [bp.banner_image]
+              : bp.image
+              ? [bp.image]
+              : [],
+        };
+      });
+    }
+    return fetchedProducts;
+  }, [hasBannerProducts, bannerProducts, fetchedProducts]);
+
+  const isDisplayLoading = hasBannerProducts ? false : isProductsLoading;
 
   const { data: brands = [], isLoading: isBrandsLoading } = useBrands();
 
@@ -182,15 +246,15 @@ export default function ProductsScreen({ route, navigation }) {
         );
       } else if (filterType === 'supersaver') {
         result = result.filter((p) => {
-          const original = p.price || 0;
-          const sell = p.discounted_price || original;
+          const original = parsePrice(p.price);
+          const sell = parsePrice(p.discounted_price) || original;
           const off = original > 0 ? Math.round(((original - sell) / original) * 100) : 0;
           return off >= 20;
         });
       } else if (filterType === 'lightning') {
         result = result.filter((p) => {
-          const original = p.price || 0;
-          const sell = p.discounted_price || original;
+          const original = parsePrice(p.price);
+          const sell = parsePrice(p.discounted_price) || original;
           const off = original > 0 ? Math.round(((original - sell) / original) * 100) : 0;
           return off >= 20 || p.is_lightning_deal === true;
         });
@@ -214,7 +278,7 @@ export default function ProductsScreen({ route, navigation }) {
           const tags = Array.isArray(p.tags) ? p.tags.map(t => String(t).toLowerCase()) : [];
           return (
             p.is_free_gift === true ||
-            p.price > 400 ||
+            parsePrice(p.price) > 400 ||
             tags.includes('gift') ||
             nameLower.includes('gift')
           );
@@ -235,26 +299,30 @@ export default function ProductsScreen({ route, navigation }) {
     // Price range filtering
     if (minPrice !== undefined) {
       result = result.filter((p) => {
-        const finalPrice = p.discounted_price || p.price || 0;
+        const finalPrice = parsePrice(p.discounted_price) || parsePrice(p.price) || 0;
         return finalPrice >= minPrice;
       });
     }
     if (maxPrice !== undefined) {
       result = result.filter((p) => {
-        const finalPrice = p.discounted_price || p.price || 0;
+        const finalPrice = parsePrice(p.discounted_price) || parsePrice(p.price) || 0;
         return finalPrice <= maxPrice;
       });
     }
 
     // Sorting logic
     if (sortBy === "Price - low to high") {
-      result.sort((a, b) => (a.discounted_price || a.price) - (b.discounted_price || b.price));
+      result.sort((a, b) => (parsePrice(a.discounted_price) || parsePrice(a.price)) - (parsePrice(b.discounted_price) || parsePrice(b.price)));
     } else if (sortBy === "Price - high to low") {
-      result.sort((a, b) => (b.discounted_price || b.price) - (a.discounted_price || a.price));
+      result.sort((a, b) => (parsePrice(b.discounted_price) || parsePrice(b.price)) - (parsePrice(a.discounted_price) || parsePrice(a.price)));
     } else if (sortBy === "Discount") {
       result.sort((a, b) => {
-        const discA = a.price > a.discounted_price ? (a.price - a.discounted_price) / a.price : 0;
-        const discB = b.price > b.discounted_price ? (b.price - b.discounted_price) / b.price : 0;
+        const origA = parsePrice(a.price);
+        const sellA = parsePrice(a.discounted_price) || origA;
+        const discA = origA > sellA ? (origA - sellA) / origA : 0;
+        const origB = parsePrice(b.price);
+        const sellB = parsePrice(b.discounted_price) || origB;
+        const discB = origB > sellB ? (origB - sellB) / origB : 0;
         return discB - discA;
       });
     }
@@ -313,14 +381,14 @@ export default function ProductsScreen({ route, navigation }) {
   };
 
   const renderProductItem = ({ item }) => {
-    const originalPrice = item.price || 0;
-    const finalPrice = item.discounted_price || originalPrice;
+    const originalPrice = parsePrice(item.price);
+    const finalPrice = parsePrice(item.discounted_price) || originalPrice;
     const discount = originalPrice > finalPrice
       ? Math.round(((originalPrice - finalPrice) / originalPrice) * 100)
       : 0;
 
     const isFav = !!favorites[item._id];
-    const imageSource = item.images?.[0] ? { uri: item.images[0], cache: 'force-cache' } : require('../../assets/dummy_product.png');
+    const rawImg = item.images?.[0] || item.image || item.banner_image;
 
     let brandNameStr = '';
     if (typeof item.brand === 'object' && item.brand?.name) {
@@ -362,8 +430,9 @@ export default function ProductsScreen({ route, navigation }) {
               <Text style={styles.gradientBadgeText}>BESTSELLER</Text>
             </LinearGradient>
           )}
-          <Image
-            source={imageSource}
+          <OptimizedImage
+            source={rawImg}
+            preset="PRODUCT_CARD"
             defaultSource={require('../../assets/dummy_product.png')}
             style={styles.productImage}
             resizeMode="cover"
@@ -446,7 +515,7 @@ export default function ProductsScreen({ route, navigation }) {
       </View>
 
       {/* Main product list */}
-      {isProductsLoading ? (
+      {isDisplayLoading ? (
         <View style={[styles.listContent, styles.skeletonGrid]}>
           {Array.from({ length: 6 }).map((_, i) => (
             <ProductCardSkeleton key={i} cardWidth={COLUMN_WIDTH} />

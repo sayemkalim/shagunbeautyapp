@@ -17,7 +17,7 @@ import { useMarquee } from '../hooks/useMarquee';
 export default function MarqueeBanner({
   items,
   speed = 36, // pixels per second for a smooth readable scroll
-  backgroundColor = '#FAF5FF',
+  backgroundColor = '#d6b3f8ff',
   borderColor = '#EDE9FE',
   textColor = '#334155',
   separator = '•',

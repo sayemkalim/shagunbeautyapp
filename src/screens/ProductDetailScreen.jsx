@@ -43,12 +43,13 @@ import LinearGradient from 'react-native-linear-gradient';
 import { addToCart, selectCartItems, selectCartTotalQuantity } from '../redux/cartSlice';
 import { addToCartApi } from '../api/cart';
 
-import { useProductDetail } from '../hooks/useProducts';
+import { useProductDetail, useProducts } from '../hooks/useProducts';
 import { useBrands } from '../hooks/useBrands';
 import { useCategories } from '../hooks/useCategories';
 import { useSubCategories } from '../hooks/useSubCategories';
 import BottomSheetModal from '../components/BottomSheetModal';
 import { Skeleton } from '../components/Skeleton';
+import { resolveImageUrl, getImageSource } from '../utils/imageOptimizer';
 import colors from '../theme/colors';
 import fonts from '../theme/typography';
 import { moderateScale } from '../theme/responsive';
@@ -56,6 +57,8 @@ import { moderateScale } from '../theme/responsive';
 const { width, height } = Dimensions.get('window');
 const IMAGE_HEIGHT = width * 1.05;
 const DUMMY_IMG = require('../../assets/dummy_product.png');
+const SIMILAR_CARD_GAP = 12;
+const SIMILAR_CARD_WIDTH = (width - 16 * 2 - SIMILAR_CARD_GAP) / 2;
 
 function ProductDetailSkeleton({ navigation }) {
   return (
@@ -489,21 +492,38 @@ function isColorLight(hexColor) {
   return false;
 }
 
-function resolveImageUrl(url) {
-  if (!url || typeof url !== 'string') return null;
-  const trimmed = url.trim();
-  if (trimmed === '') return null;
-  if (
-    trimmed.startsWith('http://') ||
-    trimmed.startsWith('https://') ||
-    trimmed.startsWith('data:') ||
-    trimmed.startsWith('file:')
-  ) {
-    return trimmed;
-  }
-  const cleanPath = trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
-  return `https://shagunbeautybe.onrender.com${cleanPath}`;
+function RemoteImage({ source, defaultSource, style, resizeMode = 'cover', radius = 0, preset = 'PRODUCT_CARD' }) {
+  const [loaded, setLoaded] = useState(false);
+  const isLocalSource = typeof source === 'number';
+
+  const resolvedSource = useMemo(() => {
+    return getImageSource(source, preset, defaultSource);
+  }, [source, preset, defaultSource]);
+
+  return (
+    <View style={[style, styles.remoteImageWrapper, radius > 0 ? { borderRadius: radius } : null]}>
+      {!loaded && !isLocalSource && (
+        <Skeleton style={StyleSheet.absoluteFill} radius={radius} fillParent />
+      )}
+      <Image
+        source={resolvedSource}
+        defaultSource={defaultSource}
+        style={StyleSheet.absoluteFill}
+        resizeMode={resizeMode}
+        onLoadEnd={() => setLoaded(true)}
+      />
+    </View>
+  );
 }
+
+const parsePrice = (value) => {
+  if (value === null || value === undefined) return 0;
+  if (typeof value === 'object' && '$numberDecimal' in value) {
+    return parseFloat(value.$numberDecimal) || 0;
+  }
+  const parsed = parseFloat(value);
+  return isNaN(parsed) ? 0 : parsed;
+};
 
 export default function ProductDetailScreen({ route, navigation }) {
   const queryClient = useQueryClient();
@@ -530,7 +550,13 @@ export default function ProductDetailScreen({ route, navigation }) {
   const { data: subCategories = [] } = useSubCategories();
 
   const product = useMemo(() => {
-    return fetchedProduct || initialProduct || {};
+    const raw = fetchedProduct || initialProduct || {};
+    if (!raw || Object.keys(raw).length === 0) return {};
+    return {
+      ...raw,
+      price: parsePrice(raw.price),
+      discounted_price: parsePrice(raw.discounted_price || raw.price),
+    };
   }, [fetchedProduct, initialProduct]);
 
   // Active UI States
@@ -677,10 +703,14 @@ export default function ProductDetailScreen({ route, navigation }) {
     }
   }, [selectedVariantIndex]);
 
-  const price = currentVariant ? (currentVariant.price ?? product?.price ?? 0) : (product?.price ?? 0);
-  const discountedPrice = currentVariant
-    ? (currentVariant.discounted_price ?? currentVariant.price ?? price)
-    : (product?.discounted_price ?? price);
+  const price = parsePrice(
+    currentVariant ? (currentVariant.price ?? product?.price ?? 0) : (product?.price ?? 0)
+  );
+  const discountedPrice = parsePrice(
+    currentVariant
+      ? (currentVariant.discounted_price ?? currentVariant.price ?? price)
+      : (product?.discounted_price ?? price)
+  );
   const hasDiscount = price > discountedPrice && price > 0;
   const discountPercent = hasDiscount
     ? Math.round(((price - discountedPrice) / price) * 100)
@@ -838,9 +868,7 @@ export default function ProductDetailScreen({ route, navigation }) {
         const q = tier.quantity;
         if (q <= 1) return;
 
-        const rawPrice = tier.price && typeof tier.price === 'object' && '$numberDecimal' in tier.price
-          ? parseFloat(tier.price.$numberDecimal) || 0
-          : Number(tier.price) || 0;
+        const rawPrice = parsePrice(tier.price);
         
         const unitP = rawPrice > 0 ? rawPrice : discountedPrice;
         const totalP = unitP * q;
@@ -887,7 +915,7 @@ export default function ProductDetailScreen({ route, navigation }) {
       const matchedTiers = activePriceTiers.filter((t) => t.quantity <= quantity);
       if (matchedTiers.length > 0) {
         const latestTier = matchedTiers[matchedTiers.length - 1];
-        const rawP = Number(latestTier.price) || discountedPrice;
+        const rawP = parsePrice(latestTier.price) || discountedPrice;
         let tierUnitPrice = rawP;
         if (rawP > price) {
           tierUnitPrice = rawP / latestTier.quantity;
@@ -1115,6 +1143,332 @@ export default function ProductDetailScreen({ route, navigation }) {
     }
   };
 
+  // Similar products subcategory ID resolution for strict type-matching
+  const similarSubCatId = useMemo(() => {
+    const rawSub =
+      product?.sub_category ||
+      product?.subcategory ||
+      product?.subCategory ||
+      product?.subcategoryId ||
+      product?.sub_category_id ||
+      product?.subCategoryId;
+
+    if (!rawSub) return '';
+    if (typeof rawSub === 'object') return rawSub._id || rawSub.id || '';
+    if (typeof rawSub === 'string') {
+      const trimmed = rawSub.trim();
+      if (/^[0-9a-fA-F]{24}$/.test(trimmed)) return trimmed;
+      const match = subCategories.find(
+        (s) => (s._id || s.id) === trimmed || s.name?.toLowerCase() === trimmed.toLowerCase()
+      );
+      if (match) return match._id || match.id || '';
+    }
+    return '';
+  }, [product, subCategories]);
+
+  const currentTypeString = useMemo(() => {
+    const t = displayType || product?.consumed_type || product?.type || '';
+    return String(t).trim().toLowerCase();
+  }, [displayType, product?.consumed_type, product?.type]);
+
+  // Similar products category resolution
+  const similarCategoryId = useMemo(() => {
+    const cat = product?.category;
+    if (cat) {
+      if (typeof cat === 'object') return cat._id || cat.id || '';
+      if (/^[0-9a-fA-F]{24}$/.test(String(cat).trim())) return String(cat).trim();
+    }
+    const rawSub =
+      product?.sub_category ||
+      product?.subcategory ||
+      product?.subCategory ||
+      product?.subcategoryId ||
+      product?.sub_category_id ||
+      product?.subCategoryId;
+
+    let subId = '';
+    if (rawSub) {
+      if (typeof rawSub === 'object') {
+        subId = rawSub._id || rawSub.id || '';
+        if (rawSub.category) {
+          return typeof rawSub.category === 'object'
+            ? (rawSub.category._id || rawSub.category.id || '')
+            : String(rawSub.category);
+        }
+      } else if (typeof rawSub === 'string') {
+        subId = rawSub.trim();
+      }
+    }
+
+    if (subId && Array.isArray(subCategories) && subCategories.length > 0) {
+      const foundSub = subCategories.find(
+        (s) => (s._id || s.id) === subId || s.name?.toLowerCase() === subId.toLowerCase()
+      );
+      if (foundSub?.category) {
+        return typeof foundSub.category === 'object'
+          ? (foundSub.category._id || foundSub.category.id || '')
+          : String(foundSub.category);
+      }
+    }
+
+    return '';
+  }, [product, subCategories]);
+
+  // Query similar products by sub_category (exact type)
+  const { data: subCatProducts = [], isLoading: isSubCatLoading } = useProducts({
+    sub_category: similarSubCatId,
+    per_page: 30,
+  });
+
+  // Query similar products by category & fallback general catalog
+  const { data: categoryProducts = [], isLoading: isCatProductsLoading } = useProducts({
+    category: similarCategoryId,
+    per_page: 30,
+  });
+
+  const { data: fallbackProducts = [], isLoading: isFallbackProductsLoading } = useProducts({
+    per_page: 40,
+  });
+
+  const [addingSimilarId, setAddingSimilarId] = useState(null);
+
+  const similarProductCards = useMemo(() => {
+    const currentId = String(resolvedProductId || product?._id || product?.id || '');
+    const combinedList = [...subCatProducts, ...categoryProducts, ...fallbackProducts];
+    const seen = new Set();
+    const candidateList = [];
+
+    // Extract significant keywords from current product's type (e.g. "Hair Oil" -> ["hair", "oil"])
+    const typeWords = currentTypeString
+      ? currentTypeString.split(/\s+/).filter((w) => w.length > 2)
+      : [];
+
+    for (const item of combinedList) {
+      const itemId = String(item._id || item.id || '');
+      if (!itemId || itemId === currentId || seen.has(itemId)) continue;
+      seen.add(itemId);
+
+      // Extract item's subcategory ID
+      const rawItemSub = item.sub_category || item.subcategory || item.subCategory;
+      let itemSubId = '';
+      if (rawItemSub) {
+        if (typeof rawItemSub === 'object') itemSubId = rawItemSub._id || rawItemSub.id || '';
+        else if (typeof rawItemSub === 'string') itemSubId = rawItemSub.trim();
+      }
+
+      let itemSubCatName = '';
+      if (itemSubId && Array.isArray(subCategories)) {
+        const found = subCategories.find((s) => (s._id || s.id) === itemSubId);
+        if (found) itemSubCatName = (found.name || found.title || '').toLowerCase();
+      }
+
+      const itemConsumedType = String(item.consumed_type || item.type || '').trim().toLowerCase();
+      const itemName = String(item.name || '').toLowerCase();
+
+      // Calculate Type Similarity Score
+      let typeScore = 0;
+
+      // 1. Direct subcategory ID match (Highest priority)
+      if (similarSubCatId && itemSubId && itemSubId === similarSubCatId) {
+        typeScore += 100;
+      }
+
+      // 2. Consumed type matches
+      if (currentTypeString && itemConsumedType) {
+        if (itemConsumedType === currentTypeString) {
+          typeScore += 90;
+        } else if (itemConsumedType.includes(currentTypeString) || currentTypeString.includes(itemConsumedType)) {
+          typeScore += 80;
+        }
+      }
+
+      // 3. SubCategory name matches current type
+      if (currentTypeString && itemSubCatName) {
+        if (itemSubCatName === currentTypeString) {
+          typeScore += 85;
+        } else if (itemSubCatName.includes(currentTypeString) || currentTypeString.includes(itemSubCatName)) {
+          typeScore += 75;
+        }
+      }
+
+      // 4. Product title contains the type name (e.g. "serum", "lipstick", "cleanser")
+      if (currentTypeString && currentTypeString.length > 2 && itemName.includes(currentTypeString)) {
+        typeScore += 70;
+      }
+
+      // 5. Product title contains any significant word from the type (e.g. "oil", "cream", "shampoo")
+      if (typeWords.length > 0) {
+        const matchesWord = typeWords.some(
+          (w) => itemName.includes(w) || itemConsumedType.includes(w) || itemSubCatName.includes(w)
+        );
+        if (matchesWord) {
+          typeScore += 50;
+        }
+      }
+
+      // 6. Same category bonus
+      const itemCatId = typeof item.category === 'object' ? (item.category?._id || item.category?.id) : item.category;
+      if (similarCategoryId && itemCatId && String(itemCatId) === String(similarCategoryId)) {
+        typeScore += 15;
+      }
+
+      const originalPrice = parsePrice(item.price);
+      const finalPrice = parsePrice(item.discounted_price) || originalPrice || 0;
+      const discount =
+        originalPrice > finalPrice && originalPrice > 0
+          ? Math.round(((originalPrice - finalPrice) / originalPrice) * 100)
+          : 0;
+
+      const rawImg = item.images?.[0] || item.image || item.banner_image;
+      const imageUri = resolveImageUrl(rawImg);
+      const imageSource = imageUri
+        ? { uri: imageUri, cache: 'force-cache' }
+        : require('../../assets/dummy_product.png');
+
+      let brandNameStr = '';
+      if (typeof item.brand === 'object' && item.brand?.name) {
+        brandNameStr = item.brand.name;
+      } else if (item.brandName) {
+        brandNameStr = item.brandName;
+      } else if (typeof item.brand === 'string') {
+        if (/^[0-9a-fA-F]{24}$/.test(item.brand)) {
+          const found = brands.find((b) => b._id === item.brand);
+          brandNameStr = found ? found.name : '';
+        } else {
+          brandNameStr = item.brand;
+        }
+      }
+
+      const titleText = brandNameStr
+        ? item.name?.toLowerCase().startsWith(brandNameStr.toLowerCase())
+          ? item.name.slice(brandNameStr.length).trim()
+          : item.name
+        : item.name;
+
+      const isBestseller = Boolean(
+        item.is_best_seller === true ||
+        item.is_best_seller === 'true' ||
+        item.isBestSeller === true ||
+        item.isBestSeller === 'true' ||
+        item.is_bestseller === true ||
+        item.is_bestseller === 'true' ||
+        item.isbestseller === true ||
+        item.isbestseller === 'true' ||
+        item.tag === 'bestseller' ||
+        (Array.isArray(item.tags) && item.tags.some((t) => String(t).toLowerCase() === 'bestseller'))
+      );
+
+      candidateList.push({
+        item,
+        itemId,
+        typeScore,
+        originalPrice,
+        finalPrice,
+        discount,
+        imageSource,
+        brandNameStr,
+        titleText,
+        isBestseller,
+      });
+    }
+
+    // Sort strictly by typeScore descending so highest type matches appear first!
+    candidateList.sort((a, b) => b.typeScore - a.typeScore);
+
+    // If we have items with good type match (score >= 50), prioritize them!
+    const strongMatches = candidateList.filter((c) => c.typeScore >= 50);
+    if (strongMatches.length >= 4) {
+      return strongMatches.slice(0, 15);
+    }
+
+    return candidateList.slice(0, 15);
+  }, [
+    subCatProducts,
+    categoryProducts,
+    fallbackProducts,
+    resolvedProductId,
+    product,
+    similarSubCatId,
+    similarCategoryId,
+    currentTypeString,
+    subCategories,
+    brands,
+  ]);
+
+  const handleOpenSimilarProduct = (item) => {
+    const targetId = item._id || item.id;
+    if (navigation.push) {
+      navigation.push('ProductDetail', {
+        productId: targetId,
+        product: item,
+      });
+    } else {
+      navigation.navigate('ProductDetail', {
+        productId: targetId,
+        product: item,
+      });
+    }
+  };
+
+  const handleAddSimilarToBag = async (item) => {
+    const pId = item._id || item.id;
+    const isItemInCart = cartItems.some((ci) => (ci.productId || ci.id) === pId);
+
+    if (isItemInCart) {
+      navigation.navigate('BottomTabs', { screen: 'Bag' });
+      return;
+    }
+
+    setAddingSimilarId(pId);
+
+    const originalPrice = parsePrice(item.price);
+    const finalPrice = parsePrice(item.discounted_price) || originalPrice || 0;
+
+    let bName = '';
+    if (typeof item.brand === 'object' && item.brand?.name) {
+      bName = item.brand.name;
+    } else if (item.brandName) {
+      bName = item.brandName;
+    } else if (typeof item.brand === 'string') {
+      if (/^[0-9a-fA-F]{24}$/.test(item.brand)) {
+        const found = brands.find((b) => b._id === item.brand);
+        bName = found ? found.name : '';
+      } else {
+        bName = item.brand;
+      }
+    }
+
+    const rawImg = item.images?.[0] || item.image || item.banner_image;
+    const imageUri = resolveImageUrl(rawImg);
+
+    const itemToAdd = {
+      productId: pId,
+      name: item.name,
+      brandName: bName,
+      price: originalPrice > 0 ? originalPrice : finalPrice,
+      discountedPrice: finalPrice,
+      image: imageUri,
+      quantity: 1,
+    };
+
+    try {
+      await addToCartApi({
+        type: 'product',
+        productId: pId,
+        quantity: 1,
+      });
+      queryClient.invalidateQueries({ queryKey: ['cart'] });
+    } catch (e) {
+      // Offline / guest fallback
+    } finally {
+      dispatch(addToCart(itemToAdd));
+      queryClient.invalidateQueries({ queryKey: ['cart'] });
+      setAddingSimilarId(null);
+      setShowToast(true);
+      setTimeout(() => setShowToast(false), 2500);
+    }
+  };
+
   if (isLoading && !product?.name) {
     return (
       <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
@@ -1181,14 +1535,14 @@ export default function ProductDetailScreen({ route, navigation }) {
             }}
             scrollEventThrottle={16}>
             {images.map((imgUri, index) => {
-              const fullUri = resolveImageUrl(imgUri);
+              const fullSource = getImageSource(imgUri, 'DETAIL_MAIN', DUMMY_IMG);
               return (
                 <TouchableOpacity
-                  key={`img-${selectedVariantIndex ?? 'base'}-${index}-${fullUri || 'default'}`}
+                  key={`img-${selectedVariantIndex ?? 'base'}-${index}`}
                   activeOpacity={0.9}
                   onPress={() => handleOpenImageModal(index)}>
                   <Image
-                    source={fullUri ? { uri: fullUri } : DUMMY_IMG}
+                    source={fullSource}
                     defaultSource={DUMMY_IMG}
                     style={styles.fullWidthImage}
                     resizeMode="cover"
@@ -1267,13 +1621,13 @@ export default function ProductDetailScreen({ route, navigation }) {
 
           {/* Price Row */}
           <View style={styles.priceContainer}>
-            <Text style={styles.discountedPrice}>₹{currentQuantityPricing.totalPrice}</Text>
+            <Text style={styles.discountedPrice}>₹{currentQuantityPricing.totalPrice || discountedPrice || 0}</Text>
             {quantity > 1 ? (
-              <Text style={styles.unitPriceSubText}>(₹{currentQuantityPricing.unitPrice}/unit)</Text>
+              <Text style={styles.unitPriceSubText}>(₹{currentQuantityPricing.unitPrice || discountedPrice || 0}/unit)</Text>
             ) : null}
             {hasDiscount ? (
               <>
-                <Text style={styles.originalPrice}>MRP ₹{price * quantity}</Text>
+                <Text style={styles.originalPrice}>MRP ₹{(price || 0) * (quantity || 1)}</Text>
                 <Text style={styles.discountBadge}>({discountPercent}% OFF)</Text>
               </>
             ) : null}
@@ -1557,6 +1911,112 @@ export default function ProductDetailScreen({ route, navigation }) {
             )}
           </View>
         )}
+
+        {/* ── Similar Products Horizontal Slider (HomeScreen Product Card Style) ── */}
+        {(isSubCatLoading && isCatProductsLoading && isFallbackProductsLoading && similarProductCards.length === 0) ? (
+          <View style={styles.similarSection}>
+            <View style={styles.similarHeader}>
+              <Text style={styles.similarTitle}>Similar Products</Text>
+            </View>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.similarScrollContent}>
+              {[1, 2, 3, 4].map((k) => (
+                <View key={k} style={styles.similarCard}>
+                  <Skeleton width="100%" height={150} radius={12} />
+                  <Skeleton width="90%" height={11} radius={5} style={styles.skeletonMargin10} />
+                  <Skeleton width="60%" height={11} radius={5} style={styles.skeletonMargin6} />
+                  <Skeleton width="50%" height={14} radius={5} style={styles.skeletonMargin8} />
+                  <Skeleton width="100%" height={36} radius={10} style={styles.skeletonMargin12} />
+                </View>
+              ))}
+            </ScrollView>
+          </View>
+        ) : similarProductCards.length > 0 ? (
+          <View style={styles.similarSection}>
+            <View style={styles.similarHeader}>
+              <Text style={styles.similarTitle}>Similar Products</Text>
+            </View>
+
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.similarScrollContent}>
+              {similarProductCards.map(
+                ({ item, itemId, originalPrice, finalPrice, discount, imageSource, brandNameStr, titleText, isBestseller }) => {
+                  const isItemInCart = cartItems.some((ci) => (ci.productId || ci.id) === itemId);
+                  const isAddingThis = addingSimilarId === itemId;
+
+                  return (
+                    <TouchableOpacity
+                      key={itemId}
+                      style={styles.similarCard}
+                      activeOpacity={0.85}
+                      onPress={() => handleOpenSimilarProduct(item)}>
+                      {/* Image Box */}
+                      <View style={styles.similarImageContainer}>
+                        {isBestseller ? (
+                          <LinearGradient
+                            colors={['#A78BFA', colors.primary]}
+                            start={{ x: 0, y: 0 }}
+                            end={{ x: 1, y: 0 }}
+                            style={styles.similarGradientBadge}>
+                            <Text style={styles.similarGradientBadgeText}>BESTSELLER</Text>
+                          </LinearGradient>
+                        ) : null}
+                        <RemoteImage
+                          source={imageSource}
+                          defaultSource={DUMMY_IMG}
+                          style={styles.similarProductImage}
+                          resizeMode="cover"
+                        />
+                      </View>
+
+                      {/* Details Container */}
+                      <View style={styles.similarDetailsContainer}>
+                        <View>
+                          <Text numberOfLines={2} style={styles.similarProductTitle}>
+                            {brandNameStr ? <Text style={styles.similarBrandText}>{brandNameStr} </Text> : null}
+                            {titleText}
+                          </Text>
+
+                          {/* Price Row */}
+                          <View style={styles.similarPriceRow}>
+                            {discount > 0 ? (
+                              <>
+                                <Text style={styles.similarOriginalPrice}>₹{originalPrice}</Text>
+                                <Text style={styles.similarFinalPrice}>₹{finalPrice}</Text>
+                                <Text style={styles.similarDiscountText}>{discount}% OFF</Text>
+                              </>
+                            ) : (
+                              <Text style={styles.similarFinalPrice}>₹{finalPrice}</Text>
+                            )}
+                          </View>
+                        </View>
+
+                        {/* ADD TO BAG / GO TO BAG Button with Spinner */}
+                        <TouchableOpacity
+                          style={[styles.similarAddToBagButton, isItemInCart && styles.similarGoToBagButton]}
+                          activeOpacity={0.85}
+                          disabled={isAddingThis}
+                          onPress={() => handleAddSimilarToBag(item)}>
+                          {isAddingThis ? (
+                            <ActivityIndicator size="small" color={isItemInCart ? '#FFFFFF' : colors.primary} />
+                          ) : (
+                            <Text style={[styles.similarAddToBagText, isItemInCart && styles.similarGoToBagText]}>
+                              {isItemInCart ? 'GO TO BAG' : 'ADD TO BAG'}
+                            </Text>
+                          )}
+                        </TouchableOpacity>
+                      </View>
+                    </TouchableOpacity>
+                  );
+                }
+              )}
+            </ScrollView>
+          </View>
+        ) : null}
       </ScrollView>
 
       {/* ── Added to Bag Toast ── */}
@@ -1608,11 +2068,11 @@ export default function ProductDetailScreen({ route, navigation }) {
               }}
               scrollEventThrottle={16}>
               {images.map((imgUri, index) => {
-                const fullUri = resolveImageUrl(imgUri);
+                const fullSource = getImageSource(imgUri, 'DETAIL_MAIN', DUMMY_IMG);
                 return (
                   <View key={`modal-img-${selectedVariantIndex ?? 'base'}-${index}`} style={styles.fullscreenImageSlide}>
                     <Image
-                      source={fullUri ? { uri: fullUri } : DUMMY_IMG}
+                      source={fullSource}
                       defaultSource={DUMMY_IMG}
                       style={styles.fullscreenMainImage}
                       resizeMode="contain"
@@ -1655,7 +2115,7 @@ export default function ProductDetailScreen({ route, navigation }) {
                       }
                     }}>
                     <Image
-                      source={imgUri ? { uri: imgUri, cache: 'force-cache' } : DUMMY_IMG}
+                      source={getImageSource(imgUri, 'DETAIL_THUMB', DUMMY_IMG)}
                       defaultSource={DUMMY_IMG}
                       style={styles.thumbnailImg}
                       resizeMode="cover"
@@ -2861,5 +3321,145 @@ const styles = StyleSheet.create({
     color: '#475569',
     marginTop: 6,
     textAlign: 'center',
+  },
+
+  /* ── Similar Products Slider (Matching HomeScreen Card Style) ── */
+  similarSection: {
+    marginTop: 24,
+    marginBottom: 10,
+    backgroundColor: '#FFFFFF',
+    paddingTop: 16,
+    paddingBottom: 16,
+    borderTopWidth: 8,
+    borderTopColor: '#F8FAFC',
+  },
+  similarHeader: {
+    paddingHorizontal: 16,
+    marginBottom: 12,
+  },
+  similarTitle: {
+    fontSize: moderateScale(18),
+    fontFamily: fonts.big,
+    color: '#000000',
+  },
+  similarScrollContent: {
+    paddingHorizontal: 16,
+    gap: SIMILAR_CARD_GAP,
+    paddingBottom: 4,
+  },
+  similarCard: {
+    width: SIMILAR_CARD_WIDTH,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
+    padding: 10,
+  },
+  similarImageContainer: {
+    width: '100%',
+    height: 150,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  similarGradientBadge: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    borderRadius: 6,
+    paddingVertical: 2.5,
+    paddingHorizontal: 5.5,
+    zIndex: 10,
+  },
+  similarGradientBadgeText: {
+    color: '#FFFFFF',
+    fontSize: moderateScale(9),
+    fontFamily: fonts.big,
+    letterSpacing: 0.5,
+  },
+  similarProductImage: {
+    width: '100%',
+    height: '100%',
+  },
+  similarDetailsContainer: {
+    flex: 1,
+    paddingHorizontal: 4,
+    marginTop: 4,
+    justifyContent: 'space-between',
+  },
+  similarProductTitle: {
+    fontSize: moderateScale(13),
+    fontFamily: fonts.small,
+    color: '#475569',
+    lineHeight: moderateScale(18),
+    minHeight: moderateScale(36),
+  },
+  similarBrandText: {
+    fontFamily: fonts.big,
+    color: '#1A1C1E',
+  },
+  similarPriceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 6,
+    flexWrap: 'nowrap',
+  },
+  similarFinalPrice: {
+    fontSize: moderateScale(14),
+    fontFamily: fonts.big,
+    color: '#1A1C1E',
+  },
+  similarOriginalPrice: {
+    fontSize: moderateScale(12),
+    fontFamily: fonts.medium,
+    color: '#94A3B8',
+    textDecorationLine: 'line-through',
+    marginRight: 6,
+  },
+  similarDiscountText: {
+    fontSize: moderateScale(10),
+    fontFamily: fonts.big,
+    color: '#FD3A2D',
+    marginLeft: 4,
+  },
+  similarAddToBagButton: {
+    borderWidth: 1.5,
+    borderColor: colors.primary,
+    borderRadius: 10,
+    paddingVertical: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 12,
+    backgroundColor: '#FFFFFF',
+  },
+  similarGoToBagButton: {
+    backgroundColor: colors.primary,
+  },
+  similarAddToBagText: {
+    fontSize: moderateScale(12),
+    fontFamily: fonts.big,
+    color: colors.primary,
+    letterSpacing: 0.4,
+  },
+  similarGoToBagText: {
+    color: '#FFFFFF',
+  },
+  skeletonMargin10: {
+    marginTop: 10,
+  },
+  skeletonMargin6: {
+    marginTop: 6,
+  },
+  skeletonMargin8: {
+    marginTop: 8,
+  },
+  skeletonMargin12: {
+    marginTop: 12,
+  },
+  remoteImageWrapper: {
+    overflow: 'hidden',
   },
 });

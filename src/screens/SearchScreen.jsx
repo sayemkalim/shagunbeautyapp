@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   FlatList,
-  Image,
+  RefreshControl,
   StatusBar,
   StyleSheet,
   Text,
@@ -26,6 +26,7 @@ import { useProducts } from '../hooks/useProducts';
 import { useCategories } from '../hooks/useCategories';
 import { useBrands } from '../hooks/useBrands';
 import { ProductCardSkeleton } from '../components/Skeleton';
+import OptimizedImage from '../components/OptimizedImage';
 import colors from '../theme/colors';
 import fonts from '../theme/typography';
 import { moderateScale } from '../theme/responsive';
@@ -314,7 +315,6 @@ export default function SearchScreen({ navigation }) {
       : 0;
 
     const isFav = !!favorites[item._id];
-    const imageSource = item.images?.[0] ? { uri: item.images[0], cache: 'force-cache' } : require('../../assets/dummy_product.png');
 
     let brandNameStr = '';
     if (typeof item.brand === 'object' && item.brand?.name) {
@@ -356,8 +356,9 @@ export default function SearchScreen({ navigation }) {
               <Text style={styles.gradientBadgeText}>BESTSELLER</Text>
             </LinearGradient>
           )}
-          <Image
-            source={imageSource}
+          <OptimizedImage
+            source={item.images?.[0]}
+            preset="PRODUCT_CARD"
             defaultSource={require('../../assets/dummy_product.png')}
             style={styles.productImage}
             resizeMode="cover"

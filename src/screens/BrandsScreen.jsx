@@ -19,6 +19,7 @@ import { useBrands } from '../hooks/useBrands';
 import { Skeleton } from '../components/Skeleton';
 import { moderateScale } from '../theme/responsive';
 import LinearGradient from 'react-native-linear-gradient';
+import { getImageSource } from '../utils/imageOptimizer';
 
 const DUMMY_IMG = require('../../assets/dummy_product.png');
 
@@ -151,9 +152,7 @@ export default function BrandsScreen({ navigation }) {
                       end={{ x: 1, y: 1 }}
                       style={styles.brandCardGradient}>
                       <Image
-                        source={
-                          brand.images?.[0] ? { uri: brand.images[0], cache: 'force-cache' } : DUMMY_IMG
-                        }
+                        source={getImageSource(brand.images?.[0], 'BRAND_LOGO', DUMMY_IMG)}
                         style={styles.brandImage}
                         resizeMode="contain"
                       />

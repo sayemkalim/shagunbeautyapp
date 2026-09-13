@@ -18,6 +18,7 @@ import fonts from '../theme/typography';
 import { moderateScale } from '../theme/responsive';
 import { getOrderDetails, cancelOrder } from '../api/order';
 import BottomSheetModal from '../components/BottomSheetModal';
+import { getOptimizedImageUrl } from '../utils/imageOptimizer';
 
 const extractImgUrl = (img) => {
   if (!img) return null;
@@ -350,7 +351,7 @@ export default function OrderDetailScreen({ navigation, route }) {
                 extractImgUrl(item.image);
 
               const rawUri = bannerImg || firstProductImg;
-              const imageUrl = resolveImageUrl(rawUri);
+              const imageUrl = getOptimizedImageUrl(rawUri, 'THUMBNAIL');
               const itemName = variantObj?.name || product.name || 'Product';
 
               let brandName = '';

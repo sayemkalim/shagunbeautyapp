@@ -34,6 +34,7 @@ import {
   X,
   Sparkles,
   Gem,
+  ChevronRight,
 } from 'lucide-react-native';
 import { useIsFocused } from '@react-navigation/native';
 import { useDispatch, useSelector } from 'react-redux';
@@ -48,12 +49,22 @@ import { addToCart } from '../redux/cartSlice';
 import { addToCartApi } from '../api/cart';
 import { Skeleton } from '../components/Skeleton';
 import MarqueeBanner from '../components/MarqueeBanner';
+import { getImageSource } from '../utils/imageOptimizer';
 
 import fonts from '../theme/typography';
 
 const DUMMY_IMG = require('../../assets/dummy_product.png');
 import colors from '../theme/colors';
 import { moderateScale } from '../theme/responsive';
+
+const parsePrice = (value) => {
+  if (value === null || value === undefined) return 0;
+  if (typeof value === 'object' && '$numberDecimal' in value) {
+    return parseFloat(value.$numberDecimal) || 0;
+  }
+  const parsed = parseFloat(value);
+  return isNaN(parsed) ? 0 : parsed;
+};
 
 const { width: screenWidth } = Dimensions.get('window');
 const BANNER_WIDTH = screenWidth - 32;
@@ -72,17 +83,40 @@ function CategorySkeleton() {
   );
 }
 
-function RemoteImage({ source, defaultSource, style, resizeMode = 'cover', radius = 0 }) {
+const SPOTLIGHT_CARD_WIDTH = Math.min(Math.round((screenWidth - 44) / 2), 205);
+const SPOTLIGHT_HERO_HEIGHT = Math.round(SPOTLIGHT_CARD_WIDTH * 0.95);
+
+function BrandSkeleton() {
+  return (
+    <View style={styles.spotlightScrollContent}>
+      {[0, 1].map((i) => (
+        <View key={i} style={styles.spotlightCard}>
+          <Skeleton width="100%" height={SPOTLIGHT_HERO_HEIGHT} radius={0} />
+          <View style={styles.spotlightBrandFooter}>
+            <Skeleton width="75%" height={16} radius={4} style={{ marginBottom: 4 }} />
+            <Skeleton width="50%" height={10} radius={4} />
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function RemoteImage({ source, defaultSource, style, resizeMode = 'cover', radius = 0, preset = 'PRODUCT_CARD' }) {
   const [loaded, setLoaded] = useState(false);
   const isLocalSource = typeof source === 'number';
 
+  const resolvedSource = useMemo(() => {
+    return getImageSource(source, preset, defaultSource);
+  }, [source, preset, defaultSource]);
+
   return (
-    <View style={[style, { overflow: 'hidden' }]}>
+    <View style={[style, { overflow: 'hidden' }, radius > 0 ? { borderRadius: radius } : null]}>
       {!loaded && !isLocalSource && (
         <Skeleton style={StyleSheet.absoluteFill} radius={radius} fillParent />
       )}
       <Image
-        source={source}
+        source={resolvedSource}
         defaultSource={defaultSource}
         style={StyleSheet.absoluteFill}
         resizeMode={resizeMode}
@@ -233,7 +267,7 @@ export default function HomeScreen({ navigation }) {
   const [bestsellerActivePage, setBestsellerActivePage] = useState(0);
   const { data: categories = [], isLoading: categoriesLoading } = useCategories();
   const { data: realProducts = [], isLoading: productsLoading } = useProducts({ per_page: 30 });
-  const { data: brands = [] } = useBrands();
+  const { data: brands = [], isLoading: brandsLoading } = useBrands();
   const { data: banners = [], isLoading: bannersLoading } = useBanners();
   const { data: activeMarquees = [] } = useMarquee();
 
@@ -260,31 +294,7 @@ export default function HomeScreen({ navigation }) {
     return texts;
   }, [activeMarquees]);
 
-  // Seeded daily shuffle of brands (exactly 8 elements)
-  const shuffledBrands = useMemo(() => {
-    if (!brands || brands.length === 0) return [];
-    
-    const d = new Date();
-    const dateStr = `${d.getFullYear()}${d.getMonth() + 1}${d.getDate()}`;
-    const seed = parseInt(dateStr, 10);
-    
-    // Seeded pseudorandom generator
-    const seededRandom = (s) => {
-      const x = Math.sin(s) * 10000;
-      return x - Math.floor(x);
-    };
 
-    const shuffled = [...brands];
-    let currentSeed = seed;
-    
-    for (let i = shuffled.length - 1; i > 0; i--) {
-      const r = seededRandom(currentSeed);
-      currentSeed += 1;
-      const j = Math.floor(r * (i + 1));
-      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-    }
-    return shuffled.slice(0, 8);
-  }, [brands]);
 
   const [refreshing, setRefreshing] = useState(false);
 
@@ -324,9 +334,7 @@ export default function HomeScreen({ navigation }) {
       bannerSlides.map((banner) => ({
         banner,
         key: banner._id || banner.id,
-        imageSource: banner.banner_url
-          ? { uri: banner.banner_url, cache: 'force-cache' }
-          : banner.image,
+        imageSource: getImageSource(banner.banner_url || banner.image, 'BANNER_HERO'),
       })),
     [bannerSlides]
   );
@@ -334,12 +342,60 @@ export default function HomeScreen({ navigation }) {
     () =>
       categories.map((cat) => ({
         cat,
-        imageSource: cat.images?.[0]
-          ? { uri: cat.images[0], cache: 'force-cache' }
-          : require('../../assets/dummy_product.png'),
+        imageSource: getImageSource(cat.images?.[0], 'CATEGORY_ICON'),
       })),
     [categories]
   );
+  const spotlightBrands = useMemo(() => {
+    if (!brands || brands.length === 0) return [];
+
+    const validBrands = brands.filter((b) => b && b.name && b.name.trim().length > 0);
+
+    const SPOTLIGHT_DEALS = [
+      { offer: 'Up To 70% Off', subtitle: 'Steal The Spotlight' },
+      { offer: 'Min. 40% Off', subtitle: 'Everyday Luxury' },
+      { offer: 'Up To 50% Off', subtitle: 'Glow Essentials' },
+      { offer: 'Flat 35% Off', subtitle: 'Trending Skincare' },
+      { offer: 'Up To 60% Off', subtitle: 'Salon Hair Care' },
+      { offer: 'Min. 30% Off', subtitle: 'Pure & Organic' },
+      { offer: 'Flat 25% Off', subtitle: 'Dermatologist Choice' },
+      { offer: 'Up To 45% Off', subtitle: 'Signature Beauty' },
+    ];
+
+    return validBrands.slice(0, 12).map((brand, idx) => {
+      // Find products belonging to this brand for max discount calculation
+      const brandProducts = realProducts.filter((p) => {
+        const pBId = typeof p.brand === 'object' ? p.brand?._id : p.brand;
+        return pBId === brand._id || (p.name && p.name.toLowerCase().includes(brand.name.toLowerCase()));
+      });
+
+      const logoImage = brand.images?.[0] || null;
+
+      let maxDiscount = 0;
+      brandProducts.forEach((p) => {
+        const orig = parsePrice(p.price);
+        const disc = parsePrice(p.discounted_price);
+        if (orig > disc && orig > 0) {
+          const pct = Math.round(((orig - disc) / orig) * 100);
+          if (pct > maxDiscount) maxDiscount = pct;
+        }
+      });
+
+      const deal = SPOTLIGHT_DEALS[idx % SPOTLIGHT_DEALS.length];
+      const offerText = maxDiscount > 0 ? `Up To ${maxDiscount}% Off` : deal.offer;
+      const subtitleText =
+        brand.discount_label_text && brand.discount_label_text !== 'na'
+          ? brand.discount_label_text
+          : deal.subtitle;
+
+      return {
+        brand,
+        logoImage,
+        offerText,
+        subtitleText,
+      };
+    });
+  }, [brands, realProducts]);
   const dealsProducts = useMemo(
     () =>
       realProducts.slice(0, 30).map((item) => {
@@ -350,11 +406,8 @@ export default function HomeScreen({ navigation }) {
           originalPrice > finalPrice
             ? Math.round(((originalPrice - finalPrice) / originalPrice) * 100)
             : 0;
-        const imageSource = item.images?.[0]
-          ? { uri: item.images[0], cache: 'force-cache' }
-          : item.image
-          ? { uri: item.image, cache: 'force-cache' }
-          : require('../../assets/dummy_product.png');
+        const rawImg = item.images?.[0] || item.image || item.banner_image;
+        const imageSource = getImageSource(rawImg, 'PRODUCT_CARD');
 
         let brandNameStr = '';
         if (typeof item.brand === 'object' && item.brand?.name) {
@@ -403,11 +456,8 @@ export default function HomeScreen({ navigation }) {
         originalPrice > finalPrice
           ? Math.round(((originalPrice - finalPrice) / originalPrice) * 100)
           : 0;
-      const imageSource = item.images?.[0]
-        ? { uri: item.images[0], cache: 'force-cache' }
-        : item.image
-        ? { uri: item.image, cache: 'force-cache' }
-        : require('../../assets/dummy_product.png');
+      const rawImg = item.images?.[0] || item.image || item.banner_image;
+      const imageSource = getImageSource(rawImg, 'PRODUCT_CARD');
 
       let brandNameStr = '';
       if (typeof item.brand === 'object' && item.brand?.name) {
@@ -450,6 +500,8 @@ export default function HomeScreen({ navigation }) {
       if (imageSource?.uri) Image.prefetch(imageSource.uri);
     });
   }, [categoryItems]);
+
+
 
   useEffect(() => {
     dealsProducts.forEach(({ imageSource }) => {
@@ -597,7 +649,7 @@ export default function HomeScreen({ navigation }) {
               onPress={() =>
                 navigation.navigate('Products', {
                   filterType: 'supersaver',
-                  headerTitle: 'Super Festive Sale',
+                  headerTitle: 'For You',
                 })
               }
             />
@@ -686,11 +738,33 @@ export default function HomeScreen({ navigation }) {
                       activeOpacity={0.95}
                       style={{ width: BANNER_WIDTH, height: 180 }}
                       onPress={() => {
-                        if (banner.product?._id) {
-                          navigation.navigate('ProductDetail', {
-                            productId: banner.product._id,
-                            product: banner.product,
+                        const bannerProductsList =
+                          Array.isArray(banner.products) && banner.products.length > 0
+                            ? banner.products
+                            : banner.product
+                            ? [typeof banner.product === 'string' ? { _id: banner.product } : banner.product]
+                            : [];
+
+                        if (bannerProductsList.length > 1) {
+                          navigation.navigate('Products', {
+                            headerTitle: banner.title || banner.name || 'Special Offers',
+                            bannerProducts: bannerProductsList,
                           });
+                        } else if (bannerProductsList.length === 1) {
+                          const singleProduct = bannerProductsList[0];
+                          const targetId = singleProduct?._id || singleProduct?.id;
+                          if (targetId) {
+                            navigation.navigate('ProductDetail', {
+                              productId: targetId,
+                              product: {
+                                ...singleProduct,
+                                price: parsePrice(singleProduct.price),
+                                discounted_price: parsePrice(
+                                  singleProduct.discounted_price || singleProduct.price
+                                ),
+                              },
+                            });
+                          }
                         }
                       }}>
                       <RemoteImage
@@ -698,6 +772,7 @@ export default function HomeScreen({ navigation }) {
                         defaultSource={require('../../assets/dummy_product.png')}
                         style={styles.luxuryBannerImage}
                         resizeMode="cover"
+                        preset="BANNER_HERO"
                       />
                     </TouchableOpacity>
                   );
@@ -753,7 +828,7 @@ export default function HomeScreen({ navigation }) {
                       style={styles.categoryItem}
                       activeOpacity={0.85}
                       onPress={() => navigation.navigate('Products', { categoryId: cat._id, categoryName: cat.name })}>
-                      <RemoteImage source={imageSource} defaultSource={require('../../assets/dummy_product.png')} style={styles.categoryItemImage} radius={42} />
+                      <RemoteImage source={imageSource} defaultSource={require('../../assets/dummy_product.png')} style={styles.categoryItemImage} radius={42} preset="CATEGORY_ICON" />
                       <Text style={styles.categoryItemLabel}>{cat.name}</Text>
                     </TouchableOpacity>
                   );
@@ -762,7 +837,89 @@ export default function HomeScreen({ navigation }) {
             </ScrollView>
           </View>
 
-    
+          {/* ── BRANDS IN SPOTLIGHT Section ── */}
+          {(brandsLoading || refreshing || spotlightBrands.length > 0) ? (
+            <LinearGradient
+              colors={['#FDEAB0', '#FEF2CB', '#FFF8E1']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 0, y: 1 }}
+              style={styles.spotlightSection}>
+              {/* Header with Centered Title & AD Badge */}
+              <View style={styles.spotlightHeader}>
+                <Text style={styles.spotlightTitle}>BRANDS IN SPOTLIGHT</Text>
+                
+              </View>
+
+              {(brandsLoading || refreshing) ? (
+                <BrandSkeleton />
+              ) : (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.spotlightScrollContent}>
+                  {spotlightBrands.map((item) => {
+                    return (
+                      <TouchableOpacity
+                        key={item.brand._id || item.brand.id}
+                        style={styles.spotlightCard}
+                        activeOpacity={0.88}
+                        onPress={() =>
+                          navigation.navigate('Products', {
+                            brandId: item.brand._id,
+                            brandName: item.brand.name,
+                          })
+                        }>
+                        <View style={styles.spotlightCardContent}>
+                          {/* 1. UPAR ME: Brand Image Container (jaha product image thi) */}
+                          <View style={styles.spotlightImageContainer}>
+                            {item.logoImage ? (
+                              <Image
+                                source={getImageSource(item.logoImage, 'BRAND_LOGO')}
+                                style={styles.spotlightBrandHeroImage}
+                                resizeMode="contain"
+                              />
+                            ) : (
+                              <View style={styles.spotlightFallbackEmblem}>
+                                <Text style={styles.spotlightFallbackInitial}>
+                                  {item.brand.name?.charAt(0).toUpperCase()}
+                                </Text>
+                              </View>
+                            )}
+                          </View>
+
+                          {/* 2. NICHE: Uska Name Sab Uppercase */}
+                          <View style={styles.spotlightBrandFooter}>
+                            <Text style={styles.spotlightBrandNameText} numberOfLines={1}>
+                              {item.brand.name?.trim().toUpperCase()}
+                            </Text>
+                            {item.subtitleText ? (
+                              <Text style={styles.spotlightSubtitleText} numberOfLines={1}>
+                                {item.subtitleText}
+                              </Text>
+                            ) : null}
+                          </View>
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })}
+
+                  {/* View All Brands Card at the End */}
+                  <TouchableOpacity
+                    style={[styles.spotlightCard, styles.spotlightViewAllCard]}
+                    activeOpacity={0.85}
+                    onPress={() => navigation.navigate('Brands')}>
+                    <View style={styles.spotlightViewAllInner}>
+                      <View style={styles.spotlightViewAllCircle}>
+                        <ChevronRight size={24} color="#102A43" />
+                      </View>
+                      <Text style={styles.spotlightViewAllTitle}>EXPLORE ALL</Text>
+                      <Text style={styles.spotlightViewAllSubtitle}>View all brands</Text>
+                    </View>
+                  </TouchableOpacity>
+                </ScrollView>
+              )}
+            </LinearGradient>
+          ) : null}
 
           {/* ── Budget Beauty Store Section ── */}
           <View style={styles.budgetSection}>
@@ -1105,7 +1262,7 @@ const styles = StyleSheet.create({
   searchIcon: { marginRight: 10 },
   searchPlaceholderText: { flex: 1, fontSize: moderateScale(14), fontFamily: fonts.medium, color: '#94A3B8' },
   scrollContent: { paddingBottom: 24 },
-  saleBannerContainer: { margin: 16, borderRadius: 18, overflow: 'hidden', height: 180, backgroundColor: '#F3E8FF' },
+  saleBannerContainer: { marginBottom: 10, borderRadius: 1, overflow: 'hidden', height: 180, backgroundColor: '#F3E8FF' },
   saleBannerImage: { width: '100%', height: '100%' },
   dealChipsScroll: { paddingHorizontal: 16, gap: 12, paddingBottom: 16 },
   dealChipCard: {
@@ -1594,77 +1751,194 @@ const styles = StyleSheet.create({
     fontSize: moderateScale(14),
     color: '#EF4444',
   },
-  brandsSection: {
-    paddingVertical: 20,
-    paddingHorizontal: 16,
-    backgroundColor: '#FFFFFF',
-    borderBottomWidth: 8,
-    borderBottomColor: '#F8FAFC',
-  },
-  brandsHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+  // ─── BRANDS IN SPOTLIGHT ────────────────────
+  spotlightSection: {
+    marginTop: 20,
     marginBottom: 16,
+    paddingTop: 18,
+    paddingBottom: 26,
+    position: 'relative',
+    overflow: 'hidden',
   },
-  brandsTitleContainer: {
+  spotlightHeader: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+    marginBottom: 16,
+    position: 'relative',
   },
-  brandsTitle: {
-    fontSize: moderateScale(16),
+  spotlightTitle: {
+    fontSize: moderateScale(18),
     fontFamily: fonts.big,
-    color: '#1E1B4B',
+    color: '#0F172A',
+    letterSpacing: 1.2,
+    textAlign: 'center',
   },
-  brandsViewAll: {
-    fontSize: moderateScale(13),
-    fontFamily: fonts.bold,
-    color: colors.primary,
+  adBadge: {
+    position: 'absolute',
+    right: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.85)',
+    borderWidth: 1,
+    borderColor: 'rgba(217, 119, 6, 0.35)',
+    paddingHorizontal: 7,
+    paddingVertical: 2.5,
+    borderRadius: 6,
   },
-  brandsGrid: {
+  adBadgeText: {
+    fontSize: moderateScale(9),
+    fontFamily: fonts.big,
+    color: '#B45309',
+    letterSpacing: 0.5,
+  },
+  spotlightScrollContent: {
+    paddingHorizontal: 16,
+    paddingBottom: 6,
+    gap: 14,
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    rowGap: 16,
-  },
-  brandGridItem: {
-    width: '23%',
     alignItems: 'center',
   },
-  brandGridImageContainer: {
-    width: '100%',
-    aspectRatio: 1,
+  spotlightCard: {
+    width: SPOTLIGHT_CARD_WIDTH,
+    height: SPOTLIGHT_HERO_HEIGHT + 64,
     borderRadius: 20,
-    borderWidth: 1,
-    borderColor: '#F1F5F9',
+    borderWidth: 1.2,
+    borderColor: 'rgba(217, 180, 120, 0.45)',
+    backgroundColor: '#FFFFFF',
+    overflow: 'hidden',
+    shadowColor: '#8C6D3B',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  spotlightCardContent: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#FFFFFF',
+  },
+  spotlightImageContainer: {
+    width: '100%',
+    height: SPOTLIGHT_HERO_HEIGHT,
     backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
-    overflow: 'hidden',
-    shadowColor: '#6B7280',
-    shadowOffset: { width: 0, height: 4 },
+    paddingHorizontal: 12,
+    position: 'relative',
+    borderTopLeftRadius: 19,
+    borderTopRightRadius: 19,
+  },
+  spotlightOfferBadge: {
+    position: 'absolute',
+    top: 10,
+    left: 10,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#FEF3C7',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 14,
+    zIndex: 2,
+    shadowColor: '#D97706',
+    shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.08,
-    shadowRadius: 6,
-    elevation: 2,
+    shadowRadius: 2,
+    elevation: 1,
   },
-  brandGridImage: {
-    width: '76%',
-    height: '76%',
-  },
-  brandGridName: {
-    fontSize: moderateScale(11),
+  spotlightOfferBadgeText: {
+    color: '#0F172A',
+    fontSize: moderateScale(9.5),
     fontFamily: fonts.big,
-    color: '#1E1B4B',
-    marginTop: 8,
-    width: '100%',
+    fontWeight: '800',
+    letterSpacing: 0.4,
+  },
+  spotlightBrandHeroImage: {
+    width: '84%',
+    height: '68%',
+  },
+  spotlightFallbackEmblem: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#FFFBEB',
+    borderWidth: 1.5,
+    borderColor: '#FDE68A',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  spotlightFallbackInitial: {
+    fontSize: moderateScale(24),
+    fontFamily: fonts.big,
+    fontWeight: '800',
+    color: '#92400E',
+  },
+  spotlightBrandFooter: {
+    height: 64,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#F6EEDB',
+    borderBottomLeftRadius: 19,
+    borderBottomRightRadius: 19,
+  },
+  spotlightBrandNameText: {
+    fontSize: moderateScale(13),
+    fontFamily: fonts.big,
+    letterSpacing: 0.8,
+    color: '#0F172A',
+    textTransform: 'uppercase',
     textAlign: 'center',
   },
-  brandGridExplore: {
-    fontSize: moderateScale(8.5),
-    fontFamily: fonts.bold,
-    color: colors.primary,
-    letterSpacing: 1.2,
-    marginTop: 2,
-    opacity: 0.8,
+  spotlightSubtitleText: {
+    fontSize: moderateScale(10.5),
+    fontFamily: fonts.medium,
+    color: '#64748B',
+    marginTop: 3,
+    textAlign: 'center',
+  },
+  spotlightViewAllCard: {
+    height: SPOTLIGHT_HERO_HEIGHT + 64,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderStyle: 'dashed',
+    borderColor: '#D97706',
+    backgroundColor: '#FFFBEB',
+  },
+  spotlightViewAllInner: {
+    width: '100%',
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+    backgroundColor: '#FFFBEB',
+  },
+  spotlightViewAllCircle: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  spotlightViewAllTitle: {
+    fontSize: moderateScale(13),
+    fontFamily: fonts.big,
+    color: '#0F172A',
+    letterSpacing: 0.8,
+    marginBottom: 3,
+  },
+  spotlightViewAllSubtitle: {
+    fontSize: moderateScale(11),
+    fontFamily: fonts.medium,
+    color: '#64748B',
   },
 });
