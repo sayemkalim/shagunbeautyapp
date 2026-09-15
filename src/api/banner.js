@@ -4,3 +4,8 @@ import apiRequest from './client';
 export function getActiveBanners() {
   return apiRequest('/api/banner/active');
 }
+
+// GET /api/second-banner/active — public, active second banner
+export function getActiveSecondBanner() {
+  return apiRequest('/api/second-banner/active');
+}

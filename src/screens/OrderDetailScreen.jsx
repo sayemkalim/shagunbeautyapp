@@ -23,9 +23,75 @@ import { getOptimizedImageUrl } from '../utils/imageOptimizer';
 const extractImgUrl = (img) => {
   if (!img) return null;
   if (typeof img === 'string' && img.trim()) return img.trim();
-  if (typeof img === 'object') {
-    return img.url || img.secure_url || img.uri || img.path || img.image || null;
+  if (Array.isArray(img) && img.length > 0) {
+    return extractImgUrl(img[0]);
   }
+  if (typeof img === 'object') {
+    return (
+      img.url ||
+      img.secure_url ||
+      img.uri ||
+      img.path ||
+      img.image ||
+      img.banner_image ||
+      img.bannerImage ||
+      img.product_image ||
+      img.productImage ||
+      img.thumbnail ||
+      null
+    );
+  }
+  return null;
+};
+
+const resolveOrderItemImage = (subItem) => {
+  if (!subItem) return null;
+  const product = (typeof subItem.product === 'object' && subItem.product) ? subItem.product : {};
+  const bundle = (typeof subItem.bundle === 'object' && subItem.bundle) ? subItem.bundle : {};
+
+  let variantObj = null;
+  if (subItem.variant_sku && Array.isArray(product.variants)) {
+    variantObj = product.variants.find(
+      (v) => v.sku === subItem.variant_sku || v._id === subItem.variant_sku || String(v._id) === String(subItem.variant_sku)
+    );
+  }
+
+  // 1. Variant specific images (image, banner_image, images)
+  const variantImg =
+    extractImgUrl(variantObj?.image) ||
+    extractImgUrl(variantObj?.banner_image) ||
+    extractImgUrl(variantObj?.bannerImage) ||
+    extractImgUrl(variantObj?.images);
+  if (variantImg) return variantImg;
+
+  // 2. Direct subItem images (new backend response or item level)
+  const itemImg =
+    extractImgUrl(subItem.image) ||
+    extractImgUrl(subItem.product_image) ||
+    extractImgUrl(subItem.productImage) ||
+    extractImgUrl(subItem.banner_image) ||
+    extractImgUrl(subItem.bannerImage) ||
+    extractImgUrl(subItem.images);
+  if (itemImg) return itemImg;
+
+  // 3. Product images (product.image first, then product.banner_image, then product.images)
+  const productImg =
+    extractImgUrl(product.image) ||
+    extractImgUrl(product.banner_image) ||
+    extractImgUrl(product.bannerImage) ||
+    extractImgUrl(product.images) ||
+    extractImgUrl(product.thumbnail);
+  if (productImg) return productImg;
+
+  // 4. Bundle fallback (if bundle order item)
+  const bundleImg =
+    extractImgUrl(bundle.image) ||
+    extractImgUrl(bundle.banner_image) ||
+    extractImgUrl(bundle.bannerImage) ||
+    extractImgUrl(bundle.images) ||
+    extractImgUrl(bundle.thumbnail);
+  if (bundleImg) return bundleImg;
+
   return null;
 };
 
@@ -336,21 +402,7 @@ export default function OrderDetailScreen({ navigation, route }) {
               const variantObj = (item.variant_sku && Array.isArray(product.variants))
                 ? product.variants.find((v) => v.sku === item.variant_sku || v._id === item.variant_sku || String(v._id) === String(item.variant_sku))
                 : null;
-              const bannerImg =
-                extractImgUrl(variantObj?.banner_image) ||
-                extractImgUrl(product.banner_image) ||
-                extractImgUrl(item.banner_image) ||
-                extractImgUrl(product.bannerImage) ||
-                extractImgUrl(item.bannerImage);
-
-              const firstProductImg =
-                extractImgUrl(variantObj?.images && variantObj.images[0]) ||
-                extractImgUrl(variantObj?.image) ||
-                extractImgUrl(product.images && product.images[0]) ||
-                extractImgUrl(product.image) ||
-                extractImgUrl(item.image);
-
-              const rawUri = bannerImg || firstProductImg;
+              const rawUri = resolveOrderItemImage(item);
               const imageUrl = getOptimizedImageUrl(rawUri, 'THUMBNAIL');
               const itemName = variantObj?.name || product.name || 'Product';
 

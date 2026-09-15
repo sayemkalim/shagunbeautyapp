@@ -13,6 +13,7 @@ import {
   TouchableOpacity,
   UIManager,
   View,
+  Linking,
 } from 'react-native';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -44,11 +45,15 @@ import { useCategories } from '../hooks/useCategories';
 import { useProducts } from '../hooks/useProducts';
 import { useBrands } from '../hooks/useBrands';
 import { useBanners } from '../hooks/useBanners';
+import { useSecondBanner } from '../hooks/useSecondBanner';
+import { useCardBanners } from '../hooks/useCardBanners';
 import { useMarquee } from '../hooks/useMarquee';
 import { addToCart } from '../redux/cartSlice';
 import { addToCartApi } from '../api/cart';
 import { Skeleton } from '../components/Skeleton';
 import MarqueeBanner from '../components/MarqueeBanner';
+import BrandMarqueeBanner from '../components/BrandMarqueeBanner';
+import CardBannerSection from '../components/CardBannerSection';
 import { getImageSource } from '../utils/imageOptimizer';
 
 import fonts from '../theme/typography';
@@ -269,6 +274,8 @@ export default function HomeScreen({ navigation }) {
   const { data: realProducts = [], isLoading: productsLoading } = useProducts({ per_page: 30 });
   const { data: brands = [], isLoading: brandsLoading } = useBrands();
   const { data: banners = [], isLoading: bannersLoading } = useBanners();
+  const { data: secondBanner, isLoading: secondBannerLoading } = useSecondBanner();
+  const { data: cardBanners = [], isLoading: cardBannersLoading } = useCardBanners();
   const { data: activeMarquees = [] } = useMarquee();
 
   const marqueeItems = useMemo(() => {
@@ -306,6 +313,8 @@ export default function HomeScreen({ navigation }) {
         queryClient.invalidateQueries({ queryKey: ['products'] }),
         queryClient.invalidateQueries({ queryKey: ['brands'] }),
         queryClient.invalidateQueries({ queryKey: ['banners'] }),
+        queryClient.invalidateQueries({ queryKey: ['secondBanner'] }),
+        queryClient.invalidateQueries({ queryKey: ['cardBanners'] }),
         queryClient.invalidateQueries({ queryKey: ['marquee'] }),
       ]);
     } catch (error) {
@@ -314,6 +323,45 @@ export default function HomeScreen({ navigation }) {
       setRefreshing(false);
     }
   }, [queryClient]);
+
+  const secondBannerSource = useMemo(() => {
+    const rawUrl = secondBanner?.banner_url;
+    return getImageSource(rawUrl, 'BANNER_HERO', require('../../assets/luxury_banner.png'));
+  }, [secondBanner?.banner_url]);
+
+  const handleSecondBannerPress = useCallback(() => {
+    if (!secondBanner) {
+      navigation.navigate('Products', {
+        filterType: 'supersaver',
+        headerTitle: 'Weekend Sale',
+      });
+      return;
+    }
+
+    const productId =
+      secondBanner.product?._id ||
+      (typeof secondBanner.product === 'string' && secondBanner.product ? secondBanner.product : null);
+
+    if (productId) {
+      navigation.navigate('ProductDetail', { productId });
+      return;
+    }
+
+    if (secondBanner.link && typeof secondBanner.link === 'string') {
+      const trimmed = secondBanner.link.trim();
+      if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+        Linking.openURL(trimmed).catch((err) => {
+          console.warn('Failed to open second banner link:', err);
+        });
+        return;
+      }
+    }
+
+    navigation.navigate('Products', {
+      filterType: 'supersaver',
+      headerTitle: secondBanner.title || 'Weekend Sale',
+    });
+  }, [secondBanner, navigation]);
 
   // Dynamic deals title that changes automatically every 4 days
   const currentDealsHeader = useMemo(() => {
@@ -656,9 +704,12 @@ export default function HomeScreen({ navigation }) {
           )}
 
           {/* Weekend Sale Banner */}
-          <TouchableOpacity style={styles.saleBannerContainer} activeOpacity={0.9}>
+          <TouchableOpacity
+            style={styles.saleBannerContainer}
+            activeOpacity={0.9}
+            onPress={handleSecondBannerPress}>
             <Image
-              source={require('../../assets/luxury_banner.png')}
+              source={secondBannerSource}
               style={styles.saleBannerImage}
               resizeMode="cover"
             />
@@ -719,6 +770,14 @@ export default function HomeScreen({ navigation }) {
 
         {/* ── Bottom White Section ── */}
         <View style={styles.bottomWhiteSection}>
+          {/* Continuous Sliding Brand Logos Marquee Banner */}
+          {brands.length > 0 && (
+            <BrandMarqueeBanner
+              brands={brands}
+              style={styles.brandMarqueeWrapper}
+            />
+          )}
+
           {/* New Luxury Ritual Banner Slider */}
           <View style={styles.luxuryBanner}>
             {(bannersLoading || refreshing) ? (
@@ -796,7 +855,7 @@ export default function HomeScreen({ navigation }) {
           {/* Categories Section */}
           <View style={styles.categoriesSection}>
             <View style={styles.categoriesHeader}>
-              <Text style={styles.categoriesTitle}>Categories</Text>
+              <Text style={styles.categoriesTitle}>Shop By Category</Text>
             </View>
 
             <ScrollView
@@ -870,7 +929,6 @@ export default function HomeScreen({ navigation }) {
                           })
                         }>
                         <View style={styles.spotlightCardContent}>
-                          {/* 1. UPAR ME: Brand Image Container (jaha product image thi) */}
                           <View style={styles.spotlightImageContainer}>
                             {item.logoImage ? (
                               <Image
@@ -887,7 +945,6 @@ export default function HomeScreen({ navigation }) {
                             )}
                           </View>
 
-                          {/* 2. NICHE: Uska Name Sab Uppercase */}
                           <View style={styles.spotlightBrandFooter}>
                             <Text style={styles.spotlightBrandNameText} numberOfLines={1}>
                               {item.brand.name?.trim().toUpperCase()}
@@ -921,63 +978,14 @@ export default function HomeScreen({ navigation }) {
             </LinearGradient>
           ) : null}
 
-          {/* ── Budget Beauty Store Section ── */}
-          <View style={styles.budgetSection}>
-            <View style={styles.budgetHeader}>
-              <Text style={styles.budgetTitle}>Budget Beauty Store</Text>
-              {/* <Text style={styles.budgetSubtitle}>Premium beauty for every pocket</Text> */}
-            </View>
+          {/* ── Dynamic Card Banners / Cards Slider Section ── */}
+          <CardBannerSection
+            cardBanners={cardBanners}
+            isLoading={cardBannersLoading}
+            refreshing={refreshing}
+            navigation={navigation}
+          />
 
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.budgetScroll}>
-              {BUDGET_STORES.map((store) => {
-                return (
-                  <TouchableOpacity
-                    key={store.id}
-                    activeOpacity={0.85}
-                    onPress={() =>
-                      navigation.navigate('Products', {
-                        maxPrice: store.maxPrice,
-                        headerTitle: `${store.title} Store`,
-                      })
-                    }>
-                    {store.image ? (
-                      <View style={styles.budgetCardImageWrapper}>
-                        <Image
-                          source={store.image}
-                          style={styles.budgetCardImage}
-                          resizeMode="contain"
-                        />
-                      </View>
-                    ) : (
-                      <LinearGradient
-                        colors={store.colors}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 1 }}
-                        style={styles.budgetCard}>
-                        <View style={styles.budgetCardHeader}>
-                          <View style={[styles.budgetBadgeContainer, { backgroundColor: `${store.accent}15` }]}>
-                            <Text style={[styles.budgetBadgeText, { color: store.accent }]}>{store.badge}</Text>
-                          </View>
-                        </View>
-                        
-                        <View style={styles.budgetCardPriceContainer}>
-                          <Text style={[styles.budgetCardPriceText, { color: store.accent }]}>{store.priceText}</Text>
-                        </View>
-
-                        <View style={styles.budgetCardBody}>
-                          <Text style={styles.budgetCardTitle}>{store.title}</Text>
-                          <Text style={styles.budgetCardSubtitle}>{store.subtitle}</Text>
-                        </View>
-                      </LinearGradient>
-                    )}
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
-          </View>
 
           {/* ── Best Sellers Slider Section ── */}
           {(productsLoading || refreshing || bestsellerProducts.length > 0) ? (
@@ -1229,8 +1237,11 @@ export default function HomeScreen({ navigation }) {
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#FFFFFF' },
   scrollView: { flex: 1, backgroundColor: '#FFFFFF' },
-  topLavenderSection: { paddingBottom: 16 },
-  bottomWhiteSection: { backgroundColor: '#FFFFFF', paddingTop: 16, paddingBottom: 24 },
+  topLavenderSection: { paddingBottom: 8 },
+  bottomWhiteSection: { backgroundColor: '#FFFFFF', paddingTop: 0, paddingBottom: 14 },
+  brandMarqueeWrapper: {
+    marginBottom: 12,
+  },
   searchSection: { paddingHorizontal: 14, paddingTop: 14, paddingBottom: 10, backgroundColor: '#FFFFFF' },
   logoSearchRow: {
     flexDirection: 'row',
@@ -1261,10 +1272,10 @@ const styles = StyleSheet.create({
   },
   searchIcon: { marginRight: 10 },
   searchPlaceholderText: { flex: 1, fontSize: moderateScale(14), fontFamily: fonts.medium, color: '#94A3B8' },
-  scrollContent: { paddingBottom: 24 },
+  scrollContent: { paddingBottom: 14 },
   saleBannerContainer: { marginBottom: 10, borderRadius: 1, overflow: 'hidden', height: 180, backgroundColor: '#F3E8FF' },
   saleBannerImage: { width: '100%', height: '100%' },
-  dealChipsScroll: { paddingHorizontal: 16, gap: 12, paddingBottom: 16 },
+  dealChipsScroll: { paddingHorizontal: 16, gap: 12, paddingBottom: 4 },
   dealChipCard: {
     width: 115,
     height: 115,
@@ -1302,13 +1313,13 @@ const styles = StyleSheet.create({
   dealChipTitle: { fontSize: moderateScale(9.5), fontFamily: fonts.medium, color: '#334155', textAlign: 'center', lineHeight: moderateScale(12) },
   luxuryBanner: { marginHorizontal: 16, borderRadius: 18, backgroundColor: '#E4E4E1', height: 180, position: 'relative', overflow: 'hidden' },
   luxuryBannerImage: { width: BANNER_WIDTH, height: '100%' },
-  luxuryBannerDots: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 6, marginTop: 12 },
+  luxuryBannerDots: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 6, marginTop: 6 },
   luxuryDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#CBD5E1' },
   luxuryDotActive: { width: 20, height: 6, borderRadius: 3, backgroundColor: colors.primary },
-  categoriesSection: { marginTop: 24 },
-  categoriesHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, marginBottom: 12 },
+  categoriesSection: { marginTop: 12 },
+  categoriesHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, marginBottom: 8 },
   categoriesTitle: { fontSize: moderateScale(18), fontFamily: fonts.big, color: '#000000' },
-  categoriesScroll: { paddingHorizontal: 16, gap: 16, paddingBottom: 16 },
+  categoriesScroll: { paddingHorizontal: 16, gap: 16, paddingBottom: 4 },
   categoryItem: { alignItems: 'center' },
   categoryItemImage: {
     width: 84,
@@ -1322,11 +1333,11 @@ const styles = StyleSheet.create({
   categoriesLoadingContainer: { height: 100, width: BANNER_WIDTH, alignItems: 'center', justifyContent: 'center' },
   
   /* Budget Beauty Store Section Styles */
-  budgetSection: { marginTop: 24 },
-  budgetHeader: { paddingHorizontal: 16, marginBottom: 12 },
+  budgetSection: { marginTop: 12 },
+  budgetHeader: { paddingHorizontal: 16, marginBottom: 8 },
   budgetTitle: { fontSize: moderateScale(18), fontFamily: fonts.big, color: '#000000' },
   budgetSubtitle: { fontSize: moderateScale(12), fontFamily: fonts.medium, color: '#64748B', marginTop: 2 },
-  budgetScroll: { paddingHorizontal: 16, gap: 12, paddingBottom: 16 },
+  budgetScroll: { paddingHorizontal: 16, gap: 12, paddingBottom: 4 },
   budgetCard: {
     width: 140,
     height: 155,
@@ -1386,11 +1397,11 @@ const styles = StyleSheet.create({
 
   /* Best Sellers Section */
   bestsellerSection: {
-    marginTop: 24,
+    marginTop: 12,
   },
   bestsellerHeader: {
     paddingHorizontal: 16,
-    marginBottom: 12,
+    marginBottom: 8,
   },
   bestsellerTitle: {
     fontSize: moderateScale(18),
@@ -1415,7 +1426,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     gap: 6,
-    marginTop: 12,
+    marginTop: 6,
   },
   bestsellerDot: {
     width: 6,
@@ -1432,15 +1443,15 @@ const styles = StyleSheet.create({
 
   /* Deals Of The Day Section (LinearGradient Background) */
   dealsLinearSection: {
-    marginTop: 24,
-    paddingTop: 18,
-    paddingBottom: 20,
+    marginTop: 12,
+    paddingTop: 12,
+    paddingBottom: 14,
     position: 'relative',
     overflow: 'hidden',
   },
   dealsHeaderCard: {
     alignItems: 'center',
-    marginBottom: 18,
+    marginBottom: 10,
     paddingHorizontal: 16,
   },
   dealsHeaderCentered: {
@@ -1609,8 +1620,8 @@ const styles = StyleSheet.create({
     fontFamily: fonts.big,
   },
   bottomGradientFade: {
-    height: 24,
-    marginTop: 10,
+    height: 14,
+    marginTop: 4,
   },
 
   /* Variant Selection Bottom Sheet Styles */
@@ -1721,12 +1732,12 @@ const styles = StyleSheet.create({
   homeFooter: {
     alignItems: 'flex-start',
     justifyContent: 'center',
-    paddingVertical: 56,
+    paddingVertical: 32,
     paddingHorizontal: 36,
     backgroundColor: '#FFFFFF',
     borderTopWidth: 1,
     borderTopColor: '#F1F5F9',
-    marginTop: 18,
+    marginTop: 10,
     width: '100%',
   },
   homeFooterTitle: {
@@ -1740,7 +1751,7 @@ const styles = StyleSheet.create({
   homeFooterSubtitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 18,
+    marginTop: 12,
   },
   homeFooterSubtitle: {
     fontSize: moderateScale(14),
@@ -1753,10 +1764,10 @@ const styles = StyleSheet.create({
   },
   // ─── BRANDS IN SPOTLIGHT ────────────────────
   spotlightSection: {
-    marginTop: 20,
-    marginBottom: 16,
-    paddingTop: 18,
-    paddingBottom: 26,
+    marginTop: 12,
+    marginBottom: 0,
+    paddingTop: 12,
+    paddingBottom: 14,
     position: 'relative',
     overflow: 'hidden',
   },
@@ -1765,7 +1776,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 16,
-    marginBottom: 16,
+    marginBottom: 10,
     position: 'relative',
   },
   spotlightTitle: {

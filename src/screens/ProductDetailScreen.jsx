@@ -436,6 +436,8 @@ function getVariantCardDetails(v, product, idx = 0) {
       ? v.weight_in_grams
       : v.weight !== undefined && v.weight !== null && v.weight !== ''
       ? v.weight
+      : v.size !== undefined && v.size !== null && v.size !== ''
+      ? v.size
       : v.attributes?.size || v.attributes?.weight || v.attributes?.Size || v.attributes?.Weight;
 
   if (rawWeight !== undefined && rawWeight !== null && String(rawWeight).trim() !== '') {
@@ -467,6 +469,56 @@ function getVariantCardDetails(v, product, idx = 0) {
     weightLabel,
     color: colorValue,
     shadeName: cleanShade,
+  };
+}
+
+function getBaseProductWeightDetails(product) {
+  if (!product) return { weightLabel: '', sizeLabel: '' };
+
+  const rawWeight =
+    product.weight_in_grams !== undefined && product.weight_in_grams !== null && product.weight_in_grams !== ''
+      ? product.weight_in_grams
+      : product.weight !== undefined && product.weight !== null && product.weight !== ''
+      ? product.weight
+      : product.attributes?.weight || product.attributes?.Weight;
+
+  let weightLabel = '';
+  if (rawWeight !== undefined && rawWeight !== null && String(rawWeight).trim() !== '') {
+    const info = formatProductWeightOrVolume(rawWeight, product, null);
+    if (info) {
+      weightLabel = info.formatted;
+    }
+  }
+
+  const rawSize =
+    product.size !== undefined && product.size !== null && product.size !== ''
+      ? product.size
+      : product.attributes?.size || product.attributes?.Size;
+
+  let sizeLabel = '';
+  if (rawSize !== undefined && rawSize !== null && String(rawSize).trim() !== '') {
+    const info = formatProductWeightOrVolume(rawSize, product, null);
+    if (info) {
+      if (!weightLabel) weightLabel = info.formatted;
+      sizeLabel = info.formatted;
+    } else {
+      sizeLabel = String(rawSize).trim();
+    }
+  }
+
+  if (!weightLabel && product.name && typeof product.name === 'string') {
+    const matchNum = product.name.match(/\b\d+(?:\.\d+)?\s*(?:g|gm|gram|grams|ml|l|ltr|kg|pcs)?\b/i);
+    if (matchNum) {
+      const info = formatProductWeightOrVolume(matchNum[0], product, null);
+      if (info) {
+        weightLabel = info.formatted;
+      }
+    }
+  }
+
+  return {
+    weightLabel,
+    sizeLabel,
   };
 }
 
@@ -775,22 +827,64 @@ export default function ProductDetailScreen({ route, navigation }) {
   const variantWeightItems = useMemo(() => {
     if (!product?.variants || product.variants.length === 0) return [];
     const hasAnyColor = product.variants.some((v, idx) => !!getVariantCardDetails(v, product, idx).color);
+    let nonColorVariants = [];
     if (hasAnyColor) {
       // If product has color variants, non-color variants go to Select Option
-      return product.variants
+      nonColorVariants = product.variants
         .map((v, idx) => ({
           variant: v,
           index: idx,
           details: getVariantCardDetails(v, product, idx),
         }))
         .filter((item) => !item.details.color);
+    } else {
+      nonColorVariants = product.variants.map((v, idx) => ({
+        variant: v,
+        index: idx,
+        details: getVariantCardDetails(v, product, idx),
+      }));
     }
-    return product.variants.map((v, idx) => ({
-      variant: v,
-      index: idx,
-      details: getVariantCardDetails(v, product, idx),
-    }));
+
+    if (nonColorVariants.length === 0) return [];
+
+    // Check if base product is already present in nonColorVariants
+    const baseAlreadyInVariants = nonColorVariants.some((item) => {
+      const v = item.variant;
+      if (!v) return false;
+      if (product?.sku && v?.sku && v.sku === product.sku) return true;
+      return false;
+    });
+
+    const list = [];
+    if (!baseAlreadyInVariants) {
+      const baseDetails = getBaseProductWeightDetails(product);
+      const baseLabel = baseDetails.weightLabel || baseDetails.sizeLabel || 'Standard';
+      list.push({
+        id: 'main-base-weight-option',
+        index: null, // null represents the base product
+        variant: null,
+        details: {
+          weightLabel: baseLabel,
+          shadeName: baseDetails.sizeLabel || '',
+        },
+        price: product?.discounted_price || product?.price,
+      });
+    }
+
+    list.push(...nonColorVariants);
+    return list;
   }, [product]);
+
+  const activeOptionLabel = useMemo(() => {
+    if (variantWeightItems.length === 0) return '';
+    const activeItem = variantWeightItems.find((item) =>
+      item.index === null ? selectedVariantIndex === null : item.index === selectedVariantIndex
+    );
+    if (activeItem) {
+      return activeItem.details?.weightLabel || activeItem.details?.shadeName || '';
+    }
+    return '';
+  }, [selectedVariantIndex, variantWeightItems]);
 
   const activeShadeLabel = useMemo(() => {
     if (selectedVariantIndex !== null) {
@@ -1601,13 +1695,20 @@ export default function ProductDetailScreen({ route, navigation }) {
           {brandName ? <Text style={styles.brandTitle}>{brandName}</Text> : null}
           {displayTitle ? <Text style={styles.productName}>{displayTitle}</Text> : null}
 
-          {/* Optional Product Rating (Only if exists) */}
-          {product.rating ? (
+          {/* Optional Product Rating & Weight Pill Row */}
+          {(product.rating || displayWeightInfo?.formatted) ? (
             <View style={styles.ratingRow}>
-              <View style={styles.ratingPill}>
-                <Text style={styles.ratingNumber}>{product.rating}</Text>
-                <Star size={12} color="#FFFFFF" fill="#FFFFFF" style={{ marginLeft: 3 }} />
-              </View>
+              {product.rating ? (
+                <View style={styles.ratingPill}>
+                  <Text style={styles.ratingNumber}>{product.rating}</Text>
+                  <Star size={12} color="#FFFFFF" fill="#FFFFFF" style={{ marginLeft: 3 }} />
+                </View>
+              ) : null}
+              {displayWeightInfo?.formatted ? (
+                <View style={styles.weightPillBadge}>
+                  <Text style={styles.weightPillBadgeText}>{displayWeightInfo.formatted}</Text>
+                </View>
+              ) : null}
             </View>
           ) : null}
 
@@ -1672,20 +1773,37 @@ export default function ProductDetailScreen({ route, navigation }) {
         {/* ── Select Option (Weight / Size Pills) ── */}
         {variantWeightItems.length > 0 && (
           <View style={styles.sectionContainer}>
-            <Text style={styles.sectionTitle}>
-              Select Option
-            </Text>
+            <View style={styles.shadeHeaderRow}>
+              <Text style={styles.sectionTitleNoMargin}>
+                Select Size / Option
+              </Text>
+              {activeOptionLabel ? (
+                <Text numberOfLines={1} ellipsizeMode="tail" style={styles.activeShadeLabel}>
+                  {activeOptionLabel}
+                </Text>
+              ) : null}
+            </View>
             <View style={styles.variantsRow}>
-              {variantWeightItems.map(({ variant: v, index: idx, details }) => {
-                const isSelected = selectedVariantIndex === idx;
+              {variantWeightItems.map((item) => {
+                const { variant: v, index: idx, details, price: itemPrice } = item;
+                const isSelected = idx === null
+                  ? selectedVariantIndex === null
+                  : selectedVariantIndex === idx;
                 const { weightLabel, shadeName } = details;
+                const displayPrice = itemPrice || (v ? (v.discounted_price || v.price) : (product?.discounted_price || product?.price));
 
                 return (
                   <TouchableOpacity
-                    key={v.sku || idx}
+                    key={v?.sku || item.id || idx}
                     style={styles.variantItemWrapper}
                     activeOpacity={0.8}
-                    onPress={() => setSelectedVariantIndex(isSelected ? null : idx)}>
+                    onPress={() => {
+                      if (idx === null) {
+                        setSelectedVariantIndex(null);
+                      } else {
+                        setSelectedVariantIndex(isSelected ? null : idx);
+                      }
+                    }}>
                     
                     {/* The Option Box / Pill */}
                     <View style={[styles.variantCard, isSelected && styles.variantCardActive]}>
@@ -1700,7 +1818,7 @@ export default function ProductDetailScreen({ route, navigation }) {
                           </Text>
                         ) : (
                           <Text style={[styles.variantName, isSelected && styles.variantNameActive]}>
-                            {v.weight_in_grams ? `${v.weight_in_grams} g` : `#${idx + 1}`}
+                            {v?.weight_in_grams ? `${v.weight_in_grams} g` : idx === null ? 'Standard' : `#${idx + 1}`}
                           </Text>
                         )}
                       </View>
@@ -1708,7 +1826,7 @@ export default function ProductDetailScreen({ route, navigation }) {
 
                     {/* Price Shown Below the Box */}
                     <Text style={styles.variantPriceBelow}>
-                      ₹{v.discounted_price || v.price}
+                      ₹{displayPrice}
                     </Text>
                   </TouchableOpacity>
                 );
@@ -2546,6 +2664,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginTop: 10,
+    gap: 8,
   },
   ratingPill: {
     flexDirection: 'row',
@@ -2554,6 +2673,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 4,
+  },
+  weightPillBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F1F5F9',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  weightPillBadgeText: {
+    color: '#475569',
+    fontSize: moderateScale(11),
+    fontFamily: fonts.medium,
   },
   ratingNumber: {
     color: '#FFFFFF',
