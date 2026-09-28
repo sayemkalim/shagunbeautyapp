@@ -36,6 +36,8 @@ import {
   updateAddress,
   deleteAddress,
 } from '../api/address';
+import { store } from '../redux/store';
+import { fetchAddresses as fetchReduxAddresses } from '../redux/addressSlice';
 
 function AddressListSkeleton() {
   return (
@@ -341,6 +343,7 @@ export default function AddressScreen({ route, navigation }) {
       }
       
       closeForm();
+      store.dispatch(fetchReduxAddresses());
       if (user) {
         await fetchAddresses(user.id);
       }
@@ -364,6 +367,7 @@ export default function AddressScreen({ route, navigation }) {
             try {
               setLoading(true);
               await deleteAddress(id);
+              store.dispatch(fetchReduxAddresses());
               if (user) {
                 await fetchAddresses(user.id);
               }

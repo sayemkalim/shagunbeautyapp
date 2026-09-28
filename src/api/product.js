@@ -1,7 +1,7 @@
 import apiRequest from './client';
 
 // GET /api/product/ — public storefront catalog
-export function getProducts({ page = 1, per_page = 50, category = '', sub_category = '', brand = '', search = '', sort_by = 'created_at' } = {}) {
+export function getProducts({ page = 1, per_page = 1000, category = '', sub_category = '', brand = '', search = '', sort_by = 'created_at' } = {}) {
   const params = new URLSearchParams();
   params.append('page', String(page));
   params.append('per_page', String(per_page));

@@ -4,10 +4,17 @@ import { getToken } from './authStorage';
 // GET /api/address/user/:id
 export async function getUserAddresses(userId) {
   const token = await getToken();
-  return apiRequest(`/api/address/user/${userId}`, {
-    method: 'GET',
-    token,
-  });
+  try {
+    return await apiRequest(`/api/address/user/${userId}`, {
+      method: 'GET',
+      token,
+    });
+  } catch (err) {
+    if (err?.statusCode === 404 || err?.status === 404) {
+      return [];
+    }
+    throw err;
+  }
 }
 
 // GET /api/address/:id

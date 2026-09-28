@@ -55,6 +55,7 @@ import MarqueeBanner from '../components/MarqueeBanner';
 import BrandMarqueeBanner from '../components/BrandMarqueeBanner';
 import CardBannerSection from '../components/CardBannerSection';
 import { getImageSource } from '../utils/imageOptimizer';
+import { isProductOutOfStock, getProductStockStatus } from '../utils/productUtils';
 
 import fonts from '../theme/typography';
 
@@ -271,12 +272,18 @@ export default function HomeScreen({ navigation }) {
   const [activeSlide, setActiveSlide] = useState(0);
   const [bestsellerActivePage, setBestsellerActivePage] = useState(0);
   const { data: categories = [], isLoading: categoriesLoading } = useCategories();
-  const { data: realProducts = [], isLoading: productsLoading } = useProducts({ per_page: 30 });
+  const { data: realProducts = [], isLoading: productsLoading } = useProducts({ per_page: 1000 });
   const { data: brands = [], isLoading: brandsLoading } = useBrands();
   const { data: banners = [], isLoading: bannersLoading } = useBanners();
   const { data: secondBanner, isLoading: secondBannerLoading } = useSecondBanner();
   const { data: cardBanners = [], isLoading: cardBannersLoading } = useCardBanners();
   const { data: activeMarquees = [] } = useMarquee();
+
+  useEffect(() => {
+    if (isFocused) {
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+    }
+  }, [isFocused, queryClient]);
 
   const marqueeItems = useMemo(() => {
     if (!Array.isArray(activeMarquees) || activeMarquees.length === 0) {
@@ -446,7 +453,7 @@ export default function HomeScreen({ navigation }) {
   }, [brands, realProducts]);
   const dealsProducts = useMemo(
     () =>
-      realProducts.slice(0, 30).map((item) => {
+      realProducts.slice(0, 200).map((item) => {
         const itemId = item._id || item.id;
         const originalPrice = item.price || 0;
         const finalPrice = item.discounted_price || item.price || 0;
@@ -564,6 +571,12 @@ export default function HomeScreen({ navigation }) {
 
   const handleAddToCart = async (product) => {
     const pId = product._id || product.id;
+    const cached = queryClient?.getQueryData(['product', pId]);
+    const effectiveItem = cached ? { ...product, ...(cached.data || cached) } : product;
+    if (isProductOutOfStock(effectiveItem)) {
+      return;
+    }
+
     const isInCart = cartItems.some((ci) => (ci.productId || ci.id) === pId);
 
     if (isInCart) {
@@ -599,8 +612,12 @@ export default function HomeScreen({ navigation }) {
         brandName: bName,
         price: originalPrice > 0 ? originalPrice : finalPrice,
         discountedPrice: finalPrice,
+        baseDiscountedPrice: finalPrice,
+        price_tiers: product.price_tiers || product.priceTiers || null,
         image: imageUri,
         quantity: 1,
+        available_inventory: product.available_inventory,
+        base_available_inventory: product.base_available_inventory,
       })
     );
 
@@ -1078,19 +1095,51 @@ export default function HomeScreen({ navigation }) {
                             </View>
 
                             {/* ADD TO BAG / GO TO BAG Button with Spinner */}
-                            <TouchableOpacity
-                              style={[styles.addToBagButton, isInCart && styles.goToBagButton]}
-                              activeOpacity={0.85}
-                              disabled={isLoadingThis}
-                              onPress={() => handleAddToCart(item)}>
-                              {isLoadingThis ? (
-                                <ActivityIndicator size="small" color={isInCart ? '#FFFFFF' : colors.primary} />
-                              ) : (
-                                <Text style={[styles.addToBagText, isInCart && styles.goToBagText]}>
-                                  {isInCart ? 'GO TO BAG' : 'ADD TO BAG'}
-                                </Text>
-                              )}
-                            </TouchableOpacity>
+                            {(() => {
+                              const pId = item._id || item.id || itemId;
+                              const cached = queryClient?.getQueryData(['product', pId]);
+                              const effectiveItem = cached ? { ...item, ...(cached.data || cached) } : item;
+                              const { isCompletelyOutOfStock, isSelectOption } = getProductStockStatus(effectiveItem);
+                              return (
+                                <TouchableOpacity
+                                  style={[
+                                    styles.addToBagButton,
+                                    isInCart && styles.goToBagButton,
+                                    isCompletelyOutOfStock && styles.outOfStockButton,
+                                  ]}
+                                  activeOpacity={0.85}
+                                  disabled={isCompletelyOutOfStock || isLoadingThis}
+                                  onPress={() => {
+                                    if (isSelectOption) {
+                                      navigation.navigate('ProductDetail', {
+                                        productId: effectiveItem._id || effectiveItem.id || itemId,
+                                        product: effectiveItem,
+                                      });
+                                    } else {
+                                      handleAddToCart(effectiveItem);
+                                    }
+                                  }}>
+                                  {isLoadingThis ? (
+                                    <ActivityIndicator size="small" color={isInCart ? '#FFFFFF' : colors.primary} />
+                                  ) : (
+                                    <Text
+                                      style={[
+                                        styles.addToBagText,
+                                        isInCart && styles.goToBagText,
+                                        isCompletelyOutOfStock && styles.outOfStockText,
+                                      ]}>
+                                      {isCompletelyOutOfStock
+                                        ? 'OUT OF STOCK'
+                                        : isSelectOption
+                                        ? 'SELECT OPTION'
+                                        : isInCart
+                                        ? 'GO TO BAG'
+                                        : 'ADD TO BAG'}
+                                    </Text>
+                                  )}
+                                </TouchableOpacity>
+                              );
+                            })()}
                           </View>
                         </TouchableOpacity>
                       );
@@ -1189,19 +1238,51 @@ export default function HomeScreen({ navigation }) {
                         </View>
 
                         {/* ADD TO BAG / GO TO BAG Button with Spinner */}
-                        <TouchableOpacity
-                          style={[styles.addToBagButton, isInCart && styles.goToBagButton]}
-                          activeOpacity={0.85}
-                          disabled={isLoadingThis}
-                          onPress={() => handleAddToCart(item)}>
-                          {isLoadingThis ? (
-                            <ActivityIndicator size="small" color={isInCart ? '#FFFFFF' : colors.primary} />
-                          ) : (
-                            <Text style={[styles.addToBagText, isInCart && styles.goToBagText]}>
-                              {isInCart ? 'GO TO BAG' : 'ADD TO BAG'}
-                            </Text>
-                          )}
-                        </TouchableOpacity>
+                        {(() => {
+                          const pId = item._id || item.id;
+                          const cached = queryClient?.getQueryData(['product', pId]);
+                          const effectiveItem = cached ? { ...item, ...(cached.data || cached) } : item;
+                          const { isCompletelyOutOfStock, isSelectOption } = getProductStockStatus(effectiveItem);
+                          return (
+                            <TouchableOpacity
+                              style={[
+                                styles.addToBagButton,
+                                isInCart && styles.goToBagButton,
+                                isCompletelyOutOfStock && styles.outOfStockButton,
+                              ]}
+                              activeOpacity={0.85}
+                              disabled={isCompletelyOutOfStock || isLoadingThis}
+                              onPress={() => {
+                                if (isSelectOption) {
+                                  navigation.navigate('ProductDetail', {
+                                    productId: effectiveItem._id || effectiveItem.id,
+                                    product: effectiveItem,
+                                  });
+                                } else {
+                                  handleAddToCart(effectiveItem);
+                                }
+                              }}>
+                              {isLoadingThis ? (
+                                <ActivityIndicator size="small" color={isInCart ? '#FFFFFF' : colors.primary} />
+                              ) : (
+                                <Text
+                                  style={[
+                                    styles.addToBagText,
+                                    isInCart && styles.goToBagText,
+                                    isCompletelyOutOfStock && styles.outOfStockText,
+                                  ]}>
+                                  {isCompletelyOutOfStock
+                                    ? 'OUT OF STOCK'
+                                    : isSelectOption
+                                    ? 'SELECT OPTION'
+                                    : isInCart
+                                    ? 'GO TO BAG'
+                                    : 'ADD TO BAG'}
+                                </Text>
+                              )}
+                            </TouchableOpacity>
+                          );
+                        })()}
                       </View>
                     </TouchableOpacity>
                   );
@@ -1618,6 +1699,13 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: moderateScale(13),
     fontFamily: fonts.big,
+  },
+  outOfStockButton: {
+    backgroundColor: '#94A3B8',
+    borderColor: '#94A3B8',
+  },
+  outOfStockText: {
+    color: '#FFFFFF',
   },
   bottomGradientFade: {
     height: 14,

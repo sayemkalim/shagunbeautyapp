@@ -11,6 +11,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Provider } from 'react-redux';
 import { store } from './src/redux/store';
 import { initializeCart } from './src/redux/cartSlice';
+import { initializeAddresses, fetchAddresses } from './src/redux/addressSlice';
 import RootNavigator from './src/navigation/RootNavigator';
 import { CustomAlertProvider } from './src/components/CustomAlert';
 
@@ -36,6 +37,9 @@ function App() {
 
   useEffect(() => {
     store.dispatch(initializeCart());
+    store.dispatch(initializeAddresses()).then(() => {
+      store.dispatch(fetchAddresses());
+    });
   }, []);
 
   return (

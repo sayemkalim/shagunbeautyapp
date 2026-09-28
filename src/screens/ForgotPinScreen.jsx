@@ -1,6 +1,6 @@
-// Force hot reload cache reset
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
+  ActivityIndicator,
   Image,
   KeyboardAvoidingView,
   Platform,
@@ -13,59 +13,274 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ArrowLeft } from 'lucide-react-native';
+import { useDispatch } from 'react-redux';
+import { ArrowLeft, RefreshCw, CheckCircle2, AlertCircle, Headphones } from 'lucide-react-native';
 import colors from '../theme/colors';
 import fonts from '../theme/typography';
 import { EyeIcon, EyeOffIcon } from '../components/icons';
 import { moderateScale } from '../theme/responsive';
+import { requestForgotPinOtp, verifyResetOtp, resetPin } from '../api/auth';
+import { saveSession } from '../api/authStorage';
+import { clearCart, initializeCart } from '../redux/cartSlice';
 
 export default function ForgotPinScreen({ navigation, route }) {
-  // Get email from route params if passed
-  const initialEmail = route?.params?.email || '';
+  const dispatch = useDispatch();
 
-  const [email, setEmail] = useState(initialEmail);
-  const [step, setStep] = useState('email'); // 'email' | 'reset' | 'success'
-  const [isEmailFocused, setIsEmailFocused] = useState(false);
+  // Initial phone number from route params (clean out +91 if present)
+  const initialPhone = (route?.params?.phone || '')
+    .replace(/^\+91/, '')
+    .replace(/[^0-9]/g, '');
 
-  // Reset PIN inputs
-  const [tempPin, setTempPin] = useState('');
+  // Step state: 'phone' (Step 1) | 'otp' (Step 2) | 'newPin' (Step 3) | 'success'
+  const [step, setStep] = useState('phone');
+
+  // Step 1: Phone
+  const [phone, setPhone] = useState(initialPhone);
+  const [isPhoneFocused, setIsPhoneFocused] = useState(false);
+  const [isRequestingOtp, setIsRequestingOtp] = useState(false);
+  const [phoneError, setPhoneError] = useState('');
+  const [noEmailFound, setNoEmailFound] = useState(false);
+  const phoneInputRef = useRef(null);
+
+  // Step 2: OTP
+  const [otp, setOtp] = useState(['', '', '', '', '', '']);
+  const [maskedEmail, setMaskedEmail] = useState('');
+  const [focusedOtpIndex, setFocusedOtpIndex] = useState(null);
+  const [timer, setTimer] = useState(60);
+  const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
+  const [isResendingOtp, setIsResendingOtp] = useState(false);
+  const [otpError, setOtpError] = useState('');
+  const otpRefs = [
+    useRef(null),
+    useRef(null),
+    useRef(null),
+    useRef(null),
+    useRef(null),
+    useRef(null),
+  ];
+
+  // Step 3: New PIN
+  const [resetToken, setResetToken] = useState('');
   const [newPin, setNewPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
-
-  const [showTempPin, setShowTempPin] = useState(false);
   const [showNewPin, setShowNewPin] = useState(false);
   const [showConfirmPin, setShowConfirmPin] = useState(false);
+  const [isNewPinFocused, setIsNewPinFocused] = useState(false);
+  const [isConfirmPinFocused, setIsConfirmPinFocused] = useState(false);
+  const [isResettingPin, setIsResettingPin] = useState(false);
+  const [pinError, setPinError] = useState('');
+  const newPinRef = useRef(null);
+  const confirmPinRef = useRef(null);
 
-  const emailInputRef = useRef(null);
-
-  const handleEmailSubmit = () => {
-    if (isEmailValid) {
-      // Mock sending temporary PIN to email
-      console.log(`Sending temporary PIN to ${email}`);
-      setStep('reset');
+  // Countdown timer for OTP resend
+  useEffect(() => {
+    let interval = null;
+    if (step === 'otp' && timer > 0) {
+      interval = setInterval(() => {
+        setTimer((prev) => (prev > 0 ? prev - 1 : 0));
+      }, 1000);
     }
-  };
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [step, timer]);
 
-  const isEmailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-  const isTempPinComplete = tempPin.length === 4;
-  const isNewPinComplete = newPin.length === 4;
-  const isConfirmPinComplete = confirmPin.length === 4;
+  // Validation flags
+  const isPhoneValid = phone.trim().length === 10;
+  const isOtpComplete = otp.every((d) => d.trim() !== '');
+  const isNewPinValid = /^\d{4}$/.test(newPin);
+  const isConfirmPinValid = /^\d{4}$/.test(confirmPin);
   const doPinsMatch = newPin === confirmPin;
+  const canSubmitPin = isNewPinValid && isConfirmPinValid && doPinsMatch && !isResettingPin;
 
-  const handleResetPin = () => {
-    if (isTempPinComplete && isNewPinComplete && isConfirmPinComplete && doPinsMatch) {
-      setStep('success');
+  // ----------------------------------------------------
+  // STEP 1 HANDLERS: Request OTP
+  // ----------------------------------------------------
+  const handleRequestOtp = async () => {
+    if (!isPhoneValid || isRequestingOtp) return;
+    setPhoneError('');
+    setNoEmailFound(false);
+    setIsRequestingOtp(true);
+
+    try {
+      const data = await requestForgotPinOtp(phone);
+      const emailReceived = data?.email || 'your registered email';
+      setMaskedEmail(emailReceived);
+      setStep('otp');
+      setTimer(60);
+      setOtp(['', '', '', '', '', '']);
+      setOtpError('');
+      setTimeout(() => {
+        otpRefs[0]?.current?.focus();
+      }, 200);
+    } catch (err) {
+      const errMsg = err?.message || 'Something went wrong. Please try again.';
+      setPhoneError(errMsg);
+      if (
+        errMsg.toLowerCase().includes('email') ||
+        errMsg.toLowerCase().includes('not found') ||
+        errMsg.toLowerCase().includes('registered')
+      ) {
+        setNoEmailFound(true);
+      }
+    } finally {
+      setIsRequestingOtp(false);
     }
   };
 
+  // ----------------------------------------------------
+  // STEP 2 HANDLERS: Enter & Verify OTP + Resend
+  // ----------------------------------------------------
+  const handleOtpChange = (text, index) => {
+    setOtpError('');
+    const clean = text.replace(/[^0-9]/g, '');
+
+    // Handle paste of multiple digits
+    if (clean.length > 1) {
+      const pastedDigits = clean.slice(0, 6).split('');
+      const newOtp = [...otp];
+      pastedDigits.forEach((digit, idx) => {
+        if (idx < 6) newOtp[idx] = digit;
+      });
+      setOtp(newOtp);
+      const nextFocus = Math.min(pastedDigits.length, 5);
+      otpRefs[nextFocus]?.current?.focus();
+      return;
+    }
+
+    const newOtp = [...otp];
+    newOtp[index] = clean.slice(0, 1);
+    setOtp(newOtp);
+
+    // Auto-focus next box
+    if (clean && index < 5) {
+      otpRefs[index + 1]?.current?.focus();
+    }
+  };
+
+  const handleOtpKeyPress = (e, index) => {
+    if (e.nativeEvent.key === 'Backspace') {
+      setOtpError('');
+      if (otp[index] === '' && index > 0) {
+        const newOtp = [...otp];
+        newOtp[index - 1] = '';
+        setOtp(newOtp);
+        otpRefs[index - 1]?.current?.focus();
+      } else {
+        const newOtp = [...otp];
+        newOtp[index] = '';
+        setOtp(newOtp);
+      }
+    }
+  };
+
+  const handleResendOtp = async () => {
+    if (timer > 0 || isResendingOtp) return;
+    setOtpError('');
+    setIsResendingOtp(true);
+
+    try {
+      const data = await requestForgotPinOtp(phone);
+      const emailReceived = data?.email || maskedEmail || 'your email';
+      setMaskedEmail(emailReceived);
+      setTimer(60);
+      setOtp(['', '', '', '', '', '']);
+      setTimeout(() => {
+        otpRefs[0]?.current?.focus();
+      }, 100);
+    } catch (err) {
+      setOtpError(err?.message || 'Failed to resend OTP. Please try again.');
+    } finally {
+      setIsResendingOtp(false);
+    }
+  };
+
+  const handleVerifyOtp = async () => {
+    const otpString = otp.join('');
+    if (!isOtpComplete || isVerifyingOtp) return;
+    setOtpError('');
+    setIsVerifyingOtp(true);
+
+    try {
+      const data = await verifyResetOtp(phone, otpString);
+      if (!data?.resetToken) {
+        throw new Error('Verification failed. No reset token received.');
+      }
+      setResetToken(data.resetToken);
+      setStep('newPin');
+      setPinError('');
+      setTimeout(() => {
+        newPinRef.current?.focus();
+      }, 200);
+    } catch (err) {
+      setOtpError(err?.message || 'Invalid or expired OTP. Please try again.');
+    } finally {
+      setIsResendingOtp(false);
+      setIsVerifyingOtp(false);
+    }
+  };
+
+  // ----------------------------------------------------
+  // STEP 3 HANDLERS: Reset PIN & Auto-Login
+  // ----------------------------------------------------
+  const handleResetPin = async () => {
+    if (!canSubmitPin) return;
+    setPinError('');
+    setIsResettingPin(true);
+
+    try {
+      const cleanNewPin = String(newPin || '').trim();
+      const data = await resetPin({
+        resetToken: String(resetToken || '').trim(),
+        newPin: cleanNewPin,
+      });
+
+      const token = data?.token;
+      const userObj = data?.user || {
+        id: data?.id || data?._id,
+        name: data?.name,
+        phone: data?.phone,
+        email: data?.email,
+      };
+
+      if (token) {
+        try {
+          await saveSession(token, userObj);
+        } catch (storageErr) {
+          console.warn('Session save storage warning:', storageErr);
+        }
+
+        try {
+          dispatch(clearCart());
+          dispatch(initializeCart());
+        } catch (cartErr) {
+          console.warn('Cart initialization warning:', cartErr);
+        }
+      }
+
+      // Directly replace screen to Home (BottomTabs)
+      navigation.replace('BottomTabs');
+    } catch (err) {
+      setPinError(err?.message || 'Failed to reset PIN. Please try again.');
+    } finally {
+      setIsResettingPin(false);
+    }
+  };
+
+  // Back button handling per step
   const handleBack = () => {
-    if (step === 'email') {
+    if (step === 'phone') {
       navigation.goBack();
-    } else if (step === 'reset') {
-      setStep('email');
-      setTempPin('');
+    } else if (step === 'otp') {
+      setStep('phone');
+      setOtpError('');
+    } else if (step === 'newPin') {
+      setStep('otp');
+      setPinError('');
       setNewPin('');
       setConfirmPin('');
+    } else if (step === 'success') {
+      navigation.replace('BottomTabs');
     }
   };
 
@@ -77,18 +292,30 @@ export default function ForgotPinScreen({ navigation, route }) {
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={Platform.OS === 'ios' ? -15 : 0}
       >
-        {/* Top Navigation Row */}
+        {/* Top Header Row */}
         {step !== 'success' && (
           <View style={styles.headerRow}>
-            <TouchableOpacity onPress={handleBack} activeOpacity={0.7} style={styles.backButton}>
+            <TouchableOpacity
+              onPress={handleBack}
+              activeOpacity={0.7}
+              style={styles.backButton}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
               <ArrowLeft size={24} color={colors.text} />
             </TouchableOpacity>
+            <Text style={styles.headerTitle}>
+              {step === 'phone' && 'Forgot PIN'}
+              {step === 'otp' && 'OTP Verification'}
+              {step === 'newPin' && 'Reset PIN'}
+            </Text>
+            <View style={styles.headerSpacer} />
           </View>
         )}
 
         <ScrollView
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
         >
           {step !== 'success' && (
             <View style={styles.logoWrapper}>
@@ -96,95 +323,233 @@ export default function ForgotPinScreen({ navigation, route }) {
             </View>
           )}
 
-          {/* STEP 1: Email Verification */}
-          {step === 'email' && (
+          {/* ══════════════════════════════════════════════════ */}
+          {/* STEP 1: Phone Number Input                         */}
+          {/* ══════════════════════════════════════════════════ */}
+          {step === 'phone' && (
             <View style={styles.container}>
               <Text style={styles.title}>Forgot PIN?</Text>
               <Text style={styles.subtitle}>
-                No worries! Enter your registered email address. We will send a temporary PIN to reset your account.
+                Enter your registered mobile number to receive a 6-digit OTP on your verified email.
               </Text>
 
-              <Text style={styles.label}>Email Address</Text>
+              <Text style={styles.label}>Registered Mobile Number</Text>
               <TouchableOpacity
                 activeOpacity={1}
-                onPress={() => emailInputRef.current?.focus()}
+                onPress={() => phoneInputRef.current?.focus()}
                 style={[
-                  styles.emailInputContainer,
-                  isEmailFocused && styles.emailInputContainerActive,
+                  styles.phoneInputContainer,
+                  isPhoneFocused && styles.phoneInputContainerActive,
                 ]}
               >
+                <View style={styles.countryCodeContainer} pointerEvents="none">
+                  <Text style={styles.countryCodeText}>+91</Text>
+                </View>
+                <View style={styles.divider} pointerEvents="none" />
                 <TextInput
-                  ref={emailInputRef}
-                  style={styles.emailInput}
-                  placeholder="example@email.com"
+                  ref={phoneInputRef}
+                  style={styles.phoneInput}
+                  placeholder="98765 43210"
                   placeholderTextColor={colors.inputPlaceholder}
-                  value={email}
-                  onChangeText={setEmail}
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  onFocus={() => setIsEmailFocused(true)}
-                  onBlur={() => setIsEmailFocused(false)}
+                  value={phone}
+                  onChangeText={(val) => {
+                    setPhone(val.replace(/[^0-9]/g, ''));
+                    setPhoneError('');
+                    setNoEmailFound(false);
+                  }}
+                  keyboardType="number-pad"
+                  maxLength={10}
+                  onFocus={() => setIsPhoneFocused(true)}
+                  onBlur={() => setIsPhoneFocused(false)}
                 />
               </TouchableOpacity>
 
+              {!!phoneError && (
+                <View style={styles.errorBanner}>
+                  <AlertCircle size={18} color="#EF4444" style={styles.errorIcon} />
+                  <Text style={styles.errorText}>{phoneError}</Text>
+                </View>
+              )}
+
+              {noEmailFound && (
+                <View style={styles.supportBanner}>
+                  <Headphones size={20} color="#6366F1" />
+                  <View style={styles.supportTextContainer}>
+                    <Text style={styles.supportTitle}>Need Help?</Text>
+                    <Text style={styles.supportSubtitle}>
+                      No email address is registered with this account. Please contact customer support for assistance.
+                    </Text>
+                    <TouchableOpacity
+                      activeOpacity={0.8}
+                      style={styles.supportButton}
+                      onPress={() => navigation.navigate('ContactUs')}
+                    >
+                      <Text style={styles.supportButtonText}>Contact Support</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
+
               <TouchableOpacity
-                style={[styles.primaryButton, !isEmailValid && styles.disabledButton]}
+                style={[
+                  styles.primaryButton,
+                  (!isPhoneValid || isRequestingOtp) && styles.disabledButton,
+                ]}
                 activeOpacity={0.8}
-                onPress={handleEmailSubmit}
-                disabled={!isEmailValid}
+                onPress={handleRequestOtp}
+                disabled={!isPhoneValid || isRequestingOtp}
               >
-                <Text style={styles.primaryButtonText}>Send Temporary PIN</Text>
+                {isRequestingOtp ? (
+                  <ActivityIndicator color={colors.white} />
+                ) : (
+                  <Text style={styles.primaryButtonText}>Send OTP</Text>
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.backToLoginTouch}
+                activeOpacity={0.7}
+                onPress={() => navigation.goBack()}
+              >
+                <Text style={styles.backToLoginText}>
+                  Remember your PIN? <Text style={styles.backToLoginBold}>Login here</Text>
+                </Text>
               </TouchableOpacity>
             </View>
           )}
 
-          {/* STEP 2: Reset PIN using Temporary PIN */}
-          {step === 'reset' && (
+          {/* ══════════════════════════════════════════════════ */}
+          {/* STEP 2: Enter & Verify 6-Digit Email OTP            */}
+          {/* ══════════════════════════════════════════════════ */}
+          {step === 'otp' && (
             <View style={styles.container}>
-              <Text style={styles.title}>Reset PIN</Text>
+              <Text style={styles.title}>Enter Email OTP</Text>
               <Text style={styles.subtitle}>
-                Enter the temporary PIN sent to {email} to set up your new PIN.
+                We've sent a 6-digit verification code to{' '}
+                <Text style={styles.emailHighlight}>{maskedEmail || 'your email'}</Text>
               </Text>
 
-              {/* Temporary PIN section */}
-              <Text style={styles.label}>Temporary PIN</Text>
-              <View style={styles.passwordInputContainer}>
-                <TextInput
-                  style={styles.passwordInput}
-                  keyboardType="number-pad"
-                  maxLength={4}
-                  value={tempPin}
-                  onChangeText={(text) => setTempPin(text.replace(/[^0-9]/g, ''))}
-                  secureTextEntry={!showTempPin}
-                  placeholder="Enter temporary PIN"
-                  placeholderTextColor={colors.inputPlaceholder}
-                />
-                <TouchableOpacity
-                  style={styles.eyeButtonInner}
-                  onPress={() => setShowTempPin((v) => !v)}
-                  activeOpacity={0.7}
-                >
-                  {showTempPin ? (
-                    <EyeOffIcon size={22} color={colors.primary} />
-                  ) : (
-                    <EyeIcon size={22} color={colors.primary} />
-                  )}
-                </TouchableOpacity>
+              <Text style={styles.label}>6-Digit OTP Code</Text>
+
+              {/* 6 OTP Boxes */}
+              <View style={styles.otpGrid}>
+                {otp.map((digit, index) => (
+                  <TextInput
+                    key={index}
+                    ref={otpRefs[index]}
+                    style={[
+                      styles.otpBox,
+                      digit ? styles.otpBoxFilled : null,
+                      focusedOtpIndex === index ? styles.otpBoxFocused : null,
+                    ]}
+                    keyboardType="number-pad"
+                    maxLength={index === 0 ? 6 : 1}
+                    value={digit}
+                    onChangeText={(text) => handleOtpChange(text, index)}
+                    onKeyPress={(e) => handleOtpKeyPress(e, index)}
+                    selectTextOnFocus={true}
+                    onFocus={() => setFocusedOtpIndex(index)}
+                    onBlur={() => setFocusedOtpIndex(null)}
+                  />
+                ))}
               </View>
 
-              {/* New PIN section */}
-              <Text style={styles.label}>New PIN</Text>
-              <View style={styles.passwordInputContainer}>
+              {!!otpError && (
+                <View style={styles.errorBanner}>
+                  <AlertCircle size={18} color="#EF4444" style={styles.errorIcon} />
+                  <Text style={styles.errorText}>{otpError}</Text>
+                </View>
+              )}
+
+              {/* Resend OTP Row */}
+              <View style={styles.resendRow}>
+                {timer > 0 ? (
+                  <Text style={styles.timerText}>
+                    Resend code in <Text style={styles.timerBold}>{timer}s</Text>
+                  </Text>
+                ) : (
+                  <TouchableOpacity
+                    style={styles.resendButton}
+                    onPress={handleResendOtp}
+                    disabled={isResendingOtp}
+                    activeOpacity={0.7}
+                  >
+                    {isResendingOtp ? (
+                      <ActivityIndicator size="small" color={colors.primary} />
+                    ) : (
+                      <View style={styles.resendContent}>
+                        <RefreshCw size={15} color={colors.primary} style={styles.inlineIconMargin} />
+                        <Text style={styles.resendButtonText}>Resend OTP</Text>
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                )}
+              </View>
+
+              <TouchableOpacity
+                style={[
+                  styles.primaryButton,
+                  (!isOtpComplete || isVerifyingOtp) && styles.disabledButton,
+                ]}
+                activeOpacity={0.8}
+                onPress={handleVerifyOtp}
+                disabled={!isOtpComplete || isVerifyingOtp}
+              >
+                {isVerifyingOtp ? (
+                  <ActivityIndicator color={colors.white} />
+                ) : (
+                  <Text style={styles.primaryButtonText}>Verify & Proceed</Text>
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.backToLoginTouch}
+                activeOpacity={0.7}
+                onPress={() => {
+                  setStep('phone');
+                  setOtpError('');
+                }}
+              >
+                <Text style={styles.editPhoneLink}>Change mobile number</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {/* ══════════════════════════════════════════════════ */}
+          {/* STEP 3: Create New 4-Digit PIN                     */}
+          {/* ══════════════════════════════════════════════════ */}
+          {step === 'newPin' && (
+            <View style={styles.container}>
+              <Text style={styles.title}>Create New PIN</Text>
+              <Text style={styles.subtitle}>
+                Set up a new 4-digit security PIN for your account to login securely in future.
+              </Text>
+
+              {/* New PIN Input */}
+              <Text style={styles.label}>Enter New 4-Digit PIN</Text>
+              <TouchableOpacity
+                activeOpacity={1}
+                onPress={() => newPinRef.current?.focus()}
+                style={[
+                  styles.pinFieldContainer,
+                  isNewPinFocused && styles.phoneInputContainerActive,
+                ]}
+              >
                 <TextInput
-                  style={styles.passwordInput}
+                  ref={newPinRef}
+                  style={styles.pinField}
+                  placeholder="Enter 4-digit PIN"
+                  placeholderTextColor={colors.inputPlaceholder}
+                  value={newPin}
+                  onChangeText={(val) => {
+                    setNewPin(val.replace(/[^0-9]/g, '').slice(0, 4));
+                    setPinError('');
+                  }}
                   keyboardType="number-pad"
                   maxLength={4}
-                  value={newPin}
-                  onChangeText={(text) => setNewPin(text.replace(/[^0-9]/g, ''))}
                   secureTextEntry={!showNewPin}
-                  placeholder="Enter 4-digit new PIN"
-                  placeholderTextColor={colors.inputPlaceholder}
+                  onFocus={() => setIsNewPinFocused(true)}
+                  onBlur={() => setIsNewPinFocused(false)}
                 />
                 <TouchableOpacity
                   style={styles.eyeButtonInner}
@@ -197,20 +562,33 @@ export default function ForgotPinScreen({ navigation, route }) {
                     <EyeIcon size={22} color={colors.primary} />
                   )}
                 </TouchableOpacity>
-              </View>
+              </TouchableOpacity>
 
-              {/* Confirm PIN section */}
-              <Text style={styles.label}>Confirm New PIN</Text>
-              <View style={styles.passwordInputContainer}>
+              {/* Confirm PIN Input */}
+              <Text style={styles.label}>Confirm New 4-Digit PIN</Text>
+              <TouchableOpacity
+                activeOpacity={1}
+                onPress={() => confirmPinRef.current?.focus()}
+                style={[
+                  styles.pinFieldContainer,
+                  isConfirmPinFocused && styles.phoneInputContainerActive,
+                ]}
+              >
                 <TextInput
-                  style={styles.passwordInput}
+                  ref={confirmPinRef}
+                  style={styles.pinField}
+                  placeholder="Re-enter 4-digit PIN"
+                  placeholderTextColor={colors.inputPlaceholder}
+                  value={confirmPin}
+                  onChangeText={(val) => {
+                    setConfirmPin(val.replace(/[^0-9]/g, '').slice(0, 4));
+                    setPinError('');
+                  }}
                   keyboardType="number-pad"
                   maxLength={4}
-                  value={confirmPin}
-                  onChangeText={(text) => setConfirmPin(text.replace(/[^0-9]/g, ''))}
                   secureTextEntry={!showConfirmPin}
-                  placeholder="Confirm 4-digit PIN"
-                  placeholderTextColor={colors.inputPlaceholder}
+                  onFocus={() => setIsConfirmPinFocused(true)}
+                  onBlur={() => setIsConfirmPinFocused(false)}
                 />
                 <TouchableOpacity
                   style={styles.eyeButtonInner}
@@ -223,46 +601,60 @@ export default function ForgotPinScreen({ navigation, route }) {
                     <EyeIcon size={22} color={colors.primary} />
                   )}
                 </TouchableOpacity>
-              </View>
+              </TouchableOpacity>
 
-              {isConfirmPinComplete && !doPinsMatch && (
-                <Text style={styles.errorText}>PINs do not match</Text>
+              {confirmPin.length === 4 && !doPinsMatch && (
+                <View style={styles.errorBanner}>
+                  <AlertCircle size={18} color="#EF4444" style={styles.errorIcon} />
+                  <Text style={styles.errorText}>PINs do not match. Please verify.</Text>
+                </View>
+              )}
+
+              {!!pinError && (
+                <View style={styles.errorBanner}>
+                  <AlertCircle size={18} color="#EF4444" style={styles.errorIcon} />
+                  <Text style={styles.errorText}>{pinError}</Text>
+                </View>
               )}
 
               <TouchableOpacity
                 style={[
                   styles.primaryButton,
-                  (!isTempPinComplete || !isNewPinComplete || !isConfirmPinComplete || !doPinsMatch) &&
-                    styles.disabledButton,
+                  !canSubmitPin && styles.disabledButton,
                 ]}
                 activeOpacity={0.8}
                 onPress={handleResetPin}
-                disabled={!isTempPinComplete || !isNewPinComplete || !isConfirmPinComplete || !doPinsMatch}
+                disabled={!canSubmitPin}
               >
-                <Text style={styles.primaryButtonText}>Update PIN</Text>
+                {isResettingPin ? (
+                  <ActivityIndicator color={colors.white} />
+                ) : (
+                  <Text style={styles.primaryButtonText}>Reset PIN & Login</Text>
+                )}
               </TouchableOpacity>
             </View>
           )}
 
-          {/* STEP 3: Reset Success */}
+          {/* ══════════════════════════════════════════════════ */}
+          {/* STEP 4: Success Screen                             */}
+          {/* ══════════════════════════════════════════════════ */}
           {step === 'success' && (
             <View style={[styles.container, styles.successContainer]}>
               <View style={styles.successIconCircle}>
-                <Text style={styles.checkMark}>✓</Text>
+                <CheckCircle2 size={52} color="#16A34A" />
               </View>
 
               <Text style={styles.successTitle}>PIN Reset Successful!</Text>
               <Text style={styles.successSubtitle}>
-                Your new security PIN has been updated successfully. You can now login with your
-                new PIN.
+                Your security PIN has been updated successfully and you are now logged in.
               </Text>
 
               <TouchableOpacity
                 style={styles.primaryButton}
-                activeOpacity={0.8}
-                onPress={() => navigation.replace('SignIn', { email })}
+                activeOpacity={0.85}
+                onPress={() => navigation.replace('BottomTabs')}
               >
-                <Text style={styles.primaryButtonText}>Back to Login</Text>
+                <Text style={styles.primaryButtonText}>Go to Home</Text>
               </TouchableOpacity>
             </View>
           )}
@@ -281,22 +673,35 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   headerRow: {
-    height: 56,
+    height: 52,
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
   },
   backButton: {
     padding: 8,
+    borderRadius: 8,
+  },
+  headerTitle: {
+    fontSize: moderateScale(16),
+    fontFamily: fonts.big,
+    color: colors.text,
+  },
+  headerSpacer: {
+    width: 40,
   },
   scrollContent: {
     paddingHorizontal: 28,
-    paddingTop: 10,
-    paddingBottom: 24,
+    paddingTop: 14,
+    paddingBottom: 32,
   },
   logoWrapper: {
     alignItems: 'center',
-    marginBottom: 12,
+    marginTop: 4,
+    marginBottom: 16,
   },
   logo: {
     width: 340,
@@ -307,92 +712,228 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   title: {
-    fontSize: moderateScale(28),
+    fontSize: moderateScale(26),
     fontFamily: fonts.big,
     color: colors.text,
     textAlign: 'center',
+    marginBottom: 8,
   },
   subtitle: {
-    marginTop: 10,
-    fontSize: moderateScale(14),
+    fontSize: moderateScale(13.5),
     fontFamily: fonts.small,
-    color: '#334155',
+    color: '#64748B',
     lineHeight: moderateScale(20),
     textAlign: 'center',
     paddingHorizontal: 10,
+    marginBottom: 14,
+  },
+  emailHighlight: {
+    fontFamily: fonts.big,
+    color: colors.primary,
+  },
+  inlineIconMargin: {
+    marginRight: 6,
   },
   label: {
-    marginTop: 24,
-    marginBottom: 10,
-    fontSize: moderateScale(14),
+    marginTop: 18,
+    marginBottom: 8,
+    fontSize: moderateScale(13.5),
     fontFamily: fonts.medium,
     color: colors.text,
-    letterSpacing: 0.5,
+    letterSpacing: 0.2,
   },
-  emailInputContainer: {
-    height: 56,
+  phoneInputContainer: {
+    height: 54,
     borderRadius: 12,
     backgroundColor: colors.inputBackground,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     borderWidth: 1.5,
     borderColor: '#E2E8F0',
   },
-  emailInputContainerActive: {
+  phoneInputContainerActive: {
     borderColor: colors.primary,
     backgroundColor: colors.background,
     shadowColor: colors.primary,
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 6,
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
     elevation: 2,
   },
-  emailInput: {
+  countryCodeContainer: {
+    justifyContent: 'center',
+  },
+  countryCodeText: {
+    fontSize: moderateScale(15),
+    fontFamily: fonts.medium,
+    color: colors.text,
+  },
+  divider: {
+    width: 1,
+    height: 20,
+    backgroundColor: '#CBD5E1',
+    marginHorizontal: 14,
+  },
+  phoneInput: {
     flex: 1,
     height: '100%',
-    fontSize: moderateScale(16),
+    fontSize: moderateScale(15.5),
     color: colors.text,
     fontFamily: fonts.medium,
   },
-  passwordInputContainer: {
-    height: 56,
+  pinFieldContainer: {
+    height: 54,
     borderRadius: 12,
     backgroundColor: colors.inputBackground,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     borderWidth: 1.5,
     borderColor: '#E2E8F0',
-    marginBottom: 8,
   },
-  passwordInput: {
+  pinField: {
     flex: 1,
     height: '100%',
-    fontSize: moderateScale(16),
+    fontSize: moderateScale(15.5),
     color: colors.text,
     fontFamily: fonts.medium,
+    letterSpacing: 2,
   },
   eyeButtonInner: {
     padding: 8,
   },
-  errorText: {
-    color: '#EF4444',
-    fontSize: moderateScale(12),
+  otpGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 8,
+    marginVertical: 12,
+  },
+  otpBox: {
+    flex: 1,
+    height: 56,
+    borderRadius: 12,
+    backgroundColor: colors.inputBackground,
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    textAlign: 'center',
+    fontSize: moderateScale(20),
+    fontFamily: fonts.big,
+    color: colors.text,
+  },
+  otpBoxFilled: {
+    backgroundColor: colors.background,
+    borderColor: '#CBD5E1',
+  },
+  otpBoxFocused: {
+    borderColor: colors.primary,
+    backgroundColor: colors.background,
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  resendRow: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  timerText: {
+    fontSize: moderateScale(13.5),
     fontFamily: fonts.medium,
-    marginTop: 8,
-    marginLeft: 4,
+    color: '#64748B',
+  },
+  timerBold: {
+    color: colors.primary,
+    fontFamily: fonts.big,
+  },
+  resendButton: {
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    backgroundColor: '#F5F3FF',
+  },
+  resendContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  resendButtonText: {
+    fontSize: moderateScale(13.5),
+    fontFamily: fonts.big,
+    color: colors.primary,
+  },
+  errorBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginTop: 14,
+  },
+  errorIcon: {
+    marginRight: 8,
+  },
+  errorText: {
+    flex: 1,
+    color: '#DC2626',
+    fontSize: moderateScale(12.5),
+    fontFamily: fonts.medium,
+    lineHeight: moderateScale(17),
+  },
+  supportBanner: {
+    flexDirection: 'row',
+    backgroundColor: '#EEF2FF',
+    borderWidth: 1,
+    borderColor: '#C7D2FE',
+    borderRadius: 12,
+    padding: 14,
+    marginTop: 16,
+    gap: 12,
+  },
+  supportTextContainer: {
+    flex: 1,
+  },
+  supportTitle: {
+    fontSize: moderateScale(14),
+    fontFamily: fonts.big,
+    color: '#3730A3',
+    marginBottom: 4,
+  },
+  supportSubtitle: {
+    fontSize: moderateScale(12.5),
+    fontFamily: fonts.small,
+    color: '#4338CA',
+    lineHeight: moderateScale(17),
+    marginBottom: 10,
+  },
+  supportButton: {
+    backgroundColor: '#6366F1',
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    alignSelf: 'flex-start',
+  },
+  supportButtonText: {
+    color: '#FFFFFF',
+    fontSize: moderateScale(12.5),
+    fontFamily: fonts.big,
   },
   primaryButton: {
-    marginTop: 28,
-    height: 54,
+    marginTop: 24,
+    height: 52,
     borderRadius: 12,
     backgroundColor: colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: colors.primary,
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
+    shadowOpacity: 0.22,
     shadowRadius: 8,
     elevation: 3,
   },
@@ -402,28 +943,44 @@ const styles = StyleSheet.create({
     elevation: 0,
   },
   primaryButtonText: {
-    fontSize: moderateScale(16),
+    fontSize: moderateScale(15.5),
     fontFamily: fonts.big,
     color: colors.white,
-    letterSpacing: 0.5,
+    letterSpacing: 0.3,
+  },
+  backToLoginTouch: {
+    marginTop: 18,
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  backToLoginText: {
+    fontSize: moderateScale(13.5),
+    fontFamily: fonts.small,
+    color: '#64748B',
+  },
+  backToLoginBold: {
+    color: colors.primary,
+    fontFamily: fonts.big,
+    textDecorationLine: 'underline',
+  },
+  editPhoneLink: {
+    fontSize: moderateScale(13.5),
+    fontFamily: fonts.medium,
+    color: colors.primary,
+    textDecorationLine: 'underline',
   },
   successContainer: {
     alignItems: 'center',
-    paddingTop: 40,
+    paddingTop: 48,
   },
   successIconCircle: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+    width: 88,
+    height: 88,
+    borderRadius: 44,
     backgroundColor: '#DCFCE7',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 24,
-  },
-  checkMark: {
-    fontSize: moderateScale(36),
-    color: '#15803D',
-    fontWeight: 'bold',
   },
   successTitle: {
     fontSize: moderateScale(24),
@@ -433,9 +990,9 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   successSubtitle: {
-    fontSize: moderateScale(15),
+    fontSize: moderateScale(14),
     fontFamily: fonts.small,
-    color: '#475569',
+    color: '#64748B',
     textAlign: 'center',
     lineHeight: moderateScale(22),
     paddingHorizontal: 16,

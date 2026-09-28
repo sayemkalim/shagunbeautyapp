@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useCallback } from 'react';
+import React, { useMemo, useState, useCallback, useRef } from 'react';
 import {
   StyleSheet,
   View,
@@ -12,8 +12,9 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { ChevronLeft, X, MapPin, CheckCircle2, PlusCircle } from 'lucide-react-native';
-import { useSelector, useDispatch } from 'react-redux';
+import { useSelector } from 'react-redux';
 import { selectCartItems } from '../redux/cartSlice';
+import { selectSelectedAddress, selectAddresses } from '../redux/addressSlice';
 import colors from '../theme/colors';
 import fonts from '../theme/typography';
 import BottomSheetModal from '../components/BottomSheetModal';
@@ -22,22 +23,29 @@ import { getUserAddresses } from '../api/address';
 import { getUser } from '../api/authStorage';
 import { moderateScale } from '../theme/responsive';
 import { getImageSource } from '../utils/imageOptimizer';
+import { isProductOutOfStock } from '../utils/productUtils';
 
 const DUMMY_IMG = require('../../assets/dummy_product.png');
 
 export default function CheckoutScreen({ navigation, route }) {
   const cartItems = useSelector(selectCartItems);
+  const reduxSelectedAddress = useSelector(selectSelectedAddress);
+  const reduxAddressesList = useSelector(selectAddresses);
 
-  // States for Address selection
-  const [selectedAddr, setSelectedAddr] = useState(route.params?.selectedAddress);
-  const [addressesList, setAddressesList] = useState([]);
+  // States for Address selection (instantly hydrated from route params or Redux cache)
+  const [selectedAddr, setSelectedAddr] = useState(route.params?.selectedAddress || reduxSelectedAddress);
+  const [addressesList, setAddressesList] = useState(reduxAddressesList || []);
+  const addressesListRef = useRef(addressesList);
+  addressesListRef.current = addressesList;
   const [loadingAddresses, setLoadingAddresses] = useState(false);
   const [showAddressModal, setShowAddressModal] = useState(false);
 
   // Load addresses on focus
   const loadAddresses = useCallback(async () => {
     try {
-      setLoadingAddresses(true);
+      if (!addressesListRef.current.length) {
+        setLoadingAddresses(true);
+      }
       const currentUser = await getUser();
       if (!currentUser) return;
       const data = await getUserAddresses(currentUser.id);
@@ -103,16 +111,24 @@ export default function CheckoutScreen({ navigation, route }) {
     return `${startDay} ${month} - ${endDay} ${month}`;
   };
 
+  // Only order selected and in-stock items
+  const orderItems = useMemo(() => {
+    if (route.params?.selectedCartItems && Array.isArray(route.params.selectedCartItems) && route.params.selectedCartItems.length > 0) {
+      return route.params.selectedCartItems.filter((item) => !isProductOutOfStock(item));
+    }
+    return cartItems.filter((item) => !isProductOutOfStock(item));
+  }, [route.params?.selectedCartItems, cartItems]);
+
   // Generate estimates list for items
   const estimates = useMemo(() => {
-    return cartItems.map((item) => {
+    return orderItems.map((item) => {
       const text = `Delivery between ${getDeliveryMonthRangeStr(2, 7)}`;
       return {
         ...item,
         estimateText: text,
       };
     });
-  }, [cartItems]);
+  }, [orderItems]);
 
   const handleContinue = () => {
     if (!selectedAddr) {
@@ -125,6 +141,8 @@ export default function CheckoutScreen({ navigation, route }) {
       address: selectedAddr,
       couponCode: route.params?.couponCode,
       totalAmount: route.params?.totalAmount,
+      selectedCartItems: orderItems,
+      selectedItemIds: route.params?.selectedItemIds,
     });
   };
 

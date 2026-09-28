@@ -20,6 +20,7 @@ import {
   X,
   ArrowUpLeft,
 } from 'lucide-react-native';
+import { useQueryClient } from '@tanstack/react-query';
 import { useDispatch, useSelector } from 'react-redux';
 
 import { useProducts } from '../hooks/useProducts';
@@ -32,6 +33,7 @@ import fonts from '../theme/typography';
 import { moderateScale } from '../theme/responsive';
 import { addToCart } from '../redux/cartSlice';
 import { addToCartApi } from '../api/cart';
+import { isProductOutOfStock, getProductStockStatus } from '../utils/productUtils';
 
 
 const POPULAR_SEARCHES = [
@@ -56,8 +58,10 @@ export default function SearchScreen({ navigation }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [showResults, setShowResults] = useState(false);
   const [recentSearches, setRecentSearches] = useState([]);
+  const [isSearching, setIsSearching] = useState(false);
   const [favorites, setFavorites] = useState({});
 
+  const queryClient = useQueryClient();
   const dispatch = useDispatch();
   const cartItems = useSelector((state) => state.cart.items || []);
   const [loadingProductId, setLoadingProductId] = useState(null);
@@ -93,7 +97,7 @@ export default function SearchScreen({ navigation }) {
 
   // Query all products to perform fuzzy, high-performance local filtering
   const { data: allProducts = [], isLoading: isProductsLoading } = useProducts({
-    per_page: 500,
+    per_page: 2200,
   });
 
   const { data: categories = [] } = useCategories();
@@ -110,7 +114,6 @@ export default function SearchScreen({ navigation }) {
     }
   };
 
-  // Generate fuzzy suggestions list
   const suggestions = useMemo(() => {
     if (!inputText.trim() || showResults) return [];
 
@@ -254,6 +257,12 @@ export default function SearchScreen({ navigation }) {
 
   const handleAddToCart = async (product) => {
     const pId = product._id || product.id;
+    const cached = queryClient?.getQueryData(['product', pId]);
+    const effectiveItem = cached ? { ...product, ...(cached.data || cached) } : product;
+    if (isProductOutOfStock(effectiveItem)) {
+      return;
+    }
+
     const isInCart = cartItems.some((ci) => (ci.productId || ci.id) === pId);
 
     if (isInCart) {
@@ -289,8 +298,12 @@ export default function SearchScreen({ navigation }) {
         brandName: bName,
         price: originalPrice > 0 ? originalPrice : finalPrice,
         discountedPrice: finalPrice,
+        baseDiscountedPrice: finalPrice,
+        price_tiers: product.price_tiers || product.priceTiers || null,
         image: imageUri,
         quantity: 1,
+        available_inventory: product.available_inventory,
+        base_available_inventory: product.base_available_inventory,
       })
     );
 
@@ -386,20 +399,48 @@ export default function SearchScreen({ navigation }) {
           </View>
 
           {(() => {
-            const isInCart = cartItems.some((ci) => (ci.productId || ci.id) === item._id);
-            const isLoadingThis = loadingProductId === item._id;
+            const pId = item._id || item.id;
+            const cached = queryClient?.getQueryData(['product', pId]);
+            const effectiveItem = cached ? { ...item, ...(cached.data || cached) } : item;
+            const { isCompletelyOutOfStock, isSelectOption } = getProductStockStatus(effectiveItem);
+            const isInCart = cartItems.some((ci) => (ci.productId || ci.id) === pId);
+            const isLoadingThis = loadingProductId === pId;
 
             return (
               <TouchableOpacity
-                style={[styles.addToBagButton, isInCart && styles.goToBagButton]}
+                style={[
+                  styles.addToBagButton,
+                  isInCart && styles.goToBagButton,
+                  isCompletelyOutOfStock && styles.outOfStockButton,
+                ]}
                 activeOpacity={0.85}
-                disabled={isLoadingThis}
-                onPress={() => handleAddToCart(item)}>
+                disabled={isCompletelyOutOfStock || isLoadingThis}
+                onPress={() => {
+                  if (isSelectOption) {
+                    navigation.navigate('ProductDetail', {
+                      productId: effectiveItem._id || effectiveItem.id,
+                      product: effectiveItem,
+                    });
+                  } else {
+                    handleAddToCart(effectiveItem);
+                  }
+                }}>
                 {isLoadingThis ? (
                   <ActivityIndicator size="small" color={isInCart ? '#FFFFFF' : colors.primary} />
                 ) : (
-                  <Text style={[styles.addToBagText, isInCart && styles.goToBagText]}>
-                    {isInCart ? 'GO TO BAG' : 'ADD TO BAG'}
+                  <Text
+                    style={[
+                      styles.addToBagText,
+                      isInCart && styles.goToBagText,
+                      isCompletelyOutOfStock && styles.outOfStockText,
+                    ]}>
+                    {isCompletelyOutOfStock
+                      ? 'OUT OF STOCK'
+                      : isSelectOption
+                      ? 'SELECT OPTION'
+                      : isInCart
+                      ? 'GO TO BAG'
+                      : 'ADD TO BAG'}
                   </Text>
                 )}
               </TouchableOpacity>
@@ -848,4 +889,12 @@ const styles = StyleSheet.create({
   goToBagText: {
     color: '#FFFFFF',
   },
+  outOfStockButton: {
+    backgroundColor: '#94A3B8',
+    borderColor: '#94A3B8',
+  },
+  outOfStockText: {
+    color: '#FFFFFF',
+  },
 });
+

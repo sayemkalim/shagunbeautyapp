@@ -4,6 +4,7 @@ import {
   StatusBar,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
   Image,
@@ -12,11 +13,12 @@ import {
   Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ChevronLeft, Calendar, MapPin, ShoppingBag, FileText, Wallet, CreditCard, Download, AlertCircle, Clock, MessageSquare } from 'lucide-react-native';
+import { ChevronLeft, Calendar, MapPin, ShoppingBag, FileText, Wallet, CreditCard, Download, AlertCircle, Clock, MessageSquare, RotateCcw, ShieldCheck, CheckCircle2, Check } from 'lucide-react-native';
+import RazorpayCheckout from 'react-native-razorpay';
 import colors from '../theme/colors';
 import fonts from '../theme/typography';
 import { moderateScale } from '../theme/responsive';
-import { getOrderDetails, cancelOrder } from '../api/order';
+import { getOrderDetails, cancelOrder, returnOrder, createRazorpayOrder, verifyRazorpayPayment } from '../api/order';
 import BottomSheetModal from '../components/BottomSheetModal';
 import { getOptimizedImageUrl } from '../utils/imageOptimizer';
 
@@ -111,14 +113,25 @@ const resolveImageUrl = (url) => {
   return `https://shagunbeautybe.onrender.com${cleanPath}`;
 };
 
+const RETURN_REASONS = [
+  'Damaged product',
+  'Wrong item received',
+  'Quality issue',
+  'Other',
+];
+
 export default function OrderDetailScreen({ navigation, route }) {
-  const { orderId, orderData } = route.params || {};
+  const { orderId, orderData, openPayment } = route.params || {};
   const [order, setOrder] = useState(orderData || null);
   const [isLoading, setIsLoading] = useState(!orderData);
   const [isError, setIsError] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
+  const [isCompletingPayment, setIsCompletingPayment] = useState(false);
   const [isReturnSheetVisible, setIsReturnSheetVisible] = useState(false);
   const [isCancelSheetVisible, setIsCancelSheetVisible] = useState(false);
+  const [selectedReturnReason, setSelectedReturnReason] = useState('Damaged product');
+  const [customReturnReason, setCustomReturnReason] = useState('');
+  const [isSubmittingReturn, setIsSubmittingReturn] = useState(false);
 
   const fetchOrderDetails = useCallback(async () => {
     if (!orderId) return;
@@ -147,6 +160,105 @@ export default function OrderDetailScreen({ navigation, route }) {
     }
   }, [order, fetchOrderDetails]);
 
+  // Handle retry payment for pending ONLINE orders
+  const handleCompletePayment = useCallback(async () => {
+    if (!order?._id || isCompletingPayment) return;
+    try {
+      setIsCompletingPayment(true);
+      // 1. Call POST /api/order/razorpay/create-order passing { orderId: order._id }
+      const res = await createRazorpayOrder(order._id);
+      const rzpData = res?.data || res;
+
+      if (!rzpData?.razorpayOrderId) {
+        throw new Error(res?.message || 'Failed to initiate Razorpay order.');
+      }
+
+      // 2. Launch Razorpay Checkout
+      const checkoutOptions = {
+        key: rzpData.keyId,
+        order_id: rzpData.razorpayOrderId,
+        amount: rzpData.amount, // in paise
+        currency: rzpData.currency || 'INR',
+        name: 'Shagun Beauty',
+        description: `Order #${order.orderNumber || order._id.slice(-6)} Payment`,
+        prefill: {
+          name: rzpData.customer?.name || order.address?.name || '',
+          contact: rzpData.customer?.contact || order.address?.mobile || '',
+          email: rzpData.customer?.email || '',
+        },
+        theme: { color: '#E91E63' },
+      };
+
+      setIsCompletingPayment(false);
+
+      if (!RazorpayCheckout || !RazorpayCheckout.open) {
+        Alert.alert('Error', 'Razorpay Checkout is not available on this device.');
+        return;
+      }
+
+      RazorpayCheckout.open(checkoutOptions)
+        .then(async (data) => {
+          try {
+            setIsCompletingPayment(true);
+            const verifiedRes = await verifyRazorpayPayment({
+              orderId: order._id,
+              razorpay_order_id: data.razorpay_order_id,
+              razorpay_payment_id: data.razorpay_payment_id,
+              razorpay_signature: data.razorpay_signature,
+            });
+
+            const verifiedData = verifiedRes?.data || verifiedRes;
+            if (verifiedData) {
+              setOrder(verifiedData);
+            }
+            fetchOrderDetails();
+
+            Alert.alert(
+              'Payment Successful!',
+              'Your payment has been successfully verified and your order is now confirmed.',
+              [{ text: 'OK' }]
+            );
+          } catch (verifyErr) {
+            console.log('Payment verification error:', verifyErr);
+            Alert.alert(
+              'Verification Pending',
+              verifyErr?.message || 'Payment received by bank. It may take a few moments to update on the server.'
+            );
+          } finally {
+            setIsCompletingPayment(false);
+          }
+        })
+        .catch((err) => {
+          console.log('Payment dismissed / cancelled:', err);
+          setIsCompletingPayment(false);
+          Alert.alert(
+            'Payment Incomplete',
+            'Payment was not completed. You can retry payment anytime using the Complete Payment button.'
+          );
+        });
+    } catch (e) {
+      console.log('Error creating Razorpay order:', e);
+      setIsCompletingPayment(false);
+      Alert.alert('Payment Error', e?.message || 'Failed to initiate Razorpay checkout. Please try again.');
+    }
+  }, [order, isCompletingPayment, fetchOrderDetails]);
+
+  // If navigated with openPayment param, auto-trigger checkout when order is ready
+  useEffect(() => {
+    if (
+      openPayment &&
+      order &&
+      String(order.paymentMode || '').toUpperCase() === 'ONLINE' &&
+      String(order.paymentStatus || '').toLowerCase() === 'pending' &&
+      String(order.status || '').toLowerCase() !== 'cancelled'
+    ) {
+      const timer = setTimeout(() => {
+        handleCompletePayment();
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [openPayment, order, handleCompletePayment]);
+
   const formatDate = (dateString) => {
     if (!dateString) return '';
     const date = new Date(dateString);
@@ -160,43 +272,60 @@ export default function OrderDetailScreen({ navigation, route }) {
     return date.toLocaleDateString('en-GB', options);
   };
 
-  const getStatusStyle = (status) => {
-    const s = String(status).toLowerCase();
+  const getStatusStyle = (status, paymentStatus) => {
+    const s = String(status || '').toLowerCase();
+    const ps = String(paymentStatus || '').toLowerCase();
+
+    if (s === 'refunded' || ps === 'refunded') {
+      return { bg: '#FFE4E6', text: '#E11D48', label: 'Refunded' };
+    }
     switch (s) {
+      case 'out_for_delivery':
+        return { bg: '#EDE9FE', text: '#6D28D9', label: 'Out for Delivery' };
       case 'delivered':
-        return { bg: '#E6F4EA', text: '#137333', label: 'Delivered' };
+        return { bg: '#DCFCE7', text: '#15803D', label: 'Delivered' };
       case 'cancelled':
-        return { bg: '#FCE8E6', text: '#C5221F', label: 'Cancelled' };
+        return { bg: '#FEE2E2', text: '#DC2626', label: 'Cancelled' };
+      case 'return_requested':
+        return { bg: '#FFEDD5', text: '#C2410C', label: 'Return Requested' };
+      case 'returned':
+        return { bg: '#CCFBF1', text: '#0F766E', label: 'Returned' };
       case 'shipped':
-        return { bg: '#E8F0FE', text: '#1A73E8', label: 'Shipped' };
+        return { bg: '#E0E7FF', text: '#4338CA', label: 'Shipped' };
       case 'processing':
-        return { bg: '#FEF7E0', text: '#B06000', label: 'Processing' };
+        return { bg: '#F3E8FF', text: '#7E22CE', label: 'Processing' };
       case 'confirmed':
-        return { bg: '#F3E8FF', text: '#7209b7', label: 'Confirmed' };
+        return { bg: '#EFF6FF', text: '#1D4ED8', label: 'Confirmed' };
+      case 'pending':
+        return { bg: '#FEF3C7', text: '#D97706', label: 'Payment Pending' };
       default:
-        return { bg: '#F1F5F9', text: '#475569', label: status || 'Pending' };
+        return { bg: '#FEF3C7', text: '#D97706', label: status || 'Pending' };
     }
   };
 
   const getPaymentStatusStyle = (status) => {
-    const s = String(status).toLowerCase();
+    const s = String(status || '').toLowerCase();
     switch (s) {
       case 'paid':
       case 'completed':
       case 'success':
-        return { color: '#137333', label: 'Paid' };
+        return { color: '#15803D', label: 'Paid' };
+      case 'refunded':
+        return { color: '#E11D48', label: 'Refunded' };
       case 'failed':
-        return { color: '#C5221F', label: 'Failed' };
+        return { color: '#DC2626', label: 'Failed' };
       case 'pending':
       default:
-        return { color: '#B06000', label: 'Pending' };
+        return { color: '#D97706', label: 'Pending' };
     }
   };
 
   const getPaymentModeLabel = (mode) => {
-    const m = String(mode).toUpperCase();
+    const m = String(mode || '').toUpperCase();
     if (m === 'COD') return 'Cash on Delivery';
-    if (mode) return 'Online Payment';
+    if (m === 'ONLINE') return 'Online Payment (Razorpay)';
+    if (m === 'UPI') return 'UPI QR / Bank Transfer';
+    if (mode) return String(mode);
     return 'Not specified';
   };
 
@@ -242,8 +371,27 @@ export default function OrderDetailScreen({ navigation, route }) {
     );
   }
 
-  const statusDetails = getStatusStyle(order.status);
+  const isRefunded = String(order.status || '').toLowerCase() === 'refunded' || String(order.paymentStatus || '').toLowerCase() === 'refunded';
+  const refundAmount = order.refundAmount !== undefined && order.refundAmount !== null ? parseFloat(order.refundAmount?.$numberDecimal || order.refundAmount) : null;
+  const statusDetails = getStatusStyle(order.status, order.paymentStatus);
   const orderStatus = String(order.status).toLowerCase();
+  const canRetryPayment = String(order.paymentMode || '').toUpperCase() === 'ONLINE' && String(order.paymentStatus || '').toLowerCase() === 'pending' && orderStatus !== 'cancelled' && !isRefunded;
+  
+  const isWithin48HoursOfDelivery = () => {
+    if (orderStatus !== 'delivered') return false;
+    const deliveryTime = new Date(order.deliveredAt || order.updatedAt || order.createdAt);
+    const currentTime = new Date();
+    const diffInMs = currentTime - deliveryTime;
+    const diffInHours = diffInMs / (1000 * 60 * 60);
+    return diffInHours <= 48;
+  };
+
+  // Cancel Order: ONLY when status in ['pending', 'confirmed', 'processing', 'shipped']
+  const canCancelOrder = ['pending', 'confirmed', 'processing', 'shipped'].includes(orderStatus) && !isRefunded;
+  
+  // Return Order: ONLY when status === 'delivered', not already requested/returned, and within 48 hours of delivery
+  const canReturnOrder = orderStatus === 'delivered' && !isRefunded && orderStatus !== 'return_requested' && orderStatus !== 'returned' && isWithin48HoursOfDelivery();
+
   const items = order.items || [];
   const address = order.address || {};
   const totalAmount = parseFloat(order.totalAmount?.$numberDecimal || order.totalAmount || 0);
@@ -259,21 +407,50 @@ export default function OrderDetailScreen({ navigation, route }) {
     setIsCancelSheetVisible(true);
   };
 
-  const isReturnWindowValid = () => {
-    if (orderStatus !== 'delivered') return false;
-    const deliveryTime = new Date(order.deliveredAt || order.updatedAt || order.createdAt);
-    const currentTime = new Date();
-    const diffInMs = currentTime - deliveryTime;
-    const diffInHours = diffInMs / (1000 * 60 * 60);
-    return diffInHours <= 48;
-  };
-
-  const getDeliveryDateFormatted = () => {
-    return formatDate(order.deliveredAt || order.updatedAt || order.createdAt);
+  const handleCancelOrderSubmit = async () => {
+    if (isCancelling) return;
+    try {
+      setIsCancelling(true);
+      const res = await cancelOrder(order._id || orderId);
+      const updated = res?.data || res;
+      setOrder((prev) => (updated ? { ...prev, ...updated } : { ...prev, status: 'cancelled' }));
+      setIsCancelSheetVisible(false);
+      Alert.alert('Order Cancelled', 'Order cancelled successfully');
+      fetchOrderDetails();
+    } catch (e) {
+      console.log('Error cancelling order:', e);
+      Alert.alert('Cancellation Failed', e?.message || 'Something went wrong. Please try again.');
+    } finally {
+      setIsCancelling(false);
+    }
   };
 
   const handleReturnOrder = () => {
+    setSelectedReturnReason('Damaged product');
+    setCustomReturnReason('');
     setIsReturnSheetVisible(true);
+  };
+
+  const handleReturnOrderSubmit = async () => {
+    if (isSubmittingReturn) return;
+    const finalReason = selectedReturnReason === 'Other'
+      ? (customReturnReason.trim() || 'Other')
+      : (customReturnReason.trim() ? `${selectedReturnReason}: ${customReturnReason.trim()}` : selectedReturnReason);
+
+    try {
+      setIsSubmittingReturn(true);
+      const res = await returnOrder(order._id || orderId, finalReason);
+      const updated = res?.data || res;
+      setOrder((prev) => (updated ? { ...prev, ...updated } : { ...prev, status: 'return_requested' }));
+      setIsReturnSheetVisible(false);
+      Alert.alert('Return Requested', 'Return requested successfully');
+      fetchOrderDetails();
+    } catch (e) {
+      console.log('Error submitting return request:', e);
+      Alert.alert('Return Failed', e?.message || 'Something went wrong. Please try again.');
+    } finally {
+      setIsSubmittingReturn(false);
+    }
   };
 
   // Address string formatting
@@ -338,6 +515,78 @@ export default function OrderDetailScreen({ navigation, route }) {
           </View>
         </View>
 
+        {/* Prominent Refund Information Card */}
+        {isRefunded && (
+          <View style={styles.sectionContainer}>
+            <View style={styles.refundCard}>
+              <View style={styles.refundHeaderRow}>
+                <View style={styles.refundIconCircle}>
+                  <RotateCcw size={20} color="#E11D48" />
+                </View>
+                <View style={styles.refundHeaderTextWrapper}>
+                  <Text style={styles.refundTitle}>Order Refunded</Text>
+                  <Text style={styles.refundSubtitle}>
+                    This order has been cancelled and refunded to your original payment method.
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.refundDivider} />
+
+              <View style={styles.refundDetailsList}>
+                {refundAmount !== null && (
+                  <View style={styles.refundDetailRow}>
+                    <Text style={styles.refundDetailLabel}>Refund Amount:</Text>
+                    <Text style={styles.refundDetailValue}>₹{Math.round(refundAmount)}</Text>
+                  </View>
+                )}
+                {order.refundedAt ? (
+                  <View style={styles.refundDetailRow}>
+                    <Text style={styles.refundDetailLabel}>Refunded on:</Text>
+                    <Text style={styles.refundDetailDate}>
+                      {new Date(order.refundedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                    </Text>
+                  </View>
+                ) : null}
+                {order.refundId ? (
+                  <View style={styles.refundDetailRow}>
+                    <Text style={styles.refundDetailLabel}>Refund ID / ARN:</Text>
+                    <Text style={styles.refundDetailId}>{order.refundId}</Text>
+                  </View>
+                ) : null}
+              </View>
+            </View>
+          </View>
+        )}
+
+        {/* Retry Payment Card for Pending Online Orders */}
+        {canRetryPayment && (
+          <View style={styles.sectionContainer}>
+            <View style={styles.retryPaymentBanner}>
+              <View style={styles.retryPaymentLeft}>
+                <CreditCard size={20} color="#D97706" style={{ marginRight: 10 }} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.retryPaymentTitle}>Payment Pending</Text>
+                  <Text style={styles.retryPaymentSubtitle}>
+                    Complete your online payment to confirm this order.
+                  </Text>
+                </View>
+              </View>
+              <TouchableOpacity
+                style={styles.retryPayInlineBtn}
+                activeOpacity={0.85}
+                disabled={isCompletingPayment}
+                onPress={handleCompletePayment}>
+                {isCompletingPayment ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <Text style={styles.retryPayInlineBtnText}>Pay Now</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
         {/* Invoice Card */}
         {(order?.billUrl || order?.billurl) && orderStatus === 'delivered' ? (
           <View style={styles.sectionContainer}>
@@ -364,22 +613,22 @@ export default function OrderDetailScreen({ navigation, route }) {
           </View>
         ) : null}
 
-        {/* Return Video Note & Button for Cancelled Orders */}
-        {orderStatus === 'cancelled' && (
+        {/* Return Video Note & Button - ONLY for return_requested orders */}
+        {orderStatus === 'return_requested' && (
           <View style={styles.sectionContainer}>
             <View style={styles.returnNoticeCard}>
               <AlertCircle size={20} color="#B06000" />
               <View style={styles.returnNoticeTextContainer}>
-                <Text style={styles.returnNoticeTitle}>Return / Cancellation Details</Text>
+                <Text style={styles.returnNoticeTitle}>Return Verification Video</Text>
                 <Text style={styles.returnNoticeText}>
-                  Please share your unboxing video on WhatsApp for validation. Mention Order ID: #{order.orderNumber}
+                  Please share your package unboxing video on WhatsApp for return validation. Mention Order ID: #{order.orderNumber}
                 </Text>
               </View>
               <TouchableOpacity
                 style={styles.sendVideoBtn}
                 activeOpacity={0.8}
                 onPress={() => {
-                  const message = `Hello Shagun Beauty support, here is the unboxing video for my returned order #${order.orderNumber}.`;
+                  const message = `Hello Shagun Beauty support, here is the unboxing video for my return request for order #${order.orderNumber}.`;
                   const url = `https://wa.me/919045791373?text=${encodeURIComponent(message)}`;
                   Linking.openURL(url).catch(() => {
                     Alert.alert('Error', 'WhatsApp is not installed. Please contact support.');
@@ -501,12 +750,12 @@ export default function OrderDetailScreen({ navigation, route }) {
               )}
               <Text style={styles.paymentMethodText}>{getPaymentModeLabel(paymentMode)}</Text>
             </View>
-            {/* <View style={styles.paymentSubRow}>
+            <View style={styles.paymentSubRow}>
               <Text style={styles.paymentLabel}>Payment Status: </Text>
-              <Text style={[styles.paymentValue, { color: paymentStatusDetails.color }]}>
-                {paymentStatusDetails.label}
+              <Text style={[styles.paymentValue, { color: isRefunded ? '#E11D48' : paymentStatusDetails.color }]}>
+                {isRefunded ? 'Refunded' : paymentStatusDetails.label}
               </Text>
-            </View> */}
+            </View>
           </View>
         </View>
 
@@ -564,17 +813,48 @@ export default function OrderDetailScreen({ navigation, route }) {
           </View>
         </View>
 
-        {/* Cancel / Return Action Button */}
-        {orderStatus !== 'cancelled' && (
+        {/* Cancel / Return / Complete Payment Action Buttons */}
+        {!isRefunded && (
           <View style={styles.actionButtonContainer}>
-            {orderStatus === 'delivered' ? (
+            {canRetryPayment ? (
+              <>
+                <TouchableOpacity
+                  style={[styles.completePaymentPrimaryBtn, isCompletingPayment && { opacity: 0.7 }]}
+                  activeOpacity={0.85}
+                  disabled={isCompletingPayment}
+                  onPress={handleCompletePayment}>
+                  {isCompletingPayment ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                  ) : (
+                    <>
+                      <CreditCard size={18} color="#FFFFFF" style={{ marginRight: 8 }} />
+                      <Text style={styles.actionButtonText}>Complete Payment</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+
+                {canCancelOrder && (
+                  <TouchableOpacity
+                    style={styles.cancelOutlineButton}
+                    activeOpacity={0.8}
+                    disabled={isCancelling || isCompletingPayment}
+                    onPress={handleCancelOrder}>
+                    {isCancelling ? (
+                      <ActivityIndicator size="small" color="#64748B" />
+                    ) : (
+                      <Text style={styles.cancelOutlineButtonText}>Cancel Order</Text>
+                    )}
+                  </TouchableOpacity>
+                )}
+              </>
+            ) : canReturnOrder ? (
               <TouchableOpacity
                 style={styles.returnButton}
                 activeOpacity={0.8}
                 onPress={handleReturnOrder}>
                 <Text style={styles.actionButtonText}>Return Order</Text>
               </TouchableOpacity>
-            ) : (
+            ) : canCancelOrder ? (
               <TouchableOpacity
                 style={[styles.cancelButton, isCancelling && { opacity: 0.7 }]}
                 activeOpacity={0.8}
@@ -586,7 +866,7 @@ export default function OrderDetailScreen({ navigation, route }) {
                   <Text style={styles.actionButtonText}>Cancel Order</Text>
                 )}
               </TouchableOpacity>
-            )}
+            ) : null}
           </View>
         )}
 
@@ -595,119 +875,72 @@ export default function OrderDetailScreen({ navigation, route }) {
       {/* Return Order Bottom Sheet */}
       <BottomSheetModal
         visible={isReturnSheetVisible}
-        onClose={() => setIsReturnSheetVisible(false)}
+        onClose={() => !isSubmittingReturn && setIsReturnSheetVisible(false)}
         showHandle={true}
       >
         <View style={styles.sheetContent}>
-          <Text style={styles.sheetTitle}>Return / Replacement</Text>
-          
-          {isReturnWindowValid() ? (
-            <>
-              {/* Active Return Info */}
-              <View style={[styles.infoBanner, { backgroundColor: '#E6F4EA' }]}>
-                <Clock size={16} color="#137333" />
-                <Text style={[styles.infoBannerText, { color: '#137333' }]}>
-                  Return request window is active (48 hours)
-                </Text>
-              </View>
-              
-              <Text style={styles.sheetInstructionTitle}>Instructions for Return:</Text>
-              
-              <View style={styles.instructionRow}>
-                <View style={styles.instructionBullet}>
-                  <Text style={styles.bulletText}>1</Text>
-                </View>
-                <Text style={styles.instructionText}>
-                  Please record an unboxing video showing the issue.
-                </Text>
-              </View>
-              
-              <View style={styles.instructionRow}>
-                <View style={styles.instructionBullet}>
-                  <Text style={styles.bulletText}>2</Text>
-                </View>
-                <Text style={styles.instructionText}>
-                  Share the unboxing video and explain the issue on WhatsApp support.
-                </Text>
-              </View>
+          <Text style={styles.sheetTitle}>Return Order</Text>
+          <Text style={styles.sheetSubtitle}>
+            Please select the reason for returning Order #{order.orderNumber}
+          </Text>
 
-              <TouchableOpacity
-                style={[styles.sheetSubmitButton, isCancelling && { opacity: 0.7 }]}
-                activeOpacity={0.85}
-                disabled={isCancelling}
-                onPress={async () => {
-                  if (isCancelling) return;
-                  try {
-                    setIsCancelling(true);
-                    const res = await cancelOrder(order._id || orderId);
-                    const updated = res?.data || res;
-                    setOrder((prev) => (updated ? { ...prev, ...updated } : { ...prev, status: 'cancelled' }));
-                    setIsReturnSheetVisible(false);
-                    Alert.alert(
-                      'Return Requested',
-                      `Return request for Order #${order.orderNumber} submitted successfully. Please send your unboxing video on WhatsApp.`,
-                      [
-                        {
-                          text: 'Send Video',
-                          onPress: () => {
-                            const message = `Hello Shagun Beauty support, here is the unboxing video for my returned order #${order.orderNumber}.`;
-                            const url = `https://wa.me/919045791373?text=${encodeURIComponent(message)}`;
-                            Linking.openURL(url).catch(() => {
-                              Alert.alert('Error', 'WhatsApp is not installed. Please contact support.');
-                            });
-                          }
-                        }
-                      ]
-                    );
-                  } catch (e) {
-                    console.log('Error requesting return:', e);
-                    Alert.alert('Return Failed', e?.message || 'Something went wrong. Please try again.');
-                  } finally {
-                    setIsCancelling(false);
-                  }
-                }}
-              >
-                {isCancelling ? (
-                  <ActivityIndicator size="small" color="#FFFFFF" />
-                ) : (
-                  <>
-                    <MessageSquare size={18} color="#FFFFFF" style={{ marginRight: 8 }} />
-                    <Text style={styles.sheetSubmitButtonText}>Request Return & Send Video</Text>
-                  </>
-                )}
-              </TouchableOpacity>
-            </>
-          ) : (
-            <>
-              {/* Expired Return Info */}
-              <View style={[styles.infoBanner, { backgroundColor: '#FCE8E6' }]}>
-                <AlertCircle size={16} color="#C5221F" />
-                <Text style={[styles.infoBannerText, { color: '#C5221F' }]}>
-                  Return request window is expired
-                </Text>
-              </View>
-              
-              <Text style={styles.sheetMessageText}>
-                Returns are only accepted within 48 hours of delivery. This order was delivered on {getDeliveryDateFormatted()} (over 48 hours ago).
-              </Text>
+          <View style={styles.reasonsListContainer}>
+            {RETURN_REASONS.map((reason) => {
+              const isSelected = selectedReturnReason === reason;
+              return (
+                <TouchableOpacity
+                  key={reason}
+                  style={[styles.reasonOptionCard, isSelected && styles.reasonOptionCardSelected]}
+                  activeOpacity={0.7}
+                  onPress={() => setSelectedReturnReason(reason)}>
+                  <View style={[styles.reasonRadioOuter, isSelected && styles.reasonRadioOuterSelected]}>
+                    {isSelected && <View style={styles.reasonRadioInner} />}
+                  </View>
+                  <Text style={[styles.reasonText, isSelected && styles.reasonTextSelected]}>
+                    {reason}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
 
-              <TouchableOpacity
-                style={[styles.sheetSubmitButton, { backgroundColor: '#64748B' }]}
-                activeOpacity={0.85}
-                onPress={() => {
-                  setIsReturnSheetVisible(false);
-                  const message = `Hello Shagun Beauty support, I have a query regarding my delivered order #${order.orderNumber}.`;
-                  const url = `https://wa.me/919045791373?text=${encodeURIComponent(message)}`;
-                  Linking.openURL(url).catch(() => {
-                    Alert.alert('Error', 'WhatsApp is not installed. Please contact support at +91 90457 91373.');
-                  });
-                }}
-              >
-                <MessageSquare size={18} color="#FFFFFF" style={{ marginRight: 8 }} />
-                <Text style={styles.sheetSubmitButtonText}>Contact Support anyway</Text>
-              </TouchableOpacity>
-            </>
-          )}
+          <View style={styles.commentInputContainer}>
+            <Text style={styles.commentInputLabel}>
+              {selectedReturnReason === 'Other' ? 'Please specify reason *' : 'Additional details (optional)'}
+            </Text>
+            <TextInput
+              style={styles.commentInput}
+              placeholder={selectedReturnReason === 'Other' ? 'Describe the reason for return...' : 'Add any additional details...'}
+              placeholderTextColor="#94A3B8"
+              value={customReturnReason}
+              onChangeText={setCustomReturnReason}
+              multiline
+              numberOfLines={3}
+              textAlignVertical="top"
+            />
+          </View>
+
+          <View style={styles.sheetButtonsRow}>
+            <TouchableOpacity
+              style={styles.sheetCancelBtn}
+              activeOpacity={0.8}
+              disabled={isSubmittingReturn}
+              onPress={() => setIsReturnSheetVisible(false)}>
+              <Text style={styles.sheetCancelBtnText}>Cancel</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.sheetConfirmBtnPrimary, isSubmittingReturn && { opacity: 0.7 }]}
+              activeOpacity={0.85}
+              disabled={isSubmittingReturn || (selectedReturnReason === 'Other' && !customReturnReason.trim())}
+              onPress={handleReturnOrderSubmit}>
+              {isSubmittingReturn ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <Text style={styles.sheetConfirmBtnText}>Submit Return</Text>
+              )}
+            </TouchableOpacity>
+          </View>
         </View>
       </BottomSheetModal>
 
@@ -728,7 +961,7 @@ export default function OrderDetailScreen({ navigation, route }) {
           </View>
           
           <Text style={styles.sheetMessageText}>
-            Are you sure you want to cancel Order #${order.orderNumber}? The items in this order will be returned to stock.
+            Are you sure you want to cancel Order #{order.orderNumber}? The items in this order will be returned to stock.
           </Text>
 
           <View style={styles.sheetButtonsRow}>
@@ -745,22 +978,7 @@ export default function OrderDetailScreen({ navigation, route }) {
               style={[styles.sheetConfirmBtnDestructive, isCancelling && { opacity: 0.7 }]}
               activeOpacity={0.85}
               disabled={isCancelling}
-              onPress={async () => {
-                if (isCancelling) return;
-                try {
-                  setIsCancelling(true);
-                  const res = await cancelOrder(order._id || orderId);
-                  const updated = res?.data || res;
-                  setOrder((prev) => (updated ? { ...prev, ...updated } : { ...prev, status: 'cancelled' }));
-                  setIsCancelSheetVisible(false);
-                  Alert.alert('Order Cancelled', `Order #${order.orderNumber} has been cancelled successfully.`);
-                } catch (e) {
-                  console.log('Error cancelling order:', e);
-                  Alert.alert('Cancellation Failed', e?.message || 'Something went wrong. Please try again.');
-                } finally {
-                  setIsCancelling(false);
-                }
-              }}
+              onPress={handleCancelOrderSubmit}
             >
               {isCancelling ? (
                 <ActivityIndicator size="small" color="#FFFFFF" />
@@ -1370,5 +1588,229 @@ const styles = StyleSheet.create({
     fontSize: moderateScale(13),
     fontFamily: fonts.big,
     color: '#FFFFFF',
+  },
+  refundCard: {
+    backgroundColor: '#FFF1F2',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#FECDD3',
+    padding: 16,
+  },
+  refundHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  refundIconCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#FFE4E6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  refundHeaderTextWrapper: {
+    flex: 1,
+  },
+  refundTitle: {
+    fontSize: moderateScale(15),
+    fontFamily: fonts.big,
+    color: '#E11D48',
+  },
+  refundSubtitle: {
+    fontSize: moderateScale(12),
+    fontFamily: fonts.medium,
+    color: '#9F1239',
+    marginTop: 2,
+    lineHeight: 16,
+  },
+  refundDivider: {
+    height: 1,
+    backgroundColor: '#FECDD3',
+    marginVertical: 12,
+  },
+  refundDetailsList: {
+    gap: 8,
+  },
+  refundDetailRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  refundDetailLabel: {
+    fontSize: moderateScale(13),
+    fontFamily: fonts.medium,
+    color: '#4B5563',
+  },
+  refundDetailValue: {
+    fontSize: moderateScale(15),
+    fontFamily: fonts.big,
+    color: '#E11D48',
+  },
+  refundDetailDate: {
+    fontSize: moderateScale(13),
+    fontFamily: fonts.big,
+    color: '#1F2937',
+  },
+  refundDetailId: {
+    fontSize: moderateScale(12),
+    fontFamily: fonts.medium,
+    color: '#6B7280',
+  },
+  retryPaymentBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#FFFBEB',
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    borderRadius: 16,
+    padding: 14,
+  },
+  retryPaymentLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    paddingRight: 10,
+  },
+  retryPaymentTitle: {
+    fontSize: moderateScale(13),
+    fontFamily: fonts.big,
+    color: '#D97706',
+  },
+  retryPaymentSubtitle: {
+    fontSize: moderateScale(11),
+    fontFamily: fonts.medium,
+    color: '#B45309',
+    marginTop: 1,
+  },
+  retryPayInlineBtn: {
+    backgroundColor: colors.primary,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  retryPayInlineBtnText: {
+    fontSize: moderateScale(12),
+    fontFamily: fonts.big,
+    color: '#FFFFFF',
+  },
+  completePaymentPrimaryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.primary,
+    borderRadius: 12,
+    paddingVertical: 14,
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 3,
+    marginBottom: 10,
+  },
+  cancelOutlineButton: {
+    borderWidth: 1.5,
+    borderColor: '#EF4444',
+    borderRadius: 12,
+    paddingVertical: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFFFFF',
+  },
+  cancelOutlineButtonText: {
+    fontSize: moderateScale(14),
+    fontFamily: fonts.big,
+    color: '#EF4444',
+  },
+  sheetSubtitle: {
+    fontSize: moderateScale(13),
+    fontFamily: fonts.medium,
+    color: '#64748B',
+    textAlign: 'center',
+    marginBottom: 16,
+    paddingHorizontal: 8,
+  },
+  reasonsListContainer: {
+    gap: 10,
+    marginBottom: 16,
+  },
+  reasonOptionCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+  },
+  reasonOptionCardSelected: {
+    backgroundColor: colors.primary + '08',
+    borderColor: colors.primary,
+  },
+  reasonRadioOuter: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: '#CBD5E1',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  reasonRadioOuterSelected: {
+    borderColor: colors.primary,
+  },
+  reasonRadioInner: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: colors.primary,
+  },
+  reasonText: {
+    fontSize: moderateScale(14),
+    fontFamily: fonts.medium,
+    color: '#334155',
+  },
+  reasonTextSelected: {
+    color: colors.primary,
+    fontFamily: fonts.big,
+  },
+  commentInputContainer: {
+    marginBottom: 16,
+  },
+  commentInputLabel: {
+    fontSize: moderateScale(12.5),
+    fontFamily: fonts.medium,
+    color: '#64748B',
+    marginBottom: 6,
+  },
+  commentInput: {
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: moderateScale(13),
+    fontFamily: fonts.medium,
+    color: '#0F172A',
+    minHeight: 70,
+  },
+  sheetConfirmBtnPrimary: {
+    flex: 1,
+    height: 48,
+    backgroundColor: colors.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 12,
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 3,
   },
 });

@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Image,
   KeyboardAvoidingView,
+  Linking,
   Platform,
   ScrollView,
   StatusBar,
@@ -382,6 +383,35 @@ export default function SignInScreen({ navigation, route }) {
                 </TouchableOpacity>
               </View>
 
+              {mode !== 'register' ? (
+                <View style={styles.pinActionsRow}>
+                  <TouchableOpacity
+                    onPress={handleBackPress}
+                    activeOpacity={0.7}
+                    style={styles.pinActionTouch}>
+                    <Text style={styles.pinActionText}>Edit phone number</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    activeOpacity={0.7}
+                    onPress={() => {
+                      navigation.navigate('ForgotPin', { phone });
+                    }}
+                    style={styles.pinActionTouch}>
+                    <Text style={styles.pinActionText}>Forgot PIN?</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <View style={styles.pinActionsRowSingle}>
+                  <TouchableOpacity
+                    onPress={handleBackPress}
+                    activeOpacity={0.7}
+                    style={styles.pinActionTouch}>
+                    <Text style={styles.pinActionText}>Edit phone number</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+
               {!!errorMessage && <Text style={styles.errorText}>{errorMessage}</Text>}
 
               <TouchableOpacity
@@ -400,37 +430,34 @@ export default function SignInScreen({ navigation, route }) {
                   </Text>
                 )}
               </TouchableOpacity>
-
-              <View style={styles.linksRow}>
-                <TouchableOpacity
-                  onPress={handleBackPress}
-                  activeOpacity={0.7}
-                  style={styles.linkButton}>
-                  <Text style={styles.linkText}>Edit phone number</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  activeOpacity={0.7}
-                  onPress={() => {
-                    navigation.navigate('ForgotPin');
-                  }}
-                  style={styles.linkButton}>
-                  <Text style={styles.linkText}>Forgot PIN?</Text>
-                </TouchableOpacity>
-              </View>
             </View>
           )}
 
         </ScrollView>
       </KeyboardAvoidingView>
 
-      {step === 'phone' && (
+      {step === 'phone' ? (
         <View style={styles.termsContainer}>
           <Text style={styles.termsText}>
             By continuing, you agree to our{' '}
             <Text style={styles.termsLink}>Terms of Service</Text> and{' '}
             <Text style={styles.termsLink}>Privacy Policy</Text>.
           </Text>
+        </View>
+      ) : (
+        <View style={styles.troubleBottomContainer}>
+          <TouchableOpacity
+            activeOpacity={0.7}
+            onPress={() => {
+              Linking.openURL('tel:+919045791373').catch(() => {
+                navigation.navigate('ContactUs');
+              });
+            }}
+            style={styles.troubleTouch}>
+            <Text style={styles.troubleText}>
+              Trouble logging in? <Text style={styles.troubleNumber}>+91 90457 91373</Text>
+            </Text>
+          </TouchableOpacity>
         </View>
       )}
     </SafeAreaView>
@@ -477,18 +504,50 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     paddingHorizontal: 10,
   },
-  linksRow: {
+  pinActionsRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 20,
+    marginTop: -8,
+    marginBottom: 8,
+    paddingHorizontal: 2,
+  },
+  pinActionsRowSingle: {
+    flexDirection: 'row',
+    justifyContent: 'flex-start',
+    alignItems: 'center',
+    marginTop: -8,
+    marginBottom: 8,
+    paddingHorizontal: 2,
+  },
+  pinActionTouch: {
+    paddingVertical: 6,
+    paddingHorizontal: 4,
+  },
+  pinActionText: {
+    fontSize: moderateScale(13),
+    fontFamily: fonts.medium,
+    color: colors.primary,
+    textDecorationLine: 'underline',
+  },
+  troubleBottomContainer: {
+    paddingVertical: 14,
+    alignItems: 'center',
+    paddingHorizontal: 28,
+    backgroundColor: colors.background,
+    borderTopWidth: 1,
+    borderTopColor: '#F1F5F9',
+  },
+  troubleTouch: {
+    paddingVertical: 4,
     paddingHorizontal: 8,
   },
-  linkButton: {
-    paddingVertical: 8,
+  troubleText: {
+    fontSize: moderateScale(13),
+    fontFamily: fonts.small,
+    color: '#64748B',
   },
-  linkText: {
-    fontSize: moderateScale(14),
+  troubleNumber: {
     fontFamily: fonts.medium,
     color: colors.primary,
     textDecorationLine: 'underline',

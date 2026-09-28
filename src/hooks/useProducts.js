@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { getProducts, getProductById } from '../api/product';
 
-export function useProducts({ category = '', sub_category = '', brand = '', per_page = 50, search = '' } = {}) {
+export function useProducts({ category = '', sub_category = '', brand = '', per_page = 1000, search = '' } = {}) {
   return useQuery({
     queryKey: ['products', category, sub_category, brand, per_page, search],
     queryFn: () => getProducts({ category, sub_category, brand, per_page, search }),

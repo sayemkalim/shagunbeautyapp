@@ -23,6 +23,8 @@ import {
   Inbox,
 } from 'lucide-react-native';
 
+import { useIsFocused } from '@react-navigation/native';
+import { useQueryClient } from '@tanstack/react-query';
 import { useDispatch, useSelector } from 'react-redux';
 import LinearGradient from 'react-native-linear-gradient';
 import { useProducts } from '../hooks/useProducts';
@@ -31,9 +33,11 @@ import { addToCart } from '../redux/cartSlice';
 import { addToCartApi } from '../api/cart';
 import { ProductCardSkeleton } from '../components/Skeleton';
 import OptimizedImage from '../components/OptimizedImage';
+import MarqueeText from '../components/MarqueeText';
 import colors from '../theme/colors';
 import fonts from '../theme/typography';
 import { moderateScale } from '../theme/responsive';
+import { isProductOutOfStock, getProductStockStatus } from '../utils/productUtils';
 
 const { height } = Dimensions.get('window');
 
@@ -43,7 +47,6 @@ const SORT_OPTIONS = [
   "Popularity",
   "Discount",
   "Price - low to high",
-  "Customer Rating",
 ];
 
 const parsePrice = (value) => {
@@ -87,18 +90,34 @@ export default function ProductsScreen({ route, navigation }) {
   
   // Filter/Sort states
   const [sortBy, setSortBy] = useState("What's new");
-  const [selectedBrands, setSelectedBrands] = useState(() =>
-    brandId ? { [brandId]: true } : {}
-  );
+  const [selectedBrands, setSelectedBrands] = useState(() => {
+    if (brandId) return { [brandId]: true };
+    if (brandName) return { [brandName]: true };
+    return {};
+  });
   const [brandSearch, setBrandSearch] = useState('');
   const [favorites, setFavorites] = useState({});
 
+  const isFocused = useIsFocused();
+  const queryClient = useQueryClient();
   const dispatch = useDispatch();
   const cartItems = useSelector((state) => state.cart.items || []);
   const [loadingProductId, setLoadingProductId] = useState(null);
 
+  useEffect(() => {
+    if (isFocused) {
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+    }
+  }, [isFocused, queryClient]);
+
   const handleAddToCart = async (product) => {
     const pId = product._id || product.id;
+    const cached = queryClient?.getQueryData(['product', pId]);
+    const effectiveItem = cached ? { ...product, ...(cached.data || cached) } : product;
+    if (isProductOutOfStock(effectiveItem)) {
+      return;
+    }
+
     const isInCart = cartItems.some((ci) => (ci.productId || ci.id) === pId);
 
     if (isInCart) {
@@ -134,8 +153,12 @@ export default function ProductsScreen({ route, navigation }) {
         brandName: bName,
         price: originalPrice > 0 ? originalPrice : finalPrice,
         discountedPrice: finalPrice,
+        baseDiscountedPrice: finalPrice,
+        price_tiers: product.price_tiers || product.priceTiers || null,
         image: imageUri,
         quantity: 1,
+        available_inventory: product.available_inventory,
+        base_available_inventory: product.base_available_inventory,
       })
     );
 
@@ -152,23 +175,34 @@ export default function ProductsScreen({ route, navigation }) {
     }
   };
 
+  const { data: brands = [], isLoading: isBrandsLoading } = useBrands();
+
   useEffect(() => {
     if (brandId) {
       setSelectedBrands({ [brandId]: true });
+    } else if (brandName) {
+      const match = brands.find(
+        (b) => b.name && b.name.trim().toLowerCase() === brandName.trim().toLowerCase()
+      );
+      if (match) {
+        setSelectedBrands({ [match._id]: true });
+      } else {
+        setSelectedBrands({ [brandName]: true });
+      }
     }
-  }, [brandId]);
+  }, [brandId, brandName, brands]);
 
-  // API calls
+  // API calls - always request full catalog page (per_page: 1000) so no brand products are cut off
   const {
     data: fetchedProducts = [],
     isLoading: isProductsLoading,
     isRefetching,
     refetch,
-  } = useProducts(
-    hasBannerProducts
-      ? { per_page: 500 }
-      : { category: categoryId, brand: brandId }
-  );
+  } = useProducts({
+    category: categoryId,
+    brand: brandId,
+    per_page: 1000,
+  });
 
   const products = useMemo(() => {
     if (hasBannerProducts) {
@@ -204,8 +238,6 @@ export default function ProductsScreen({ route, navigation }) {
   }, [hasBannerProducts, bannerProducts, fetchedProducts]);
 
   const isDisplayLoading = hasBannerProducts ? false : isProductsLoading;
-
-  const { data: brands = [], isLoading: isBrandsLoading } = useBrands();
 
   // Filtered/Sorted brands for Brand Sheet
   const filteredBrands = useMemo(() => {
@@ -287,12 +319,51 @@ export default function ProductsScreen({ route, navigation }) {
     }
 
     // Brand filtering
-    const activeBrandIds = Object.keys(selectedBrands).filter((id) => selectedBrands[id]);
-    if (activeBrandIds.length > 0) {
+    const activeBrandKeys = Object.keys(selectedBrands).filter((id) => selectedBrands[id]);
+    if (activeBrandKeys.length > 0) {
+      const activeIds = new Set(activeBrandKeys);
+      const activeNormalizedNames = new Set();
+
+      brands.forEach((b) => {
+        const bNameNorm = b.name ? b.name.trim().toLowerCase() : '';
+        if (
+          activeBrandKeys.includes(b._id) ||
+          (bNameNorm && activeBrandKeys.some((k) => k.trim().toLowerCase() === bNameNorm))
+        ) {
+          activeIds.add(b._id);
+          if (bNameNorm) activeNormalizedNames.add(bNameNorm);
+        }
+      });
+
+      activeBrandKeys.forEach((k) => {
+        if (k) activeNormalizedNames.add(k.trim().toLowerCase());
+      });
+
       result = result.filter((p) => {
         const pBrandId = typeof p.brand === 'object' ? p.brand?._id : p.brand;
-        const pBrandName = typeof p.brand === 'object' ? p.brand?.name : p.brand;
-        return activeBrandIds.includes(pBrandId) || activeBrandIds.includes(pBrandName);
+        const pBrandName =
+          typeof p.brand === 'object'
+            ? p.brand?.name
+            : (p.brandName || (typeof p.brand === 'string' ? p.brand : ''));
+        const pNameLower = (p.name || '').toLowerCase();
+
+        // 1. Direct ID match
+        if (pBrandId && activeIds.has(pBrandId)) return true;
+
+        // 2. Direct or normalized brand name match
+        if (pBrandName) {
+          const normPBrand = pBrandName.trim().toLowerCase();
+          if (activeNormalizedNames.has(normPBrand)) return true;
+        }
+
+        // 3. Fallback: Check if product name mentions any of the active brand names
+        for (const brandNameStr of activeNormalizedNames) {
+          if (brandNameStr.length >= 3 && pNameLower.includes(brandNameStr)) {
+            return true;
+          }
+        }
+
+        return false;
       });
     }
 
@@ -328,12 +399,12 @@ export default function ProductsScreen({ route, navigation }) {
     }
 
     return result;
-  }, [products, selectedBrands, sortBy, filterType, minPrice, maxPrice]);
+  }, [products, selectedBrands, sortBy, filterType, minPrice, maxPrice, brands]);
 
   // Check if all filtered brands are selected
   const allBrandsSelected = useMemo(() => {
     if (filteredBrands.length === 0) return false;
-    return filteredBrands.every((b) => !!selectedBrands[b._id]);
+    return filteredBrands.every((b) => !!selectedBrands[b._id] || (b.name && !!selectedBrands[b.name]));
   }, [filteredBrands, selectedBrands]);
 
   const toggleSelectAllBrands = () => {
@@ -342,7 +413,8 @@ export default function ProductsScreen({ route, navigation }) {
       setSelectedBrands((prev) => {
         const next = { ...prev };
         filteredBrands.forEach((b) => {
-          next[b._id] = false;
+          delete next[b._id];
+          if (b.name) delete next[b.name];
         });
         return next;
       });
@@ -362,11 +434,18 @@ export default function ProductsScreen({ route, navigation }) {
     setSelectedBrands({});
   };
 
-  const toggleBrandCheckbox = (id) => {
-    setSelectedBrands((prev) => ({
-      ...prev,
-      [id]: !prev[id],
-    }));
+  const toggleBrandCheckbox = (id, name) => {
+    setSelectedBrands((prev) => {
+      const next = { ...prev };
+      const isCurrentlySelected = !!(next[id] || (name && next[name]));
+      if (isCurrentlySelected) {
+        delete next[id];
+        if (name) delete next[name];
+      } else {
+        next[id] = true;
+      }
+      return next;
+    });
   };
 
   const toggleFavorite = (id) => {
@@ -458,20 +537,48 @@ export default function ProductsScreen({ route, navigation }) {
           </View>
 
           {(() => {
-            const isInCart = cartItems.some((ci) => (ci.productId || ci.id) === item._id);
-            const isLoadingThis = loadingProductId === item._id;
+            const pId = item._id || item.id;
+            const cached = queryClient?.getQueryData(['product', pId]);
+            const effectiveItem = cached ? { ...item, ...(cached.data || cached) } : item;
+            const { isCompletelyOutOfStock, isSelectOption } = getProductStockStatus(effectiveItem);
+            const isInCart = cartItems.some((ci) => (ci.productId || ci.id) === pId);
+            const isLoadingThis = loadingProductId === pId;
 
             return (
               <TouchableOpacity
-                style={[styles.addToBagButton, isInCart && styles.goToBagButton]}
+                style={[
+                  styles.addToBagButton,
+                  isInCart && styles.goToBagButton,
+                  isCompletelyOutOfStock && styles.outOfStockButton,
+                ]}
                 activeOpacity={0.85}
-                disabled={isLoadingThis}
-                onPress={() => handleAddToCart(item)}>
+                disabled={isCompletelyOutOfStock || isLoadingThis}
+                onPress={() => {
+                  if (isSelectOption) {
+                    navigation.navigate('ProductDetail', {
+                      productId: effectiveItem._id || effectiveItem.id,
+                      product: effectiveItem,
+                    });
+                  } else {
+                    handleAddToCart(effectiveItem);
+                  }
+                }}>
                 {isLoadingThis ? (
                   <ActivityIndicator size="small" color={isInCart ? '#FFFFFF' : colors.primary} />
                 ) : (
-                  <Text style={[styles.addToBagText, isInCart && styles.goToBagText]}>
-                    {isInCart ? 'GO TO BAG' : 'ADD TO BAG'}
+                  <Text
+                    style={[
+                      styles.addToBagText,
+                      isInCart && styles.goToBagText,
+                      isCompletelyOutOfStock && styles.outOfStockText,
+                    ]}>
+                    {isCompletelyOutOfStock
+                      ? 'OUT OF STOCK'
+                      : isSelectOption
+                      ? 'SELECT OPTION'
+                      : isInCart
+                      ? 'GO TO BAG'
+                      : 'ADD TO BAG'}
                   </Text>
                 )}
               </TouchableOpacity>
@@ -495,7 +602,12 @@ export default function ProductsScreen({ route, navigation }) {
             onPress={() => navigation.goBack()}>
             <ChevronLeft size={24} color="#1A1C1E" />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>{screenTitle}</Text>
+          <MarqueeText
+            text={screenTitle}
+            style={styles.headerTitle}
+            containerStyle={styles.headerTitleContainer}
+            threshold={18}
+          />
         </View>
         
         <View style={styles.headerRightContainer}>
@@ -536,7 +648,7 @@ export default function ProductsScreen({ route, navigation }) {
           key={`products-grid-${numColumns}`}
           data={processedProducts}
           renderItem={renderProductItem}
-          keyExtractor={(item) => item._id}
+          keyExtractor={(item, index) => item._id || item.id || `prod-${index}`}
           numColumns={numColumns}
           columnWrapperStyle={styles.columnWrapper}
           contentContainerStyle={styles.listContent}
@@ -649,13 +761,13 @@ export default function ProductsScreen({ route, navigation }) {
                 <View style={styles.brandSection}>
                   <Text style={styles.brandSectionHeader}>{item.title}</Text>
                   {item.data.map((brand) => {
-                    const isChecked = !!selectedBrands[brand._id];
+                    const isChecked = !!selectedBrands[brand._id] || (brand.name && !!selectedBrands[brand.name]);
                     return (
                       <TouchableOpacity
                         key={brand._id}
                         style={styles.brandListItem}
                         activeOpacity={0.8}
-                        onPress={() => toggleBrandCheckbox(brand._id)}>
+                        onPress={() => toggleBrandCheckbox(brand._id, brand.name)}>
                         <View style={[styles.checkboxSquare, isChecked && styles.checkboxSquareActive]}>
                           {isChecked && <Text style={styles.checkboxCheckmark}>✓</Text>}
                         </View>
@@ -715,9 +827,17 @@ const styles = StyleSheet.create({
     borderBottomColor: '#F1F5F9',
   },
   headerLeftContainer: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+    marginRight: 12,
+  },
+  headerTitleContainer: {
+    flex: 1,
+    height: 32,
+    justifyContent: 'center',
+    overflow: 'hidden',
   },
   headerRightContainer: {
     flexDirection: 'row',
@@ -946,6 +1066,13 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: moderateScale(13),
     fontFamily: fonts.big,
+  },
+  outOfStockButton: {
+    backgroundColor: '#94A3B8',
+    borderColor: '#94A3B8',
+  },
+  outOfStockText: {
+    color: '#FFFFFF',
   },
   floatingFilterBar: {
     position: 'absolute',

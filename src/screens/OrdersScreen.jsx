@@ -13,7 +13,7 @@ import {
   Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ChevronLeft, ShoppingBag, Calendar, ArrowRight, Check, X } from 'lucide-react-native';
+import { ChevronLeft, ShoppingBag, Calendar, ArrowRight, Check, X, CreditCard, RotateCcw } from 'lucide-react-native';
 import colors from '../theme/colors';
 import fonts from '../theme/typography';
 import { moderateScale } from '../theme/responsive';
@@ -208,6 +208,7 @@ export default function OrdersScreen({ navigation }) {
     const list = [];
     const orderId = activeTrackOrder._id;
     const status = String(activeTrackOrder.status || '').toLowerCase();
+    const paymentStatus = String(activeTrackOrder.paymentStatus || '').toLowerCase();
     const orderLocalTimes = localTrackTimes[orderId] || {};
     
     // Always show Order Placed
@@ -215,6 +216,31 @@ export default function OrdersScreen({ navigation }) {
       title: 'Order Placed',
       time: formatDateTime(orderLocalTimes.pending || activeTrackOrder.createdAt),
     });
+
+    if (status === 'refunded' || paymentStatus === 'refunded') {
+      list.push({
+        title: 'Refunded',
+        time: formatDateTime(activeTrackOrder.refundedAt || orderLocalTimes.refunded || activeTrackOrder.updatedAt),
+        isCancelled: true,
+      });
+      return list;
+    }
+
+    if (status === 'return_requested') {
+      list.push({
+        title: 'Return Requested',
+        time: formatDateTime(orderLocalTimes.return_requested || activeTrackOrder.updatedAt),
+      });
+      return list;
+    }
+
+    if (status === 'returned') {
+      list.push({
+        title: 'Returned',
+        time: formatDateTime(orderLocalTimes.returned || activeTrackOrder.updatedAt),
+      });
+      return list;
+    }
     
     if (status === 'cancelled') {
       list.push({
@@ -225,7 +251,7 @@ export default function OrdersScreen({ navigation }) {
       return list;
     }
     
-    if (['confirmed', 'processing', 'shipped', 'delivered'].includes(status)) {
+    if (['confirmed', 'processing', 'shipped', 'out_for_delivery', 'delivered'].includes(status)) {
       const confirmedTimestamp = orderLocalTimes.confirmed || 
                                  orderLocalTimes.processing || 
                                  activeTrackOrder.confirmedAt || 
@@ -237,7 +263,7 @@ export default function OrdersScreen({ navigation }) {
       });
     }
     
-    if (['shipped', 'delivered'].includes(status)) {
+    if (['shipped', 'out_for_delivery', 'delivered'].includes(status)) {
       const shippedTimestamp = orderLocalTimes.shipped || 
                                activeTrackOrder.shippedAt || 
                                (status === 'shipped' ? activeTrackOrder.updatedAt : activeTrackOrder.createdAt);
@@ -245,6 +271,17 @@ export default function OrdersScreen({ navigation }) {
       list.push({
         title: 'Shipped',
         time: formatDateTime(shippedTimestamp),
+      });
+    }
+
+    if (['out_for_delivery', 'delivered'].includes(status)) {
+      const outTimestamp = orderLocalTimes.out_for_delivery || 
+                           activeTrackOrder.outForDeliveryAt || 
+                           (status === 'out_for_delivery' ? activeTrackOrder.updatedAt : activeTrackOrder.createdAt);
+                           
+      list.push({
+        title: 'Out for Delivery',
+        time: formatDateTime(outTimestamp),
       });
     }
     
@@ -303,29 +340,45 @@ export default function OrdersScreen({ navigation }) {
     return date.toLocaleDateString('en-GB', options);
   };
 
-  const getStatusStyle = (status) => {
-    const s = String(status).toLowerCase();
+  const getStatusStyle = (status, paymentStatus) => {
+    const s = String(status || '').toLowerCase();
+    const ps = String(paymentStatus || '').toLowerCase();
+
+    if (s === 'refunded' || ps === 'refunded') {
+      return { bg: '#FFE4E6', text: '#E11D48', label: 'Refunded' };
+    }
     switch (s) {
+      case 'out_for_delivery':
+        return { bg: '#EDE9FE', text: '#6D28D9', label: 'Out for Delivery' };
       case 'delivered':
-        return { bg: '#E6F4EA', text: '#137333', label: 'Delivered' };
+        return { bg: '#DCFCE7', text: '#15803D', label: 'Delivered' };
       case 'cancelled':
-        return { bg: '#FCE8E6', text: '#C5221F', label: 'Cancelled' };
+        return { bg: '#FEE2E2', text: '#DC2626', label: 'Cancelled' };
+      case 'return_requested':
+        return { bg: '#FFEDD5', text: '#C2410C', label: 'Return Requested' };
+      case 'returned':
+        return { bg: '#CCFBF1', text: '#0F766E', label: 'Returned' };
       case 'shipped':
-        return { bg: '#E8F0FE', text: '#1A73E8', label: 'Shipped' };
+        return { bg: '#E0E7FF', text: '#4338CA', label: 'Shipped' };
       case 'processing':
-        return { bg: '#FEF7E0', text: '#B06000', label: 'Processing' };
+        return { bg: '#F3E8FF', text: '#7E22CE', label: 'Processing' };
       case 'confirmed':
-        return { bg: '#F3E8FF', text: '#7209b7', label: 'Confirmed' };
+        return { bg: '#EFF6FF', text: '#1D4ED8', label: 'Confirmed' };
+      case 'pending':
+        return { bg: '#FEF3C7', text: '#D97706', label: 'Payment Pending' };
       default:
-        return { bg: '#F1F5F9', text: '#475569', label: status || 'Pending' };
+        return { bg: '#FEF3C7', text: '#D97706', label: status || 'Pending' };
     }
   };
 
   const renderOrderItem = ({ item }) => {
-    const statusDetails = getStatusStyle(item.status);
+    const isRefunded = String(item.status || '').toLowerCase() === 'refunded' || String(item.paymentStatus || '').toLowerCase() === 'refunded';
+    const statusDetails = getStatusStyle(item.status, item.paymentStatus);
     const orderItems = item.items || [];
     const totalQty = orderItems.reduce((acc, current) => acc + (current.quantity || 1), 0);
     const totalAmount = parseFloat(item.finalTotalAmount?.$numberDecimal || item.finalTotalAmount || 0);
+    const refundAmount = item.refundAmount !== undefined && item.refundAmount !== null ? parseFloat(item.refundAmount?.$numberDecimal || item.refundAmount) : null;
+    const isPendingOnline = item.paymentMode === 'ONLINE' && item.paymentStatus === 'pending' && item.status !== 'cancelled' && !isRefunded;
 
     return (
       <TouchableOpacity
@@ -376,7 +429,7 @@ export default function OrdersScreen({ navigation }) {
 
         {/* Card Footer */}
         <View style={styles.cardFooter}>
-          <View>
+          <View style={{ flex: 1, paddingRight: 8 }}>
             <Text style={styles.qtyTotalText}>
               {totalQty} Item{totalQty !== 1 ? 's' : ''}
             </Text>
@@ -384,9 +437,31 @@ export default function OrdersScreen({ navigation }) {
               <Text style={styles.totalLabel}>Total: </Text>
               <Text style={styles.totalValue}>₹{Math.round(totalAmount)}</Text>
             </View>
+            {isRefunded && refundAmount !== null ? (
+              <Text style={styles.refundAmountText}>Refund: ₹{Math.round(refundAmount)}</Text>
+            ) : null}
+            {isRefunded && item.refundedAt ? (
+              <Text style={styles.refundedAtText}>Refunded on: {new Date(item.refundedAt).toLocaleDateString('en-GB')}</Text>
+            ) : null}
           </View>
 
-          {String(item.status || '').toLowerCase() !== 'delivered' ? (
+          {isRefunded ? (
+            <View style={styles.refundedBadgeMini}>
+              <RotateCcw size={12} color="#E11D48" style={{ marginRight: 4 }} />
+              <Text style={styles.refundedBadgeMiniText}>Refunded</Text>
+            </View>
+          ) : isPendingOnline ? (
+            <TouchableOpacity
+              style={styles.completePaymentBtn}
+              activeOpacity={0.8}
+              onPress={(e) => {
+                e.stopPropagation();
+                navigation.navigate('OrderDetail', { orderId: item._id, orderData: item, openPayment: true });
+              }}>
+              <CreditCard size={14} color="#FFFFFF" style={{ marginRight: 6 }} />
+              <Text style={styles.completePaymentBtnText}>Complete Payment</Text>
+            </TouchableOpacity>
+          ) : String(item.status || '').toLowerCase() !== 'delivered' && String(item.status || '').toLowerCase() !== 'cancelled' ? (
             <TouchableOpacity
               style={styles.trackBtn}
               activeOpacity={0.7}
@@ -934,5 +1009,50 @@ const styles = StyleSheet.create({
     fontFamily: fonts.medium,
     color: '#64748B',
     marginTop: 2,
+  },
+  refundAmountText: {
+    fontSize: moderateScale(11),
+    fontFamily: fonts.big,
+    color: '#E11D48',
+    marginTop: 2,
+  },
+  refundedAtText: {
+    fontSize: moderateScale(10),
+    fontFamily: fonts.medium,
+    color: '#94A3B8',
+    marginTop: 1,
+  },
+  refundedBadgeMini: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFE4E6',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#FECDD3',
+  },
+  refundedBadgeMiniText: {
+    fontSize: moderateScale(12),
+    fontFamily: fonts.big,
+    color: '#E11D48',
+  },
+  completePaymentBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.primary,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  completePaymentBtnText: {
+    fontSize: moderateScale(12),
+    fontFamily: fonts.big,
+    color: '#FFFFFF',
   },
 });

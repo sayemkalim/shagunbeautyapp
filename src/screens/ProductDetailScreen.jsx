@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -34,13 +34,14 @@ import {
   Check,
   Calendar,
   Share2,
+  ChevronRight,
 } from 'lucide-react-native';
 
 import { useDispatch, useSelector } from 'react-redux';
 import { useFocusEffect } from '@react-navigation/native';
 import { useQueryClient } from '@tanstack/react-query';
 import LinearGradient from 'react-native-linear-gradient';
-import { addToCart, selectCartItems, selectCartTotalQuantity } from '../redux/cartSlice';
+import { addToCart, setCartData, selectCartItems, selectCartTotalQuantity } from '../redux/cartSlice';
 import { addToCartApi } from '../api/cart';
 
 import { useProductDetail, useProducts } from '../hooks/useProducts';
@@ -50,6 +51,7 @@ import { useSubCategories } from '../hooks/useSubCategories';
 import BottomSheetModal from '../components/BottomSheetModal';
 import { Skeleton } from '../components/Skeleton';
 import { resolveImageUrl, getImageSource } from '../utils/imageOptimizer';
+import { getProductStock, isProductOutOfStock } from '../utils/productUtils';
 import colors from '../theme/colors';
 import fonts from '../theme/typography';
 import { moderateScale } from '../theme/responsive';
@@ -59,6 +61,21 @@ const IMAGE_HEIGHT = width * 1.05;
 const DUMMY_IMG = require('../../assets/dummy_product.png');
 const SIMILAR_CARD_GAP = 12;
 const SIMILAR_CARD_WIDTH = (width - 16 * 2 - SIMILAR_CARD_GAP) / 2;
+
+const COSMETIC_SHADE_PALETTE = [
+  '#F3B285', // 220 Natural Beige
+  '#FDE2BC', // 120 Classic Ivory
+  '#DDA477', // Shade 329
+  '#D6976A', // 326 Warm Tan
+  '#D3996E', // 137 Golden Tan
+  '#F7BA87', // 230 Natural Buff
+  '#C68A57', // Shade 339
+  '#E8A97A', // 126 Light Pecan
+  '#E7AD7E', // 127 Golden Honey
+  '#E29D6E', // Warm Caramel
+  '#CE8B5B', // Toffee
+  '#BA7847', // Mocha
+];
 
 function ProductDetailSkeleton({ navigation }) {
   return (
@@ -620,10 +637,12 @@ export default function ProductDetailScreen({ route, navigation }) {
   const [showFullSpecs, setShowFullSpecs] = useState(true);
   const [showToast, setShowToast] = useState(false);
   const [showQtyModal, setShowQtyModal] = useState(false);
+  const [showShadeModal, setShowShadeModal] = useState(false);
   const [isImageModalOpen, setIsImageModalOpen] = useState(false);
   const [isQtyChanged, setIsQtyChanged] = useState(false);
 
   // Automatically pre-select variant if passed via navigation params (e.g. from Cart)
+  // OR if base product is out of stock and variants are in stock!
   useEffect(() => {
     if (targetVariantSku && Array.isArray(product?.variants) && product.variants.length > 0) {
       const idx = product.variants.findIndex(
@@ -635,9 +654,21 @@ export default function ProductDetailScreen({ route, navigation }) {
       );
       if (idx !== -1) {
         setSelectedVariantIndex(idx);
+        return;
       }
     }
-  }, [product?.variants, targetVariantSku]);
+
+    // If base product is out of stock and variants are in stock, auto-select the first in-stock variant!
+    if (product && Array.isArray(product.variants) && product.variants.length > 0) {
+      const baseStock = getProductStock(product, null);
+      if (baseStock <= 0) {
+        const firstInStockIdx = product.variants.findIndex((v) => getProductStock(product, v) > 0);
+        if (firstInStockIdx !== -1) {
+          setSelectedVariantIndex(firstInStockIdx);
+        }
+      }
+    }
+  }, [product, targetVariantSku]);
 
   // Automatically sync initial quantity if passed
   useEffect(() => {
@@ -777,30 +808,45 @@ export default function ProductDetailScreen({ route, navigation }) {
     [rawWeight, product, currentVariant]
   );
 
+
   // Group all shades (Main product base color + Variant colors)
   const allShadeItems = useMemo(() => {
     const list = [];
 
-    // 1. If base product has a color, add it as Main Shade (index: null)
-    if (product?.color && String(product.color).trim() !== '') {
-      const baseShadeName = extractCleanShadeName(
-        {
-          name: product.name,
-          shade: product.shade || product.shade_name || product.shadeName,
-          color: product.color,
-          attributes: product.attributes,
-        },
-        product,
-        0
-      ) || 'Main Shade';
+    // 1. If base product has a color or shade in name, add it as Main Shade (index: null)
+    const baseColor = product?.color && String(product.color).trim() !== '' ? String(product.color).trim() : null;
+    const baseShadeName = extractCleanShadeName(
+      {
+        name: product?.name,
+        shade: product?.shade || product?.shade_name || product?.shadeName,
+        color: product?.color,
+        attributes: product?.attributes,
+      },
+      product,
+      0
+    );
+
+    const hasVariantShades = Array.isArray(product?.variants) && product.variants.some((v, idx) => {
+      const d = getVariantCardDetails(v, product, idx);
+      return !!d.color || (!!d.shadeName && !d.weightLabel);
+    });
+
+    if (baseColor || (hasVariantShades && baseShadeName && baseShadeName !== 'Standard' && baseShadeName !== 'Default')) {
+      const baseImg =
+        (Array.isArray(product?.images) && product?.images[0]) ||
+        product?.image ||
+        product?.banner_image ||
+        null;
 
       list.push({
         id: 'main-base-shade',
         index: null, // null means base product
         variant: null,
-        color: String(product.color).trim(),
-        shadeName: baseShadeName,
-        price: product.discounted_price || product.price,
+        color: baseColor || COSMETIC_SHADE_PALETTE[0],
+        shadeName: baseShadeName || 'Main Shade',
+        price: parsePrice(product?.discounted_price || product?.price),
+        originalPrice: parsePrice(product?.price),
+        image: baseImg,
       });
     }
 
@@ -808,14 +854,27 @@ export default function ProductDetailScreen({ route, navigation }) {
     if (Array.isArray(product?.variants)) {
       product.variants.forEach((v, idx) => {
         const details = getVariantCardDetails(v, product, idx);
-        if (details.color) {
+        const isShade = !!details.color || (!!details.shadeName && !details.weightLabel);
+        if (isShade) {
+          const vImg =
+            (Array.isArray(v.images) && v.images[0]) ||
+            v.image ||
+            v.banner_image ||
+            (Array.isArray(product?.images) && product?.images[0]) ||
+            product?.image ||
+            null;
+
+          const swatchColor = details.color || COSMETIC_SHADE_PALETTE[(idx + 1) % COSMETIC_SHADE_PALETTE.length];
+
           list.push({
             id: v.sku || `variant-shade-${idx}`,
             index: idx,
             variant: v,
-            color: details.color,
+            color: swatchColor,
             shadeName: details.shadeName || `Shade ${idx + 1}`,
-            price: v.discounted_price || v.price,
+            price: parsePrice(v.discounted_price || v.price),
+            originalPrice: parsePrice(v.price || product?.price),
+            image: vImg,
           });
         }
       });
@@ -826,7 +885,10 @@ export default function ProductDetailScreen({ route, navigation }) {
 
   const variantWeightItems = useMemo(() => {
     if (!product?.variants || product.variants.length === 0) return [];
-    const hasAnyColor = product.variants.some((v, idx) => !!getVariantCardDetails(v, product, idx).color);
+    const hasAnyColor = product.variants.some((v, idx) => {
+      const d = getVariantCardDetails(v, product, idx);
+      return !!d.color || (!!d.shadeName && !d.weightLabel);
+    });
     let nonColorVariants = [];
     if (hasAnyColor) {
       // If product has color variants, non-color variants go to Select Option
@@ -836,7 +898,7 @@ export default function ProductDetailScreen({ route, navigation }) {
           index: idx,
           details: getVariantCardDetails(v, product, idx),
         }))
-        .filter((item) => !item.details.color);
+        .filter((item) => !item.details.color && (!item.details.shadeName || item.details.weightLabel));
     } else {
       nonColorVariants = product.variants.map((v, idx) => ({
         variant: v,
@@ -910,22 +972,17 @@ export default function ProductDetailScreen({ route, navigation }) {
     : product?.sku;
 
   const maxStock = useMemo(() => {
-    if (currentVariant) {
-      if (typeof currentVariant.inventory === 'number') return currentVariant.inventory;
-    }
-    if (product && typeof product.available_inventory === 'number') {
-      return product.available_inventory;
-    }
-    if (typeof product?.inventory === 'number') {
-      return product.inventory;
-    }
-    return 10;
+    return getProductStock(product, currentVariant);
   }, [product, currentVariant]);
 
-  // Parse bulk price tiers if available (main product only, not variants)
+  // Parse bulk price tiers if available (for variant if variant selected, or main product if base)
   const activePriceTiers = useMemo(() => {
-    if (currentVariant) return []; // Tiers apply to main base product only
-    let raw = product?.price_tiers || product?.priceTiers;
+    let raw = null;
+    if (currentVariant) {
+      raw = currentVariant.price_tiers || currentVariant.priceTiers;
+    } else {
+      raw = product?.price_tiers || product?.priceTiers;
+    }
     if (typeof raw === 'string') {
       try {
         raw = JSON.parse(raw);
@@ -937,9 +994,9 @@ export default function ProductDetailScreen({ route, navigation }) {
     return raw
       .filter((t) => t && typeof t.quantity === 'number' && t.quantity >= 2)
       .sort((a, b) => a.quantity - b.quantity);
-  }, [product?.price_tiers, product?.priceTiers, currentVariant]);
+  }, [product?.price_tiers, product?.priceTiers, currentVariant?.price_tiers, currentVariant?.priceTiers, currentVariant]);
 
-  // Generate quantity options for Modal (derived directly from price_tiers, not bound to inventory count)
+  // Generate quantity options for Modal (derived directly from price_tiers, respecting available stock)
   const quantityOptions = useMemo(() => {
     const options = [];
 
@@ -948,13 +1005,15 @@ export default function ProductDetailScreen({ route, navigation }) {
       const baseUnitPrice = discountedPrice;
       const baseTotalPrice = discountedPrice;
       const baseSavings = hasDiscount ? discountPercent : 0;
+      const isBaseOutOfStock = maxStock > 0 ? maxStock < 1 : false;
 
       options.push({
         qty: 1,
         unitPrice: baseUnitPrice,
         totalPrice: baseTotalPrice,
-        badge: baseSavings > 0 ? `${baseSavings}% OFF` : null,
+        badge: isBaseOutOfStock ? 'OUT OF STOCK' : (baseSavings > 0 ? `${baseSavings}% OFF` : null),
         isTier: false,
+        isOutOfStock: isBaseOutOfStock,
       });
 
       // 2) Tier options from price_tiers array
@@ -963,38 +1022,48 @@ export default function ProductDetailScreen({ route, navigation }) {
         if (q <= 1) return;
 
         const rawPrice = parsePrice(tier.price);
-        
-        const unitP = rawPrice > 0 ? rawPrice : discountedPrice;
+        let unitP = rawPrice > 0 ? rawPrice : discountedPrice;
+        if (price > 0 && rawPrice > price) {
+          unitP = Math.round(rawPrice / q);
+        }
         const totalP = unitP * q;
 
         const baseTot = (price > 0 ? price : discountedPrice) * q;
         const savingsPercent = baseTot > totalP ? Math.round(((baseTot - totalP) / baseTot) * 100) : 0;
+        const isTierOutOfStock = maxStock > 0 ? q > maxStock : false;
 
         options.push({
           qty: q,
           unitPrice: unitP,
           totalPrice: totalP,
-          badge: savingsPercent > 0 ? `SAVE ${savingsPercent}%` : 'BULK TIER',
+          badge: isTierOutOfStock
+            ? 'OUT OF STOCK'
+            : savingsPercent > 0
+            ? `SAVE ${savingsPercent}%`
+            : 'BULK TIER',
           isTier: true,
+          isOutOfStock: isTierOutOfStock,
         });
       });
     } else {
-      // Standard quantity options (1 to 5) when no price_tiers exist
-      for (let q = 1; q <= 5; q++) {
+      // Standard quantity options (1 to 10) when no price_tiers exist
+      for (let q = 1; q <= 10; q++) {
         const uPrice = discountedPrice;
         const tPrice = discountedPrice * q;
+        const isOutOfStock = maxStock > 0 ? q > maxStock : false;
         options.push({
           qty: q,
           unitPrice: uPrice,
           totalPrice: tPrice,
-          badge: null,
+          badge: isOutOfStock ? 'OUT OF STOCK' : null,
           isTier: false,
+          isOutOfStock,
         });
       }
     }
 
     return options;
-  }, [activePriceTiers, discountedPrice, price, hasDiscount, discountPercent]);
+  }, [activePriceTiers, discountedPrice, price, hasDiscount, discountPercent, maxStock]);
 
   const currentQuantityPricing = useMemo(() => {
     const matchedOpt = quantityOptions.find((o) => o.qty === quantity);
@@ -1011,7 +1080,7 @@ export default function ProductDetailScreen({ route, navigation }) {
         const latestTier = matchedTiers[matchedTiers.length - 1];
         const rawP = parsePrice(latestTier.price) || discountedPrice;
         let tierUnitPrice = rawP;
-        if (rawP > price) {
+        if (price > 0 && rawP > price) {
           tierUnitPrice = rawP / latestTier.quantity;
         }
         const unitP = Math.round(tierUnitPrice);
@@ -1027,6 +1096,57 @@ export default function ProductDetailScreen({ route, navigation }) {
       totalPrice: discountedPrice * quantity,
     };
   }, [quantityOptions, quantity, activePriceTiers, discountedPrice, price]);
+
+  // Resolve matching tier for any given quantity
+  const resolveMatchingTierQty = useCallback((qty) => {
+    if (!qty || qty <= 1) return 1;
+    if (activePriceTiers.length === 0) return qty;
+
+    // Filter tiers that are within stock limit
+    const validTiers = maxStock > 0
+      ? activePriceTiers.filter((t) => t.quantity <= maxStock)
+      : activePriceTiers;
+
+    if (validTiers.length === 0) return 1;
+
+    // 1. Exact tier match (not out of stock)
+    const exactOpt = quantityOptions.find((o) => o.qty === qty && o.isTier && !o.isOutOfStock);
+    if (exactOpt) return exactOpt.qty;
+
+    // 2. Nearest tier <= qty (from highest to lowest)
+    const sortedTiers = [...validTiers].sort((a, b) => b.quantity - a.quantity);
+    const lowerTier = sortedTiers.find((t) => qty >= t.quantity);
+    if (lowerTier) return lowerTier.quantity;
+
+    return 1;
+  }, [activePriceTiers, quantityOptions, maxStock]);
+
+  // Automatically clamp quantity if it exceeds available stock
+  useEffect(() => {
+    if (maxStock > 0 && quantity > maxStock) {
+      const validQty = Math.max(1, maxStock);
+      setQuantity(validQty);
+      setTempQty(validQty);
+      const matched = resolveMatchingTierQty(validQty);
+      setSelectedTierQty(matched);
+    }
+  }, [maxStock, quantity, resolveMatchingTierQty]);
+
+  // Keep selectedTierQty and tempQty always in sync with quantity
+  useEffect(() => {
+    const matchedTierQty = resolveMatchingTierQty(quantity);
+    setSelectedTierQty(matchedTierQty);
+    setTempQty(quantity);
+  }, [quantity, resolveMatchingTierQty]);
+
+  // Open quantity / bulk tier modal with properly synchronized tier selection
+  const openQuantityModal = useCallback(() => {
+    const safeQty = maxStock > 0 && quantity > maxStock ? Math.max(1, maxStock) : quantity;
+    const matchedTierQty = resolveMatchingTierQty(safeQty);
+    setSelectedTierQty(matchedTierQty);
+    setTempQty(safeQty);
+    setShowQtyModal(true);
+  }, [quantity, maxStock, resolveMatchingTierQty]);
 
   // Brand Name resolution (converts Mongo ObjectId to Brand Name)
   const brandName = useMemo(() => {
@@ -1146,6 +1266,11 @@ export default function ProductDetailScreen({ route, navigation }) {
       return;
     }
 
+    if (maxStock > 0 && quantity > maxStock) {
+      Alert.alert('Stock Limit', `Only ${maxStock} items available in stock.`);
+      return;
+    }
+
     const pId = product._id || productId;
     const resolvedColor =
       currentVariant?.color ||
@@ -1158,35 +1283,52 @@ export default function ProductDetailScreen({ route, navigation }) {
       product?.color ||
       null;
 
+    const resolvedShadeName =
+      (activeShadeLabel && !activeShadeLabel.startsWith('#') ? activeShadeLabel : '') ||
+      (resolvedColor ? extractCleanShadeName(currentVariant || product, product, selectedVariantIndex) : '') ||
+      '';
+
     const itemToAdd = {
       productId: pId,
       name: displayTitle || product.name,
       brandName: brandName || '',
       image: images[0] || null,
       variant: currentVariant ? { ...currentVariant, color: resolvedColor || currentVariant.color } : null,
-      variantName: displayWeightInfo?.formatted || currentVariant?.color || currentVariant?.name || null,
+      variantName: resolvedShadeName || displayWeightInfo?.formatted || currentVariant?.name || null,
+      shadeName: resolvedShadeName,
       color: resolvedColor,
       unitPrice: currentQuantityPricing.unitPrice,
       totalPrice: currentQuantityPricing.totalPrice,
       quantity: quantity,
       price: price,
-      discountedPrice: discountedPrice,
+      discountedPrice: currentQuantityPricing.unitPrice || discountedPrice,
+      baseDiscountedPrice: discountedPrice,
+      price_tiers: activePriceTiers.length > 0 ? activePriceTiers : (currentVariant?.price_tiers || currentVariant?.priceTiers || product?.price_tiers || product?.priceTiers || null),
+      isSetQuantity: true,
+      available_inventory: currentVariant ? (currentVariant.available_inventory ?? null) : product.available_inventory,
+      base_available_inventory: product.base_available_inventory,
     };
 
     try {
       setIsAdding(true);
       // Backend Cart API call
-      await addToCartApi({
+      const res = await addToCartApi({
         type: 'product',
         productId: pId,
         quantity,
         variantSku: currentVariant?.sku,
       });
+      const cartData = res?.data?.data || res?.data;
+      if (cartData && Array.isArray(cartData.items)) {
+        dispatch(setCartData(cartData));
+      } else {
+        dispatch(addToCart(itemToAdd));
+      }
       queryClient.invalidateQueries({ queryKey: ['cart'] });
     } catch (err) {
       // Non-blocking fallback to local Redux state for guest/offline scenarios
-    } finally {
       dispatch(addToCart(itemToAdd));
+    } finally {
       queryClient.invalidateQueries({ queryKey: ['cart'] });
       setIsAdding(false);
       setIsQtyChanged(false);
@@ -1196,10 +1338,17 @@ export default function ProductDetailScreen({ route, navigation }) {
   };
 
   const selectQuantityOption = (selectedQty) => {
+    if (maxStock > 0 && selectedQty > maxStock) {
+      Alert.alert('Stock Limit', `Only ${maxStock} items available in stock.`);
+      return;
+    }
     if (selectedQty !== quantity) {
       setQuantity(selectedQty);
       setIsQtyChanged(true);
     }
+    const matchedTierQty = resolveMatchingTierQty(selectedQty);
+    setSelectedTierQty(matchedTierQty);
+    setTempQty(selectedQty);
     setShowQtyModal(false);
   };
 
@@ -1505,6 +1654,10 @@ export default function ProductDetailScreen({ route, navigation }) {
   };
 
   const handleAddSimilarToBag = async (item) => {
+    if (isProductOutOfStock(item)) {
+      return;
+    }
+
     const pId = item._id || item.id;
     const isItemInCart = cartItems.some((ci) => (ci.productId || ci.id) === pId);
 
@@ -1571,6 +1724,27 @@ export default function ProductDetailScreen({ route, navigation }) {
       </SafeAreaView>
     );
   }
+
+  const activeShadeImage = (() => {
+    if (selectedVariantIndex !== null) {
+      const v = product?.variants?.[selectedVariantIndex];
+      if (v?.images?.[0]) return v.images[0];
+      if (v?.image) return v.image;
+      if (v?.banner_image) return v.banner_image;
+    }
+    return images[0] || product?.image || product?.banner_image || DUMMY_IMG;
+  })();
+
+  const activeShadeTitle = displayTitle || product?.name || '';
+  const activeItemPrice = currentQuantityPricing.totalPrice || discountedPrice || price || 0;
+  const activeItemOrigPrice = (price || 0) * (quantity || 1);
+  const activeItemDiscount = hasDiscount ? discountPercent : 0;
+  const activeRating = product?.rating;
+  const activeRatingCount = product?.reviews_count || product?.ratings_count ;
+  const activeVolume =
+    displayWeightInfo?.formatted ||
+    (product?.name || '').match(/\b\d+(?:\.\d+)?\s*(?:ml|g|gm|gram|grams|kg|l|ltr|pcs)\b/i)?.[0] ||
+    (product?.variants?.[0]?.weight_in_grams ? `${product.variants[0].weight_in_grams} g` : null);
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
@@ -1704,11 +1878,7 @@ export default function ProductDetailScreen({ route, navigation }) {
                   <Star size={12} color="#FFFFFF" fill="#FFFFFF" style={{ marginLeft: 3 }} />
                 </View>
               ) : null}
-              {displayWeightInfo?.formatted ? (
-                <View style={styles.weightPillBadge}>
-                  <Text style={styles.weightPillBadgeText}>{displayWeightInfo.formatted}</Text>
-                </View>
-              ) : null}
+      
             </View>
           ) : null}
 
@@ -1726,12 +1896,22 @@ export default function ProductDetailScreen({ route, navigation }) {
             {quantity > 1 ? (
               <Text style={styles.unitPriceSubText}>(₹{currentQuantityPricing.unitPrice || discountedPrice || 0}/unit)</Text>
             ) : null}
-            {hasDiscount ? (
-              <>
-                <Text style={styles.originalPrice}>MRP ₹{(price || 0) * (quantity || 1)}</Text>
-                <Text style={styles.discountBadge}>({discountPercent}% OFF)</Text>
-              </>
-            ) : null}
+            {hasDiscount ? (() => {
+              const totalMRP = (price || 0) * (quantity || 1);
+              const currentTotal = currentQuantityPricing.totalPrice || (discountedPrice * (quantity || 1));
+              const effectiveDiscount = totalMRP > currentTotal
+                ? Math.round(((totalMRP - currentTotal) / totalMRP) * 100)
+                : discountPercent;
+
+              return (
+                <>
+                  <Text style={styles.originalPrice}>MRP ₹{totalMRP}</Text>
+                  {effectiveDiscount > 0 ? (
+                    <Text style={styles.discountBadge}>({effectiveDiscount}% OFF)</Text>
+                  ) : null}
+                </>
+              );
+            })() : null}
           </View>
         </View>
 
@@ -1747,11 +1927,24 @@ export default function ProductDetailScreen({ route, navigation }) {
           <TouchableOpacity
             style={styles.bulkBanner}
             activeOpacity={0.85}
-            onPress={() => setShowQtyModal(true)}>
+            onPress={openQuantityModal}>
             <View style={styles.bulkBannerLeft}>
               <Tag size={18} color={colors.primary} />
-              <View>
+              <View style={{ flex: 1 }}>
                 <Text style={styles.bulkBannerTitle}>Bulk Pricing Available</Text>
+                <Text style={styles.bulkBannerSub} numberOfLines={2}>
+                  {activePriceTiers
+                    .map((t, idx, arr) => {
+                      const rawP = parsePrice(t.price);
+                      const uP = rawP > 0 ? (price > 0 && rawP > price && t.quantity > 0 ? Math.round(rawP / t.quantity) : rawP) : (discountedPrice || 0);
+                      const nextTier = arr[idx + 1];
+                      if (nextTier) {
+                        return `Buy ${t.quantity}-${nextTier.quantity - 1} @ ₹${uP} each`;
+                      }
+                      return `Buy ${t.quantity}+ @ ₹${uP} each`;
+                    })
+                    .join('  •  ')}
+                </Text>
               </View>
             </View>
             <ChevronDown size={18} color={colors.primary} />
@@ -1777,11 +1970,11 @@ export default function ProductDetailScreen({ route, navigation }) {
               <Text style={styles.sectionTitleNoMargin}>
                 Select Size / Option
               </Text>
-              {activeOptionLabel ? (
+              {/* {activeOptionLabel ? (
                 <Text numberOfLines={1} ellipsizeMode="tail" style={styles.activeShadeLabel}>
                   {activeOptionLabel}
                 </Text>
-              ) : null}
+              ) : null} */}
             </View>
             <View style={styles.variantsRow}>
               {variantWeightItems.map((item) => {
@@ -1791,6 +1984,10 @@ export default function ProductDetailScreen({ route, navigation }) {
                   : selectedVariantIndex === idx;
                 const { weightLabel, shadeName } = details;
                 const displayPrice = itemPrice || (v ? (v.discounted_price || v.price) : (product?.discounted_price || product?.price));
+
+                const isItemOutOfStock = idx === null
+                  ? getProductStock(product, null) <= 0
+                  : getProductStock(product, v) <= 0;
 
                 return (
                   <TouchableOpacity
@@ -1806,28 +2003,50 @@ export default function ProductDetailScreen({ route, navigation }) {
                     }}>
                     
                     {/* The Option Box / Pill */}
-                    <View style={[styles.variantCard, isSelected && styles.variantCardActive]}>
+                    <View style={[
+                      styles.variantCard,
+                      isSelected && styles.variantCardActive,
+                      isItemOutOfStock && !isSelected && styles.variantCardOutOfStock,
+                    ]}>
                       <View style={styles.variantInfoRow}>
                         {weightLabel ? (
-                          <Text style={[styles.variantName, isSelected && styles.variantNameActive]}>
+                          <Text style={[
+                            styles.variantName,
+                            isSelected && styles.variantNameActive,
+                            isItemOutOfStock && !isSelected && styles.variantNameOutOfStock,
+                          ]}>
                             {weightLabel}
                           </Text>
                         ) : shadeName ? (
-                          <Text style={[styles.variantName, isSelected && styles.variantNameActive]}>
+                          <Text style={[
+                            styles.variantName,
+                            isSelected && styles.variantNameActive,
+                            isItemOutOfStock && !isSelected && styles.variantNameOutOfStock,
+                          ]}>
                             {shadeName}
                           </Text>
                         ) : (
-                          <Text style={[styles.variantName, isSelected && styles.variantNameActive]}>
+                          <Text style={[
+                            styles.variantName,
+                            isSelected && styles.variantNameActive,
+                            isItemOutOfStock && !isSelected && styles.variantNameOutOfStock,
+                          ]}>
                             {v?.weight_in_grams ? `${v.weight_in_grams} g` : idx === null ? 'Standard' : `#${idx + 1}`}
                           </Text>
                         )}
                       </View>
                     </View>
 
-                    {/* Price Shown Below the Box */}
-                    <Text style={styles.variantPriceBelow}>
-                      ₹{displayPrice}
-                    </Text>
+                    {/* Price or Sold Out Shown Below the Box */}
+                    {isItemOutOfStock ? (
+                      <Text style={styles.variantSoldOutLabel}>
+                        Sold out
+                      </Text>
+                    ) : (
+                      <Text style={styles.variantPriceBelow}>
+                        ₹{displayPrice}
+                      </Text>
+                    )}
                   </TouchableOpacity>
                 );
               })}
@@ -1839,12 +2058,22 @@ export default function ProductDetailScreen({ route, navigation }) {
         {allShadeItems.length > 0 && (
           <View style={styles.sectionContainer}>
             <View style={styles.shadeHeaderRow}>
-              <Text style={styles.sectionTitleNoMargin}>Select Shade / Color</Text>
-              {activeShadeLabel ? (
-                <Text numberOfLines={1} ellipsizeMode="tail" style={styles.activeShadeLabel}>
-                  {activeShadeLabel}
-                </Text>
-              ) : null}
+              <View style={styles.shadeHeaderLeft}>
+                <Text style={styles.sectionTitleNoMargin}>Select Shade</Text>
+                {/* {activeShadeLabel ? (
+                  <Text numberOfLines={1} ellipsizeMode="tail" style={styles.activeShadeInlineText}>
+                    • {activeShadeLabel}
+                  </Text>
+                ) : null} */}
+              </View>
+
+              <TouchableOpacity
+                activeOpacity={0.7}
+                style={styles.viewAllShadesBtn}
+                onPress={() => setShowShadeModal(true)}>
+                <Text style={styles.viewAllShadesBtnText}>View All</Text>
+                <ChevronRight size={14} color={colors.primary} />
+              </TouchableOpacity>
             </View>
 
             <ScrollView
@@ -1855,6 +2084,10 @@ export default function ProductDetailScreen({ route, navigation }) {
                 const isSelected = item.index === null
                   ? selectedVariantIndex === null
                   : selectedVariantIndex === item.index;
+
+                const isItemOutOfStock = item.variant
+                  ? getProductStock(product, item.variant) === 0
+                  : getProductStock(product, null) === 0;
 
                 return (
                   <TouchableOpacity
@@ -1872,11 +2105,16 @@ export default function ProductDetailScreen({ route, navigation }) {
                       style={[
                         styles.colorSwatchContainer,
                         isSelected && styles.colorSwatchContainerActive,
+                        isItemOutOfStock && !isSelected && styles.colorSwatchContainerOutOfStock,
                       ]}>
                       <View style={[styles.colorSwatchSquare, { backgroundColor: item.color }]} />
                     </View>
 
-                    {item.price ? (
+                    {isItemOutOfStock ? (
+                      <Text style={styles.variantSoldOutLabel}>
+                        Sold out
+                      </Text>
+                    ) : item.price ? (
                       <Text style={styles.shadeItemPrice}>
                         ₹{item.price}
                       </Text>
@@ -2114,19 +2352,33 @@ export default function ProductDetailScreen({ route, navigation }) {
                         </View>
 
                         {/* ADD TO BAG / GO TO BAG Button with Spinner */}
-                        <TouchableOpacity
-                          style={[styles.similarAddToBagButton, isItemInCart && styles.similarGoToBagButton]}
-                          activeOpacity={0.85}
-                          disabled={isAddingThis}
-                          onPress={() => handleAddSimilarToBag(item)}>
-                          {isAddingThis ? (
-                            <ActivityIndicator size="small" color={isItemInCart ? '#FFFFFF' : colors.primary} />
-                          ) : (
-                            <Text style={[styles.similarAddToBagText, isItemInCart && styles.similarGoToBagText]}>
-                              {isItemInCart ? 'GO TO BAG' : 'ADD TO BAG'}
-                            </Text>
-                          )}
-                        </TouchableOpacity>
+                        {(() => {
+                          const isSimilarOutOfStock = isProductOutOfStock(item);
+                          return (
+                            <TouchableOpacity
+                              style={[
+                                styles.similarAddToBagButton,
+                                isItemInCart && styles.similarGoToBagButton,
+                                isSimilarOutOfStock && styles.similarOutOfStockButton,
+                              ]}
+                              activeOpacity={0.85}
+                              disabled={isSimilarOutOfStock || isAddingThis}
+                              onPress={() => handleAddSimilarToBag(item)}>
+                              {isAddingThis ? (
+                                <ActivityIndicator size="small" color={isItemInCart ? '#FFFFFF' : colors.primary} />
+                              ) : (
+                                <Text
+                                  style={[
+                                    styles.similarAddToBagText,
+                                    isItemInCart && styles.similarGoToBagText,
+                                    isSimilarOutOfStock && styles.similarOutOfStockText,
+                                  ]}>
+                                  {isSimilarOutOfStock ? 'OUT OF STOCK' : isItemInCart ? 'GO TO BAG' : 'ADD TO BAG'}
+                                </Text>
+                              )}
+                            </TouchableOpacity>
+                          );
+                        })()}
                       </View>
                     </TouchableOpacity>
                   );
@@ -2273,83 +2525,114 @@ export default function ProductDetailScreen({ route, navigation }) {
 
         {activePriceTiers.length > 0 ? (
           <ScrollView style={styles.sheetOptionsList} showsVerticalScrollIndicator={false}>
-            {quantityOptions.map((opt) => {
+            {quantityOptions.map((opt, optIdx) => {
               const isSelected = selectedTierQty === opt.qty;
-              const rowQty = isSelected ? tempQty : opt.qty;
-              const rowTotalPrice = Math.round(rowQty * opt.unitPrice);
+              const isOutOfStock = opt.isOutOfStock || (maxStock > 0 && opt.qty > maxStock);
+
+              const nextTierOpt = quantityOptions[optIdx + 1];
+              const prevTierOpt = quantityOptions[optIdx - 1];
+              const isNextDisabled = !nextTierOpt || nextTierOpt.isOutOfStock || (maxStock > 0 && nextTierOpt.qty > maxStock);
+              const isPrevDisabled = !prevTierOpt;
 
               return (
                 <View
                   key={opt.qty}
-                  style={[styles.sheetOptionRow, isSelected && styles.sheetOptionRowActive]}>
+                  style={[
+                    styles.sheetOptionRow,
+                    isSelected && styles.sheetOptionRowActive,
+                    isOutOfStock && styles.sheetOptionRowDisabled,
+                  ]}>
                   <TouchableOpacity
                     style={styles.optionClickArea}
-                    activeOpacity={0.8}
+                    activeOpacity={isOutOfStock ? 1 : 0.8}
                     onPress={() => {
+                      if (isOutOfStock) {
+                        Alert.alert('Stock Limit', `Only ${maxStock} items available in stock.`);
+                        return;
+                      }
                       setSelectedTierQty(opt.qty);
                       setTempQty(opt.qty);
                     }}>
                     <View style={styles.optionLeft}>
-                      <View style={[styles.radioCircle, isSelected && styles.radioCircleActive]}>
+                      <View style={[
+                        styles.radioCircle,
+                        isSelected && styles.radioCircleActive,
+                        isOutOfStock && styles.radioCircleDisabled,
+                      ]}>
                         {isSelected && <View style={styles.radioInner} />}
                       </View>
                       <View style={styles.optionTextColumn}>
                         <View style={styles.qtyTitleRow}>
-                          <Text style={styles.optionQtyText}>Qty: {rowQty}</Text>
+                          <Text style={[styles.optionQtyText, isOutOfStock && { color: '#94A3B8' }]}>
+                            Qty: {opt.qty}
+                          </Text>
                           {opt.badge ? (
-                            <View style={styles.tierBadge}>
+                            <View style={[styles.tierBadge, isOutOfStock && styles.tierBadgeOutOfStock]}>
                               <Text style={styles.tierBadgeText}>{opt.badge}</Text>
                             </View>
                           ) : null}
                         </View>
 
-                        <Text style={styles.optionUnitPriceText}>
+                        <Text style={[styles.optionUnitPriceText, isOutOfStock && { color: '#94A3B8' }]}>
                           ₹{opt.unitPrice}/unit
                         </Text>
                       </View>
                     </View>
                   </TouchableOpacity>
 
-                  {/* Stepper on the right side if the row is selected */}
-                  {isSelected ? (
+                  {/* Stepper on the right side if the row is selected and is a tier */}
+                  {isSelected && opt.isTier ? (
                     <View style={styles.rowStepperWrapper}>
                       <View style={styles.rowStepperContainer}>
                         <TouchableOpacity
                           style={styles.rowStepperBtn}
                           activeOpacity={0.7}
+                          disabled={isPrevDisabled}
                           onPress={() => {
-                            const next = tempQty - opt.qty;
-                            if (next >= opt.qty) {
-                              setTempQty(next);
+                            if (prevTierOpt) {
+                              setSelectedTierQty(prevTierOpt.qty);
+                              setTempQty(prevTierOpt.qty);
                             }
                           }}>
-                          <Minus size={12} color={colors.primary} strokeWidth={2.5} />
+                          <Minus
+                            size={12}
+                            color={isPrevDisabled ? '#CBD5E1' : colors.primary}
+                            strokeWidth={2.5}
+                          />
                         </TouchableOpacity>
                         
                         <View style={styles.rowStepperTextContainer}>
-                          <Text style={styles.rowStepperText}>{tempQty}</Text>
+                          <Text style={styles.rowStepperText}>{opt.qty}</Text>
                         </View>
 
                         <TouchableOpacity
                           style={styles.rowStepperBtn}
                           activeOpacity={0.7}
+                          disabled={isNextDisabled}
                           onPress={() => {
-                            const next = tempQty + opt.qty;
-                            if (next <= maxStock) {
-                              setTempQty(next);
-                            } else {
+                            if (!nextTierOpt) return;
+                            if (nextTierOpt.isOutOfStock || (maxStock > 0 && nextTierOpt.qty > maxStock)) {
                               Alert.alert('Stock Limit', `Only ${maxStock} items available in stock.`);
+                            } else {
+                              setSelectedTierQty(nextTierOpt.qty);
+                              setTempQty(nextTierOpt.qty);
                             }
                           }}>
-                          <Plus size={12} color={colors.primary} strokeWidth={2.5} />
+                          <Plus
+                            size={12}
+                            color={isNextDisabled ? '#CBD5E1' : colors.primary}
+                            strokeWidth={2.5}
+                          />
                         </TouchableOpacity>
                       </View>
                       
-                      <Text style={styles.rowTotalPriceText}>₹{rowTotalPrice}</Text>
+                      <Text style={styles.rowTotalPriceText}>₹{opt.totalPrice}</Text>
                     </View>
                   ) : (
                     <View style={styles.optionRight}>
-                      <Text style={styles.optionTotalPriceText}>₹{rowTotalPrice}</Text>
+                      <Text style={[styles.optionTotalPriceText, isOutOfStock && { color: '#94A3B8' }]}>
+                        ₹{opt.totalPrice}
+                      </Text>
                     </View>
                   )}
                 </View>
@@ -2361,21 +2644,31 @@ export default function ProductDetailScreen({ route, navigation }) {
             horizontal
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.qtyCircleContainer}>
-            {[1, 2, 3, 4, 5].map((q) => {
+            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((q) => {
               const isSelected = tempQty === q;
+              const isOutOfStock = maxStock > 0 && q > maxStock;
               return (
                 <TouchableOpacity
                   key={q}
                   activeOpacity={0.85}
+                  disabled={isOutOfStock}
                   style={[
                     styles.qtyCirclePill,
                     isSelected && styles.qtyCirclePillActive,
+                    isOutOfStock && { opacity: 0.35, backgroundColor: '#F1F5F9', borderColor: '#E2E8F0' },
                   ]}
-                  onPress={() => setTempQty(q)}>
+                  onPress={() => {
+                    if (isOutOfStock) {
+                      Alert.alert('Stock Limit', `Only ${maxStock} items available in stock.`);
+                      return;
+                    }
+                    setTempQty(q);
+                  }}>
                   <Text
                     style={[
                       styles.qtyCircleText,
                       isSelected && styles.qtyCircleTextActive,
+                      isOutOfStock && { color: '#94A3B8' },
                     ]}>
                     {q}
                   </Text>
@@ -2387,14 +2680,171 @@ export default function ProductDetailScreen({ route, navigation }) {
 
         {/* Solid Primary Confirm Button */}
         <TouchableOpacity
-          style={styles.confirmQtyBtn}
+          style={[
+            styles.confirmQtyBtn,
+            (maxStock > 0 && tempQty > maxStock) && styles.confirmQtyBtnDisabled,
+          ]}
           activeOpacity={0.85}
           onPress={() => {
+            if (maxStock > 0 && tempQty > maxStock) {
+              Alert.alert('Stock Limit', `Only ${maxStock} items available in stock.`);
+              return;
+            }
             selectQuantityOption(tempQty);
             setShowQtyModal(false);
           }}>
           <Text style={styles.confirmQtyBtnText}>Confirm</Text>
         </TouchableOpacity>
+      </BottomSheetModal>
+
+      {/* ── Bottom Sheet All Shades & Color Variants Selector (Matching User Screenshot UI) ── */}
+      <BottomSheetModal
+        visible={showShadeModal}
+        showHandle={true}
+        containerStyle={styles.shadeBottomSheetContainer}
+        onClose={() => setShowShadeModal(false)}>
+        {/* Header with Title & Close button */}
+        <View style={styles.sheetHeader}>
+          <Text style={styles.sheetTitle}>Select Shade</Text>
+          <TouchableOpacity
+            style={styles.closeBtn}
+            activeOpacity={0.7}
+            onPress={() => setShowShadeModal(false)}>
+            <X size={22} color="#1A1C1E" />
+          </TouchableOpacity>
+        </View>
+
+        <ScrollView
+          style={styles.shadeSheetScrollView}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.shadeSheetScrollContent}>
+          {/* 1. Top Section: Selected Shade Preview Card */}
+          <View style={styles.shadeTopPreviewCard}>
+            {/* Left Image Box */}
+            <View style={styles.shadePreviewImageBox}>
+              <Image
+                source={getImageSource(activeShadeImage, 'DETAIL_THUMB', DUMMY_IMG)}
+                style={styles.shadePreviewImg}
+                resizeMode="contain"
+              />
+            </View>
+
+            {/* Right Details Column */}
+            <View style={styles.shadePreviewInfoCol}>
+              <Text style={styles.shadePreviewTitle}>
+                {activeShadeTitle}
+              </Text>
+
+              {/* Price Row: ₹Discounted ₹MRP % Off */}
+              <View style={styles.shadePreviewPriceRow}>
+                <Text style={styles.shadePreviewFinalPrice}>₹{activeItemPrice}</Text>
+                {activeItemDiscount > 0 ? (
+                  <>
+                    <Text style={styles.shadePreviewOrigPrice}>₹{activeItemOrigPrice}</Text>
+                    <Text style={styles.shadePreviewDiscountText}>{activeItemDiscount}% Off</Text>
+                  </>
+                ) : null}
+              </View>
+
+              {/* Rating Row (only if real rating exists) */}
+              {/* {activeRating ? (
+                <View style={styles.shadePreviewRatingRow}>
+                  <View style={styles.shadePreviewRatingBadge}>
+                    <Text style={styles.shadePreviewRatingText}>{activeRating}</Text>
+                    <Star size={9} color="#FFFFFF" fill="#FFFFFF" style={{ marginLeft: 2 }} />
+                  </View>
+                  {activeRatingCount ? (
+                    <Text style={styles.shadePreviewRatingsCountText}>
+                      {activeRatingCount} Ratings
+                    </Text>
+                  ) : null}
+                </View>
+              ) : null} */}
+
+              {/* Volume / Weight */}
+              {/* {activeVolume ? (
+                <Text style={styles.shadePreviewVolumeText}>{activeVolume}</Text>
+              ) : null} */}
+            </View>
+          </View>
+
+          {/* 2. Filter Chip: "All" */}
+          <View style={styles.shadeFilterChipsRow}>
+            <View style={styles.shadeFilterChipActive}>
+              <Text style={styles.shadeFilterChipActiveText}>All Shade</Text>
+            </View>
+          </View>
+
+          {/* 3. Two-Column Shade Swatches Grid */}
+          <View style={styles.shadeTwoColGrid}>
+            {allShadeItems.map((item) => {
+              const isSelected =
+                item.index === null
+                  ? selectedVariantIndex === null
+                  : selectedVariantIndex === item.index;
+
+              const itemHasDiscount = item.originalPrice > item.price;
+              const discountOff =
+                itemHasDiscount && item.originalPrice > 0
+                  ? Math.round(((item.originalPrice - item.price) / item.originalPrice) * 100)
+                  : 0;
+
+              const isSoldOut = item.variant
+                ? getProductStock(product, item.variant) === 0
+                : getProductStock(product, null) === 0;
+
+              return (
+                <TouchableOpacity
+                  key={item.id}
+                  style={styles.shadeTwoColItem}
+                  activeOpacity={0.8}
+                  onPress={() => {
+                    setSelectedVariantIndex(item.index);
+                    setActiveImageIndex(0);
+                    if (mainCarouselRef.current) {
+                      mainCarouselRef.current.scrollTo({ x: 0, animated: true });
+                    }
+                    setShowShadeModal(false);
+                  }}>
+                  {/* Big Rounded Color Swatch Box */}
+                  <View
+                    style={[
+                      styles.shadeGridSwatchBox,
+                      { backgroundColor: item.color },
+                      isSelected && styles.shadeGridSwatchBoxActive,
+                    ]}>
+                    {isSoldOut ? (
+                      <View style={styles.shadeSoldOutPill}>
+                        <Text style={styles.shadeSoldOutText}>Sold out</Text>
+                      </View>
+                    ) : null}
+                  </View>
+
+                  {/* Right: Shade Name & Discount / Price */}
+                  <View style={styles.shadeGridTextCol}>
+                    <Text
+                      numberOfLines={2}
+                      style={[
+                        styles.shadeGridShadeName,
+                        isSelected && styles.shadeGridShadeNameActive,
+                      ]}>
+                      {item.shadeName}
+                    </Text>
+                    {/* {discountOff > 0 ? (
+                      <Text style={styles.shadeGridDiscountLabel}>
+                        {discountOff}% Off
+                      </Text>
+                    ) : (
+                      <Text style={styles.shadeGridPriceLabel}>
+                        ₹{item.price}
+                      </Text>
+                    )} */}
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </ScrollView>
       </BottomSheetModal>
 
       {/* ── Fixed Bottom Action Bar (Quantity Trigger + Add to Bag) ── */}
@@ -2403,26 +2853,16 @@ export default function ProductDetailScreen({ route, navigation }) {
         <TouchableOpacity
           style={styles.quantityContainer}
           activeOpacity={0.8}
-          onPress={() => {
-            setTempQty(quantity);
-            if (quantity % 6 === 0) {
-              setSelectedTierQty(6);
-            } else if (quantity % 3 === 0) {
-              setSelectedTierQty(3);
-            } else {
-              setSelectedTierQty(1);
-            }
-            setShowQtyModal(true);
-          }}>
+          onPress={openQuantityModal}>
           <Text style={styles.qtyBtnText}>Qty: {quantity}</Text>
           <ChevronDown size={16} color={colors.primary} />
         </TouchableOpacity>
 
         {/* Primary Color Add to Bag / Go to Bag Button */}
         <TouchableOpacity
-          style={[styles.addToBagBtn, maxStock === 0 && styles.addToBagBtnDisabled]}
+          style={[styles.addToBagBtn, maxStock <= 0 && styles.addToBagBtnDisabled]}
           activeOpacity={0.85}
-          disabled={maxStock === 0 || isAdding}
+          disabled={maxStock <= 0 || isAdding}
           onPress={handleAddToCart}>
           {isAdding ? (
             <ActivityIndicator size="small" color="#FFFFFF" />
@@ -2430,7 +2870,7 @@ export default function ProductDetailScreen({ route, navigation }) {
             <>
               <Handbag size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
               <Text style={styles.addToBagBtnText}>
-                {maxStock === 0
+                {maxStock <= 0
                   ? 'OUT OF STOCK'
                   : (isInCart && !isQtyChanged)
                   ? 'Go to Bag'
@@ -2708,7 +3148,7 @@ const styles = StyleSheet.create({
   priceContainer: {
     flexDirection: 'row',
     alignItems: 'baseline',
-    marginTop: 14,
+    
     gap: 8,
   },
   discountedPrice: {
@@ -2829,12 +3269,31 @@ const styles = StyleSheet.create({
   variantNameActive: {
     color: colors.primary,
   },
+  variantCardOutOfStock: {
+    backgroundColor: '#F8FAFC',
+    borderColor: '#E2E8F0',
+    opacity: 0.65,
+  },
+  variantNameOutOfStock: {
+    color: '#94A3B8',
+  },
   variantPriceBelow: {
     fontSize: moderateScale(12.5),
     fontFamily: fonts.big,
     color: '#475569',
     marginTop: 6,
     textAlign: 'center',
+  },
+  variantSoldOutLabel: {
+    fontSize: moderateScale(11.5),
+    fontFamily: fonts.medium,
+    color: '#EF4444',
+    marginTop: 6,
+    textAlign: 'center',
+  },
+  colorSwatchContainerOutOfStock: {
+    opacity: 0.5,
+    borderColor: '#E2E8F0',
   },
 
   tagsHeader: {
@@ -3166,6 +3625,9 @@ const styles = StyleSheet.create({
     marginTop: 16,
     marginBottom: 4,
   },
+  confirmQtyBtnDisabled: {
+    opacity: 0.5,
+  },
   confirmQtyBtnText: {
     fontSize: moderateScale(16),
     fontFamily: fonts.big,
@@ -3229,6 +3691,11 @@ const styles = StyleSheet.create({
     borderColor: colors.primary,
     backgroundColor: '#FAF5FF',
   },
+  sheetOptionRowDisabled: {
+    opacity: 0.5,
+    backgroundColor: '#F8FAFC',
+    borderColor: '#E2E8F0',
+  },
   optionLeft: {
     flex: 1,
     flexDirection: 'row',
@@ -3250,6 +3717,10 @@ const styles = StyleSheet.create({
   },
   radioCircleActive: {
     borderColor: colors.primary,
+  },
+  radioCircleDisabled: {
+    borderColor: '#E2E8F0',
+    backgroundColor: '#F1F5F9',
   },
   radioInner: {
     width: 10,
@@ -3274,6 +3745,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 4,
+  },
+  tierBadgeOutOfStock: {
+    backgroundColor: '#EF4444',
   },
   tierBadgeText: {
     color: '#FFFFFF',
@@ -3432,12 +3906,231 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     gap: 10,
   },
+  shadeHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flex: 1,
+  },
+  activeShadeInlineText: {
+    fontSize: moderateScale(13),
+    fontFamily: fonts.big,
+    color: colors.primary,
+    flexShrink: 1,
+  },
+  viewAllShadesBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+    backgroundColor: '#FAF5FF',
+    borderWidth: 1,
+    borderColor: '#F3E8FF',
+  },
+  viewAllShadesBtnText: {
+    fontSize: moderateScale(12),
+    fontFamily: fonts.big,
+    color: colors.primary,
+  },
   activeShadeLabel: {
     fontSize: moderateScale(13),
     fontFamily: fonts.big,
     color: colors.primary,
     maxWidth: '55%',
     textAlign: 'right',
+  },
+  /* ── Shade Bottom Sheet (Matching Screenshot UI) ── */
+  shadeBottomSheetContainer: {
+    maxHeight: height * 0.88,
+    paddingHorizontal: 16,
+    paddingTop: 4,
+  },
+  shadeSheetScrollView: {
+    flexGrow: 0,
+  },
+  shadeSheetScrollContent: {
+    paddingBottom: 24,
+  },
+
+  /* Top Preview Card (Left image box with border + dots underneath; Right title, price, rating, volume) */
+  shadeTopPreviewCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+    paddingBottom: 16,
+  },
+  shadePreviewImageBoxWrapper: {
+    alignItems: 'center',
+  },
+  shadePreviewImageBox: {
+    width: 125,
+    height: 125,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 6,
+  },
+  shadePreviewImg: {
+    width: '100%',
+    height: '100%',
+  },
+  shadePreviewInfoCol: {
+    flex: 1,
+    marginLeft: 14,
+    justifyContent: 'center',
+  },
+  shadePreviewTitle: {
+    fontSize: moderateScale(14),
+    fontFamily: fonts.big,
+    color: '#1A1C1E',
+    lineHeight: moderateScale(19),
+    marginBottom: 6,
+  },
+  shadePreviewPriceRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 8,
+    marginBottom: 6,
+  },
+  shadePreviewFinalPrice: {
+    fontSize: moderateScale(18),
+    fontFamily: fonts.big,
+    color: '#1A1C1E',
+  },
+  shadePreviewOrigPrice: {
+    fontSize: moderateScale(13),
+    fontFamily: fonts.medium,
+    color: '#94A3B8',
+    textDecorationLine: 'line-through',
+  },
+  shadePreviewDiscountText: {
+    fontSize: moderateScale(14),
+    fontFamily: fonts.big,
+    color: colors.primary,
+  },
+  shadePreviewRatingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 4,
+  },
+  shadePreviewRatingBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#047857',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 5,
+  },
+  shadePreviewRatingText: {
+    fontSize: moderateScale(10),
+    fontFamily: fonts.big,
+    color: '#FFFFFF',
+  },
+  shadePreviewRatingsCountText: {
+    fontSize: moderateScale(11),
+    fontFamily: fonts.medium,
+    color: '#64748B',
+  },
+  shadePreviewVolumeText: {
+    fontSize: moderateScale(11),
+    fontFamily: fonts.medium,
+    color: '#64748B',
+  },
+
+  /* "All" Filter Chip */
+  shadeFilterChipsRow: {
+    marginTop: 14,
+    marginBottom: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  shadeFilterChipActive: {
+    paddingHorizontal: 16,
+    paddingVertical: 5,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    backgroundColor: '#FFFFFF',
+  },
+  shadeFilterChipActiveText: {
+    fontSize: moderateScale(13),
+    fontFamily: fonts.big,
+    color: '#1A1C1E',
+  },
+
+  /* 2-Column Shade Grid */
+  shadeTwoColGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    rowGap: 16,
+  },
+  shadeTwoColItem: {
+    width: '48%',
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  shadeGridSwatchBox: {
+    width: 62,
+    height: 62,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.06)',
+    position: 'relative',
+    overflow: 'hidden',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    paddingBottom: 4,
+  },
+  shadeGridSwatchBoxActive: {
+    borderWidth: 2.5,
+    borderColor: colors.primary,
+  },
+  shadeSoldOutPill: {
+    backgroundColor: 'rgba(226, 232, 240, 0.92)',
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: 6,
+  },
+  shadeSoldOutText: {
+    fontSize: moderateScale(9),
+    fontFamily: fonts.medium,
+    color: '#475569',
+  },
+  shadeGridTextCol: {
+    flex: 1,
+    marginLeft: 8,
+    justifyContent: 'center',
+  },
+  shadeGridShadeName: {
+    fontSize: moderateScale(12),
+    fontFamily: fonts.big,
+    color: '#1E293B',
+    lineHeight: moderateScale(16),
+  },
+  shadeGridShadeNameActive: {
+    color: colors.primary,
+  },
+  shadeGridDiscountLabel: {
+    fontSize: moderateScale(11),
+    fontFamily: fonts.big,
+    color: colors.primary,
+    marginTop: 2,
+  },
+  shadeGridPriceLabel: {
+    fontSize: moderateScale(11),
+    fontFamily: fonts.big,
+    color: '#64748B',
+    marginTop: 2,
   },
   colorSwatchesScrollContent: {
     flexDirection: 'row',
@@ -3579,6 +4272,13 @@ const styles = StyleSheet.create({
     letterSpacing: 0.4,
   },
   similarGoToBagText: {
+    color: '#FFFFFF',
+  },
+  similarOutOfStockButton: {
+    backgroundColor: '#94A3B8',
+    borderColor: '#94A3B8',
+  },
+  similarOutOfStockText: {
     color: '#FFFFFF',
   },
   skeletonMargin10: {

@@ -13,9 +13,15 @@ export class ApiRequestError extends Error {
 // { statusCode, data, message, success }. Many error paths return HTTP 200
 // with success:false — always trust `success`, not the HTTP status.
 export async function apiRequest(path, { method = 'GET', body, token, headers } = {}) {
+  const fullUrl = `${BASE_URL}${path}`;
+  console.log(`🌐 [API_REQUEST] ${method} ${fullUrl}`);
+  if (body !== undefined) {
+    console.log(`📦 [API_REQUEST_BODY]`, JSON.stringify(body));
+  }
+
   let response;
   try {
-    response = await fetch(`${BASE_URL}${path}`, {
+    response = await fetch(fullUrl, {
       method,
       headers: {
         'Content-Type': 'application/json',
@@ -25,19 +31,23 @@ export async function apiRequest(path, { method = 'GET', body, token, headers } 
       body: body !== undefined ? JSON.stringify(body) : undefined,
     });
   } catch (err) {
+    console.error(`🔴 [API_NETWORK_ERROR] ${method} ${fullUrl}:`, err);
     throw new ApiRequestError('Network error — check your connection and try again.');
   }
 
   let json;
   try {
     json = await response.json();
+    console.log(`📥 [API_RESPONSE] ${response.status} ${fullUrl}:`, JSON.stringify(json));
   } catch (err) {
+    console.error(`🔴 [API_PARSE_ERROR] HTTP ${response.status} ${fullUrl}:`, err);
     throw new ApiRequestError('Unexpected response from server.', {
       status: response.status,
     });
   }
 
   if (!json.success) {
+    console.warn(`⚠️ [API_SERVER_FAIL] ${json.message || 'Unknown server error'} (HTTP ${response.status})`);
     throw new ApiRequestError(json.message || 'Something went wrong.', {
       statusCode: json.statusCode,
       status: response.status,
