@@ -14,37 +14,60 @@ import {
   BackHandler,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ChevronLeft, CreditCard, Banknote, CheckCircle2, ShoppingBag, MapPin, ShieldCheck, Lock, ArrowRight, Sparkles } from 'lucide-react-native';
+import LinearGradient from 'react-native-linear-gradient';
+import Clipboard from '@react-native-clipboard/clipboard';
+import {
+  ChevronLeft,
+  CreditCard,
+  Banknote,
+  CheckCircle2,
+  ShoppingBag,
+  MapPin,
+  ShieldCheck,
+  Lock,
+  ArrowRight,
+  Copy,
+  Check,
+  Truck,
+  Package,
+  Clock,
+  PartyPopper,
+  CheckCircle,
+} from 'lucide-react-native';
 import RazorpayCheckout from 'react-native-razorpay';
+import LottieView from 'lottie-react-native';
+import successTickLottie from '../lottie/Tick animation - success feedback.json';
+import { useQueryClient } from '@tanstack/react-query';
 import { useCartStore } from '../store/cartStore';
 import colors from '../theme/colors';
 import fonts from '../theme/typography';
 import { moderateScale } from '../theme/responsive';
-import { getCart } from '../api/cart';
+import { getCart, removeFromCartApi } from '../api/cart';
 import { createOrder, createRazorpayOrder, verifyRazorpayPayment, getRazorpayConfig } from '../api/order';
 import { getImageSource } from '../utils/imageOptimizer';
 import { isProductOutOfStock, getProductStock } from '../utils/productUtils';
 
 const CONFETTI_PARTICLES = [
-  { dx: -50, dy: -60, color: '#FF3366', size: 8 },
-  { dx: 50, dy: -70, color: '#33CCFF', size: 10 },
-  { dx: -70, dy: -20, color: '#FFCC33', size: 6 },
-  { dx: 70, dy: -30, color: '#9933FF', size: 10 },
-  { dx: -40, dy: 50, color: '#33FF99', size: 8 },
-  { dx: 50, dy: 60, color: '#FF9933', size: 8 },
-  { dx: -15, dy: -80, color: '#FF33FF', size: 6 },
-  { dx: 20, dy: 80, color: '#33FFCC', size: 10 },
-  { dx: -80, dy: 20, color: '#FF5733', size: 8 },
-  { dx: 80, dy: 15, color: '#C70039', size: 7 },
-  { dx: -60, dy: -50, color: '#900C3F', size: 9 },
-  { dx: 65, dy: 45, color: '#581845', size: 6 },
-  { dx: -30, dy: -90, color: '#2ECC71', size: 8 },
-  { dx: 30, dy: -95, color: '#3498DB', size: 10 },
-  { dx: -95, dy: -10, color: '#9B59B6', size: 8 },
-  { dx: 95, dy: -5, color: '#F1C40F', size: 9 },
+  { dx: -70, dy: -90, color: '#10B981', size: 10, rotate: '-25deg' },
+  { dx: 70, dy: -95, color: '#34D399', size: 12, rotate: '35deg' },
+  { dx: -100, dy: -45, color: '#FBBF24', size: 9, rotate: '-45deg' },
+  { dx: 100, dy: -50, color: '#059669', size: 11, rotate: '55deg' },
+  { dx: -80, dy: 60, color: '#10B981', size: 9, rotate: '-15deg' },
+  { dx: 85, dy: 70, color: '#F59E0B', size: 10, rotate: '25deg' },
+  { dx: -35, dy: -120, color: '#047857', size: 8, rotate: '10deg' },
+  { dx: 35, dy: -125, color: '#6EE7B7', size: 12, rotate: '-30deg' },
+  { dx: -120, dy: 15, color: '#34D399', size: 9, rotate: '-60deg' },
+  { dx: 120, dy: 20, color: '#FBBF24', size: 11, rotate: '40deg' },
+  { dx: -90, dy: -80, color: '#10B981', size: 10, rotate: '20deg' },
+  { dx: 95, dy: -85, color: '#F59E0B', size: 9, rotate: '-50deg' },
+  { dx: -55, dy: 90, color: '#059669', size: 11, rotate: '15deg' },
+  { dx: 55, dy: 95, color: '#6EE7B7', size: 10, rotate: '-35deg' },
+  { dx: -130, dy: -35, color: '#10B981', size: 8, rotate: '45deg' },
+  { dx: 130, dy: -30, color: '#FBBF24', size: 12, rotate: '-15deg' },
 ];
 
 export default function PaymentScreen({ navigation, route }) {
+  const queryClient = useQueryClient();
   const cartItems = useCartStore((state) => state.items);
   const cartTotalAmount = useCartStore((state) => state.totalAmount);
   const clearCart = useCartStore((state) => state.clearCart);
@@ -115,8 +138,13 @@ export default function PaymentScreen({ navigation, route }) {
   const [razorpayEnabled, setRazorpayEnabled] = useState(true);
   const [razorpayKeyId, setRazorpayKeyId] = useState(null);
 
+  const [copiedOrderId, setCopiedOrderId] = useState(false);
+
   const scaleAnim = useRef(new Animated.Value(0)).current;
   const confettiAnim = useRef(new Animated.Value(0)).current;
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+  const slideUpAnim = useRef(new Animated.Value(40)).current;
+  const fadeAnim = useRef(new Animated.Value(0)).current;
 
   // 1. Fetch Razorpay config on mount
   useEffect(() => {
@@ -147,23 +175,58 @@ export default function PaymentScreen({ navigation, route }) {
     if (showSuccessOverlay) {
       scaleAnim.setValue(0);
       confettiAnim.setValue(0);
+      fadeAnim.setValue(0);
+      slideUpAnim.setValue(40);
 
       Animated.parallel([
         Animated.spring(scaleAnim, {
           toValue: 1,
-          friction: 4,
-          tension: 30,
+          friction: 5,
+          tension: 40,
           useNativeDriver: true,
         }),
         Animated.timing(confettiAnim, {
           toValue: 1,
-          duration: 1200,
+          duration: 1300,
           easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
         }),
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 600,
+          useNativeDriver: true,
+        }),
+        Animated.spring(slideUpAnim, {
+          toValue: 0,
+          friction: 7,
+          tension: 35,
+          useNativeDriver: true,
+        }),
       ]).start();
+
+      const pulseLoop = Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim, {
+            toValue: 1.16,
+            duration: 1100,
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: true,
+          }),
+          Animated.timing(pulseAnim, {
+            toValue: 1,
+            duration: 1100,
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: true,
+          }),
+        ])
+      );
+      pulseLoop.start();
+
+      return () => {
+        pulseLoop.stop();
+      };
     }
-  }, [showSuccessOverlay, scaleAnim, confettiAnim]);
+  }, [showSuccessOverlay, scaleAnim, confettiAnim, fadeAnim, slideUpAnim, pulseAnim]);
 
   // Handle hardware back press on Android:
   useEffect(() => {
@@ -273,6 +336,20 @@ export default function PaymentScreen({ navigation, route }) {
           }
         });
       }
+
+      // Proactively remove ordered items from backend cart and refresh query cache
+      try {
+        await Promise.all(
+          finalOrderedItems.map((item) =>
+            removeFromCartApi({
+              productId: item.productId,
+              variantSku: item.variant?.sku,
+            }).catch(() => {})
+          )
+        );
+      } catch (_) {}
+      queryClient.invalidateQueries({ queryKey: ['cart'] });
+      queryClient.invalidateQueries({ queryKey: ['products'] });
     } catch (e) {
       console.log('Order creation failed:', e);
       const errMsg = e?.message || 'Something went wrong. Please try again.';
@@ -408,6 +485,20 @@ export default function PaymentScreen({ navigation, route }) {
                 }
               });
             }
+
+            // Proactively remove ordered items from backend cart and refresh query cache
+            try {
+              await Promise.all(
+                finalOrderedItems.map((item) =>
+                  removeFromCartApi({
+                    productId: item.productId,
+                    variantSku: item.variant?.sku,
+                  }).catch(() => {})
+                )
+              );
+            } catch (_) {}
+            queryClient.invalidateQueries({ queryKey: ['cart'] });
+            queryClient.invalidateQueries({ queryKey: ['products'] });
           } catch (verifyErr) {
             console.log('Payment verification error:', verifyErr);
             Alert.alert(
@@ -579,14 +670,20 @@ export default function PaymentScreen({ navigation, route }) {
 
       {showSuccessOverlay && (
         <View style={styles.overlayContainer}>
+          <StatusBar barStyle="dark-content" backgroundColor="#ECFDF5" />
           <ScrollView
             contentContainerStyle={styles.overlayScrollContent}
             showsVerticalScrollIndicator={false}>
             
-            {/* Header / Animated Success Icon and Confetti */}
-            <View style={styles.successHeader}>
-              <View style={styles.animationWrapper}>
-                {/* Confetti Particles */}
+            {/* Top Celebratory Header with Light Mint/Greenish Gradient */}
+            <LinearGradient
+              colors={['#ECFDF5', '#D1FAE5', '#A7F3D0']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.heroGradient}>
+              
+              {/* Confetti Explosion Layer */}
+              <View style={styles.confettiContainer} pointerEvents="none">
                 {CONFETTI_PARTICLES.map((p, index) => {
                   const animStyle = {
                     position: 'absolute',
@@ -608,9 +705,12 @@ export default function PaymentScreen({ navigation, route }) {
                         }),
                       },
                       {
+                        rotate: p.rotate || '0deg',
+                      },
+                      {
                         scale: confettiAnim.interpolate({
-                          inputRange: [0, 0.2, 0.8, 1],
-                          outputRange: [0, 1.5, 1, 0],
+                          inputRange: [0, 0.3, 0.8, 1],
+                          outputRange: [0, 1.4, 1, 0.3],
                         }),
                       },
                     ],
@@ -621,124 +721,221 @@ export default function PaymentScreen({ navigation, route }) {
                   };
                   return <Animated.View key={index} style={animStyle} />;
                 })}
+              </View>
 
-                {/* Animated checkmark circle */}
-                <Animated.View style={[styles.checkIconBox, { transform: [{ scale: scaleAnim }] }]}>
-                  <CheckCircle2 size={48} color="#FFFFFF" />
+              {/* Central Pulsing Ripple Rings & Celebration Badge */}
+              <View style={styles.badgeWrapper}>
+                {/* Outer Ripple */}
+                <Animated.View
+                  style={[
+                    styles.rippleRing,
+                    styles.rippleRingOuter,
+                    { transform: [{ scale: pulseAnim }] },
+                  ]}
+                />
+                {/* Inner Ripple */}
+                <Animated.View
+                  style={[
+                    styles.rippleRing,
+                    styles.rippleRingInner,
+                    { transform: [{ scale: Animated.multiply(pulseAnim, 0.93) }] },
+                  ]}
+                />
+
+                {/* Main Animated Lottie Tick */}
+                <Animated.View
+                  style={[
+                    styles.lottieBox,
+                    { transform: [{ scale: scaleAnim }] },
+                  ]}>
+                  <LottieView
+                    source={successTickLottie}
+                    autoPlay
+                    loop={false}
+                    style={styles.lottieAnimation}
+                  />
                 </Animated.View>
               </View>
-              <Text style={styles.successTitle}>Order Placed Successfully!</Text>
-              <Text style={styles.successSubtitle}>
-                Thank you for shopping with Shagun Beauty. Your B2B order request has been received.
-              </Text>
-            </View>
 
-            {/* Delivery Address Details Card */}
-            {address && (
-              <View style={styles.overlayCard}>
-                <View style={styles.addressHeader}>
-                  <MapPin size={16} color={colors.primary} />
-                  <Text style={styles.addressSectionTitle}>Delivery Details</Text>
-                </View>
-                <View style={styles.overlayAddressDetails}>
-                  <Text style={styles.overlayAddressName}>{address.name}</Text>
-                  <Text style={styles.overlayAddressText}>
-                    {address.address}
-                  </Text>
-                  {address.city ? (
-                    <Text style={styles.overlayAddressText}>
-                      {address.city}, {address.state} - {address.pincode}
+              {/* Success Texts */}
+              <Animated.View style={{ opacity: fadeAnim, alignItems: 'center' }}>
+                <Text style={styles.heroSuccessTitle}>Order Placed Successfully! 🎉</Text>
+                <Text style={styles.heroSuccessSubtitle}>
+                  Thank you for shopping with Shagun Beauty. Your order request has been received.
+                </Text>
+
+                {/* Order ID Pill with 1-Tap Copy */}
+                {createdOrder?._id ? (
+                  <TouchableOpacity
+                    style={styles.orderIdPill}
+                    activeOpacity={0.8}
+                    onPress={() => {
+                      const idText = String(createdOrder._id);
+                      Clipboard.setString(idText);
+                      setCopiedOrderId(true);
+                      setTimeout(() => setCopiedOrderId(false), 2000);
+                    }}>
+                    <Text style={styles.orderIdLabel}>Order ID: </Text>
+                    <Text style={styles.orderIdValue}>
+                      #{String(createdOrder._id).slice(-8).toUpperCase()}
                     </Text>
-                  ) : null}
-                  {address.landmark ? (
-                    <Text style={styles.overlayAddressText}>Landmark: {address.landmark}</Text>
-                  ) : null}
-                  <Text style={styles.overlayAddressMobile}>Mobile: {address.mobile}</Text>
+                    {copiedOrderId ? (
+                      <View style={styles.copiedBadge}>
+                        <Check size={11} color="#10B981" />
+                        <Text style={styles.copiedBadgeText}>Copied</Text>
+                      </View>
+                    ) : (
+                      <Copy size={13} color="#059669" style={{ marginLeft: 6 }} />
+                    )}
+                  </TouchableOpacity>
+                ) : null}
+              </Animated.View>
+            </LinearGradient>
+
+            {/* Slide-Up Content Body */}
+            <Animated.View
+              style={[
+                styles.overlayBody,
+                {
+                  opacity: fadeAnim,
+                  transform: [{ translateY: slideUpAnim }],
+                },
+              ]}>
+              
+
+
+              {/* Delivery Address Card */}
+              {address && (
+                <View style={styles.overlayCard}>
+                  <View style={styles.cardHeaderRow}>
+                    <View style={styles.cardHeaderIconBox}>
+                      <MapPin size={15} color="#7C3AED" />
+                    </View>
+                    <Text style={styles.cardHeaderTitle}>Delivery Address</Text>
+                  </View>
+                  <View style={styles.addressBody}>
+                    <Text style={styles.addressNameText}>{address.name}</Text>
+                    <Text style={styles.addressDetailText}>{address.address}</Text>
+                    {address.city ? (
+                      <Text style={styles.addressDetailText}>
+                        {address.city}, {address.state} - {address.pincode}
+                      </Text>
+                    ) : null}
+                    <Text style={styles.addressMobileText}>Mobile: {address.mobile}</Text>
+                  </View>
+                </View>
+              )}
+
+              {/* Items Purchased List Card */}
+              <View style={styles.overlayCard}>
+                <View style={styles.cardHeaderRow}>
+                  <View style={styles.cardHeaderIconBox}>
+                    <ShoppingBag size={15} color="#7C3AED" />
+                  </View>
+                  <Text style={styles.cardHeaderTitle}>
+                    Items in Order ({orderedItems.length})
+                  </Text>
+                </View>
+                <View style={styles.cardDivider} />
+                
+                {orderedItems.map((item, index) => {
+                  const imageSource = item.image ? getImageSource(item.image, 'THUMBNAIL', null) : null;
+                  return (
+                    <View key={item.cartItemId || index}>
+                      <View style={styles.itemRow}>
+                        <View style={styles.itemImageWrapper}>
+                          {imageSource ? (
+                            <Image source={imageSource} style={styles.itemThumbImage} resizeMode="cover" />
+                          ) : (
+                            <View style={styles.itemPlaceholder}>
+                              <ShoppingBag size={20} color="#7C3AED" />
+                            </View>
+                          )}
+                        </View>
+                        <View style={styles.itemDetailsCol}>
+                          {item.brandName ? (
+                            <Text style={styles.itemBrandName}>{item.brandName}</Text>
+                          ) : null}
+                          <Text style={styles.itemNameText} numberOfLines={2}>
+                            {item.name}
+                          </Text>
+                          <View style={styles.itemBadgeRow}>
+                            {item.variantName ? (
+                              <View style={styles.variantChip}>
+                                <Text style={styles.variantChipText}>{item.variantName}</Text>
+                              </View>
+                            ) : null}
+                            <View style={styles.qtyChip}>
+                              <Text style={styles.qtyChipText}>Qty: {item.quantity}</Text>
+                            </View>
+                          </View>
+                        </View>
+                        <View style={styles.itemPriceCol}>
+                          <Text style={styles.itemTotalPrice}>₹{Math.round(item.totalPrice).toLocaleString('en-IN')}</Text>
+                        </View>
+                      </View>
+                      {index < orderedItems.length - 1 && <View style={styles.itemSeparator} />}
+                    </View>
+                  );
+                })}
+
+                <View style={styles.cardDivider} />
+
+                {/* Receipt Footer */}
+                <View style={styles.paymentSummaryRow}>
+                  <Text style={styles.grandTotalLabel}>Total Amount</Text>
+                  <Text style={styles.grandTotalValue}>
+                    ₹{Math.round(createdOrder?.finalTotalAmount || createdOrder?.totalAmount || displayAmount).toLocaleString('en-IN')}
+                  </Text>
                 </View>
               </View>
-            )}
 
-            {/* Items Purchased List Card */}
-            <View style={styles.overlayCard}>
-              <Text style={styles.overlayCardTitle}>Items in this Order</Text>
-              <View style={styles.overlayDivider} />
-              
-              {orderedItems.map((item, index) => {
-                const imageSource = item.image ? getImageSource(item.image, 'THUMBNAIL', null) : null;
-                return (
-                  <View key={item.cartItemId || index}>
-                    <View style={styles.overlayItemRow}>
-                      <View style={styles.overlayItemImageWrapper}>
-                        {imageSource ? (
-                          <Image source={imageSource} style={styles.overlayItemImage} resizeMode="cover" />
-                        ) : (
-                          <View style={styles.overlayPlaceholderImage}>
-                            <ShoppingBag size={24} color={colors.primary} />
-                          </View>
-                        )}
-                      </View>
-                      <View style={styles.overlayItemDetails}>
-                        {item.brandName ? (
-                          <Text style={styles.overlayItemBrand}>{item.brandName}</Text>
-                        ) : null}
-                        <Text style={styles.overlayItemName} numberOfLines={2}>
-                          {item.name}
-                        </Text>
-                        <Text style={styles.overlayItemQty}>Qty: {item.quantity}</Text>
-                      </View>
-                      <View style={styles.overlayItemPriceCol}>
-                        <Text style={styles.overlayItemPrice}>₹{Math.round(item.totalPrice)}</Text>
-                      </View>
-                    </View>
-                    {index < orderedItems.length - 1 && <View style={styles.overlayItemDivider} />}
-                  </View>
-                );
-              })}
+              {/* Action Buttons */}
+              <View style={styles.overlayButtonStack}>
+                {createdOrder?._id ? (
+                  <TouchableOpacity
+                    style={styles.primaryActionBtn}
+                    activeOpacity={0.88}
+                    onPress={() => {
+                      setShowSuccessOverlay(false);
+                      navigation.reset({
+                        index: 1,
+                        routes: [
+                          { name: 'BottomTabs', state: { routes: [{ name: 'Home' }] } },
+                          {
+                            name: 'OrderDetail',
+                            params: { orderId: createdOrder._id, orderData: createdOrder },
+                          },
+                        ],
+                      });
+                    }}>
+                    <LinearGradient
+                      colors={['#7C3AED', '#5B21B6']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 0 }}
+                      style={styles.primaryGradientBtn}>
+                      <Text style={styles.primaryActionText}>View Order Details</Text>
+                      <ArrowRight size={18} color="#FFFFFF" style={{ marginLeft: 6 }} />
+                    </LinearGradient>
+                  </TouchableOpacity>
+                ) : null}
 
-              <View style={styles.overlayDivider} />
-
-              <View style={styles.overlayTotalRow}>
-                <Text style={styles.overlayTotalLabel}>Grand Total</Text>
-                <Text style={styles.overlayTotalValue}>₹{Math.round(createdOrder?.finalTotalAmount || createdOrder?.totalAmount || displayAmount)}</Text>
-              </View>
-            </View>
-
-            {/* Actions */}
-            <View style={styles.overlayActions}>
-              {createdOrder?._id ? (
                 <TouchableOpacity
-                  style={styles.viewOrdersBtn}
-                  activeOpacity={0.85}
+                  style={styles.secondaryActionBtn}
+                  activeOpacity={0.8}
                   onPress={() => {
                     setShowSuccessOverlay(false);
                     navigation.reset({
-                      index: 1,
-                      routes: [
-                        { name: 'BottomTabs', state: { routes: [{ name: 'Home' }] } },
-                        {
-                          name: 'OrderDetail',
-                          params: { orderId: createdOrder._id, orderData: createdOrder },
-                        },
-                      ],
+                      index: 0,
+                      routes: [{ name: 'BottomTabs', state: { routes: [{ name: 'Home' }] } }],
                     });
                   }}>
-                  <Text style={styles.viewOrdersText}>View Order Details</Text>
+                  <ShoppingBag size={18} color="#6D28D9" style={{ marginRight: 8 }} />
+                  <Text style={styles.secondaryActionText}>Continue Shopping</Text>
                 </TouchableOpacity>
-              ) : null}
+              </View>
 
-              <TouchableOpacity
-                style={styles.continueShopBtn}
-                activeOpacity={0.85}
-                onPress={() => {
-                  setShowSuccessOverlay(false);
-                  navigation.reset({
-                    index: 0,
-                    routes: [{ name: 'BottomTabs', state: { routes: [{ name: 'Home' }] } }],
-                  });
-                }}>
-                <Text style={styles.continueShopText}>Continue Shopping</Text>
-              </TouchableOpacity>
-            </View>
+            </Animated.View>
           </ScrollView>
         </View>
       )}
@@ -945,243 +1142,448 @@ const styles = StyleSheet.create({
     opacity: 0.3,
   },
 
+  // ─── Super Premium Animated Success Overlay ───
   overlayContainer: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#F8FAFC',
     zIndex: 2000,
   },
   overlayScrollContent: {
-    paddingHorizontal: 24,
-    paddingTop: 48,
     paddingBottom: 40,
-    alignItems: 'center',
-    width: '100%',
   },
-  successHeader: {
+  heroGradient: {
+    paddingTop: 50,
+    paddingBottom: 32,
+    paddingHorizontal: 20,
     alignItems: 'center',
-    marginBottom: 32,
+    borderBottomLeftRadius: 32,
+    borderBottomRightRadius: 32,
+    position: 'relative',
+    overflow: 'hidden',
+    borderBottomWidth: 1,
+    borderBottomColor: '#A7F3D0',
   },
-  checkIconBox: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: '#10B981',
+  confettiContainer: {
+    position: 'absolute',
+    top: 90,
+    left: '50%',
+    width: 0,
+    height: 0,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 20,
-    shadowColor: '#10B981',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
-    elevation: 6,
   },
-  successTitle: {
+  badgeWrapper: {
+    width: 170,
+    height: 170,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+    marginBottom: 16,
+  },
+  rippleRing: {
+    position: 'absolute',
+    borderRadius: 999,
+    borderWidth: 2,
+  },
+  rippleRingOuter: {
+    width: 170,
+    height: 170,
+    borderColor: 'rgba(16, 185, 129, 0.22)',
+    backgroundColor: 'rgba(16, 185, 129, 0.05)',
+  },
+  rippleRingInner: {
+    width: 130,
+    height: 130,
+    borderColor: 'rgba(16, 185, 129, 0.35)',
+    backgroundColor: 'rgba(16, 185, 129, 0.10)',
+  },
+  lottieBox: {
+    width: 160,
+    height: 160,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 5,
+  },
+  lottieAnimation: {
+    width: 250,
+    height: 250,
+  },
+  heroSuccessTitle: {
     fontSize: moderateScale(22),
     fontFamily: fonts.big,
-    color: '#0F172A',
+    color: '#064E3B',
     textAlign: 'center',
-    marginBottom: 10,
+    marginBottom: 6,
   },
-  successSubtitle: {
+  heroSuccessSubtitle: {
     fontSize: moderateScale(13),
     fontFamily: fonts.medium,
-    color: '#64748B',
+    color: '#047857',
     textAlign: 'center',
-    lineHeight: 18,
-    paddingHorizontal: 16,
+    lineHeight: moderateScale(18),
+    paddingHorizontal: 20,
+    marginBottom: 14,
   },
-  overlayCard: {
-    width: '100%',
-    backgroundColor: '#F8FAFC',
+  orderIdPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 14,
+    paddingVertical: 7,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
-    padding: 16,
-    marginBottom: 32,
+    borderColor: '#A7F3D0',
+    shadowColor: '#059669',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 2,
   },
-  overlayCardTitle: {
+  orderIdLabel: {
+    fontSize: moderateScale(12),
+    fontFamily: fonts.medium,
+    color: '#059669',
+  },
+  orderIdValue: {
+    fontSize: moderateScale(12),
+    fontFamily: fonts.big,
+    color: '#064E3B',
+    letterSpacing: 0.4,
+  },
+  copiedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#DCFCE7',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 10,
+    marginLeft: 6,
+    gap: 3,
+  },
+  copiedBadgeText: {
+    fontSize: moderateScale(10),
+    fontFamily: fonts.big,
+    color: '#16A34A',
+  },
+
+  overlayBody: {
+    paddingHorizontal: 16,
+    marginTop: 14,
+    gap: 14,
+  },
+
+  // ── Delivery Status Card ──
+  deliveryStatusCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 16,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 3,
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
+  },
+  deliveryStatusHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  deliveryTruckIconBox: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: '#F5F3FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  deliveryExpectedTitle: {
+    fontSize: moderateScale(13),
+    fontFamily: fonts.big,
+    color: '#1E293B',
+  },
+  deliveryExpectedDate: {
+    fontSize: moderateScale(11),
+    fontFamily: fonts.medium,
+    color: '#6D28D9',
+    marginTop: 2,
+  },
+  trackerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 4,
+    paddingTop: 4,
+  },
+  trackStep: {
+    alignItems: 'center',
+    width: 58,
+  },
+  trackNode: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#F1F5F9',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 4,
+  },
+  trackNodeCompleted: {
+    backgroundColor: '#10B981',
+  },
+  trackNodeActive: {
+    backgroundColor: '#7C3AED',
+  },
+  trackLabel: {
+    fontSize: moderateScale(10),
+    fontFamily: fonts.medium,
+    color: '#94A3B8',
+    textAlign: 'center',
+  },
+  trackLabelCompleted: {
+    color: '#10B981',
+    fontFamily: fonts.big,
+  },
+  trackLabelActive: {
+    color: '#7C3AED',
+    fontFamily: fonts.big,
+  },
+  trackLine: {
+    flex: 1,
+    height: 2,
+    backgroundColor: '#E2E8F0',
+    marginBottom: 14,
+    marginHorizontal: -4,
+  },
+  trackLineActive: {
+    backgroundColor: '#10B981',
+  },
+
+  // ── Overlay Generic Card ──
+  overlayCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 16,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.04,
+    shadowRadius: 10,
+    elevation: 2,
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
+  },
+  cardHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+    gap: 8,
+  },
+  cardHeaderIconBox: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    backgroundColor: '#F5F3FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cardHeaderTitle: {
     fontSize: moderateScale(14),
     fontFamily: fonts.big,
-    color: '#0F172A',
-    marginBottom: 12,
+    color: '#1E293B',
   },
-  overlayDivider: {
+  cardDivider: {
     height: 1,
-    backgroundColor: '#E2E8F0',
-    marginVertical: 12,
+    backgroundColor: '#F1F5F9',
+    marginVertical: 10,
   },
-  overlayItemRow: {
+  addressBody: {
+    paddingLeft: 4,
+  },
+  addressNameText: {
+    fontSize: moderateScale(13),
+    fontFamily: fonts.big,
+    color: '#1E293B',
+    marginBottom: 3,
+  },
+  addressDetailText: {
+    fontSize: moderateScale(12),
+    fontFamily: fonts.medium,
+    color: '#64748B',
+    lineHeight: moderateScale(17),
+  },
+  addressMobileText: {
+    fontSize: moderateScale(12),
+    fontFamily: fonts.big,
+    color: '#334155',
+    marginTop: 6,
+  },
+
+  // ── Ordered Item Row ──
+  itemRow: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 8,
   },
-  overlayItemImageWrapper: {
-    width: 50,
-    height: 50,
-    borderRadius: 8,
+  itemImageWrapper: {
+    width: 52,
+    height: 52,
+    borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
-    backgroundColor: '#FFFFFF',
+    borderColor: '#F1F5F9',
+    backgroundColor: '#FAFAFA',
     overflow: 'hidden',
   },
-  overlayItemImage: {
+  itemThumbImage: {
     width: '100%',
     height: '100%',
   },
-  overlayPlaceholderImage: {
+  itemPlaceholder: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#F8FAFC',
+    backgroundColor: '#F5F3FF',
   },
-  overlayItemDetails: {
+  itemDetailsCol: {
     flex: 1,
     marginLeft: 12,
     paddingRight: 8,
   },
-  overlayItemBrand: {
+  itemBrandName: {
     fontSize: moderateScale(10),
     fontFamily: fonts.big,
-    color: colors.primary,
+    color: '#7C3AED',
   },
-  overlayItemName: {
+  itemNameText: {
     fontSize: moderateScale(12),
     fontFamily: fonts.medium,
     color: '#334155',
     marginTop: 2,
+    lineHeight: moderateScale(16),
   },
-  overlayItemQty: {
-    fontSize: moderateScale(11),
-    fontFamily: fonts.small,
-    color: '#64748B',
-    marginTop: 2,
+  itemBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 4,
   },
-  overlayItemPriceCol: {
+  variantChip: {
+    backgroundColor: '#F1F5F9',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  variantChipText: {
+    fontSize: moderateScale(10),
+    fontFamily: fonts.medium,
+    color: '#475569',
+  },
+  qtyChip: {
+    backgroundColor: '#EDE9FE',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  qtyChipText: {
+    fontSize: moderateScale(10),
+    fontFamily: fonts.big,
+    color: '#6D28D9',
+  },
+  itemPriceCol: {
     alignItems: 'flex-end',
   },
-  overlayItemPrice: {
-    fontSize: moderateScale(13),
+  itemTotalPrice: {
+    fontSize: moderateScale(14),
     fontFamily: fonts.big,
     color: '#0F172A',
   },
-  overlayItemDivider: {
+  itemSeparator: {
     height: 1,
-    backgroundColor: '#F1F5F9',
+    backgroundColor: '#F8FAFC',
   },
-  overlayTotalRow: {
+
+  // ── Payment Summary / Footer ──
+  paymentSummaryRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingTop: 4,
   },
-  overlayTotalLabel: {
+  paymentModeTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#F8FAFC',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  paymentModeText: {
+    fontSize: moderateScale(11),
+    fontFamily: fonts.big,
+  },
+  grandTotalCol: {
+    alignItems: 'flex-end',
+  },
+  grandTotalLabel: {
     fontSize: moderateScale(14),
     fontFamily: fonts.big,
-    color: '#0F172A',
+    color: '#1E293B',
   },
-  overlayTotalValue: {
+  grandTotalValue: {
     fontSize: moderateScale(18),
     fontFamily: fonts.big,
-    color: colors.primary,
+    color: '#6D28D9',
   },
-  overlayActions: {
+
+  // ── Action Buttons Stack ──
+  overlayButtonStack: {
     width: '100%',
     gap: 12,
+    marginTop: 6,
   },
-  continueShopBtn: {
+  primaryActionBtn: {
     width: '100%',
-    paddingVertical: 14,
-    borderRadius: 14,
-    backgroundColor: colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: colors.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 3,
+    borderRadius: 16,
+    overflow: 'hidden',
+    shadowColor: '#6D28D9',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 5,
   },
-  continueShopText: {
-    fontSize: moderateScale(14),
-    fontFamily: fonts.big,
-    color: '#FFFFFF',
-  },
-  whatsappBtn: {
-    width: '100%',
-    paddingVertical: 14,
-    borderRadius: 14,
-    backgroundColor: '#25D366',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#25D366',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 3,
+  primaryGradientBtn: {
+    paddingVertical: 15,
     flexDirection: 'row',
-    gap: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  whatsappText: {
-    fontSize: moderateScale(14),
+  primaryActionText: {
+    fontSize: moderateScale(15),
     fontFamily: fonts.big,
     color: '#FFFFFF',
+    letterSpacing: 0.2,
   },
-  viewOrdersBtn: {
+  secondaryActionBtn: {
     width: '100%',
     paddingVertical: 14,
-    borderRadius: 14,
+    borderRadius: 16,
     borderWidth: 1.5,
-    borderColor: '#E2E8F0',
+    borderColor: '#DDD6FE',
     backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  viewOrdersText: {
-    fontSize: moderateScale(14),
-    fontFamily: fonts.big,
-    color: '#475569',
-  },
-  animationWrapper: {
-    width: 200,
-    height: 120,
-    alignItems: 'center',
-    justifyContent: 'center',
-    position: 'relative',
-  },
-  addressHeader: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginBottom: 10,
   },
-  addressSectionTitle: {
+  secondaryActionText: {
     fontSize: moderateScale(14),
     fontFamily: fonts.big,
-    color: '#0F172A',
-  },
-  overlayAddressDetails: {
-    marginTop: 2,
-  },
-  overlayAddressName: {
-    fontSize: moderateScale(13),
-    fontFamily: fonts.big,
-    color: '#0F172A',
-    marginBottom: 4,
-  },
-  overlayAddressText: {
-    fontSize: moderateScale(12),
-    fontFamily: fonts.medium,
-    color: '#475569',
-    lineHeight: 16,
-  },
-  overlayAddressMobile: {
-    fontSize: moderateScale(12),
-    fontFamily: fonts.big,
-    color: '#0F172A',
-    marginTop: 6,
+    color: '#6D28D9',
   },
 });

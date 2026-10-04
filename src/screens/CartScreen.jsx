@@ -953,7 +953,7 @@ export default function CartScreen({ navigation }) {
     }
   };
 
-  // Automatically clamp any cart item whose quantity exceeds available in-stock units (no manual tap needed)
+  // Automatically set cart item quantity to available in-stock units if stock is less than cart quantity
   useEffect(() => {
     if (!cartItems || cartItems.length === 0) return;
 
