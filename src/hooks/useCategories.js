@@ -5,6 +5,11 @@ export function useCategories({ per_page = 1000 } = {}) {
   return useQuery({
     queryKey: ['categories', per_page],
     queryFn: () => getCategories({ per_page }),
-    select: (data) => data.categories || [],
+    select: (data) => {
+      if (Array.isArray(data)) return data;
+      if (Array.isArray(data?.categories)) return data.categories;
+      if (Array.isArray(data?.data)) return data.data;
+      return [];
+    },
   });
 }

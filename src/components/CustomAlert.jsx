@@ -187,49 +187,59 @@ export const CustomAlertProvider = ({ children }) => {
                   <Text style={styles.messageText}>{config.message}</Text>
                 ) : null}
 
-                <View
-                  style={[
-                    styles.buttonContainer,
-                    config.buttons.length > 2 && styles.buttonContainerVertical,
-                  ]}>
-                  {config.buttons.map((btn, index) => {
-                    const isDestructive = btn.style === 'destructive';
-                    const isCancel = btn.style === 'cancel' || btn.text.toLowerCase() === 'cancel';
+                {(() => {
+                  const shouldStack =
+                    config.buttons.length > 2 ||
+                    config.buttons.some((b) => (b.text || '').length > 16);
 
-                    let btnStyle = styles.primaryButton;
-                    let textStyle = styles.primaryButtonText;
+                  return (
+                    <View
+                      style={[
+                        styles.buttonContainer,
+                        shouldStack && styles.buttonContainerVertical,
+                      ]}>
+                      {config.buttons.map((btn, index) => {
+                        const isDestructive = btn.style === 'destructive';
+                        const isCancel = btn.style === 'cancel' || btn.text.toLowerCase() === 'cancel';
 
-                    if (isCancel) {
-                      btnStyle = styles.cancelButton;
-                      textStyle = styles.cancelButtonText;
-                    } else if (isDestructive) {
-                      btnStyle = styles.destructiveButton;
-                      textStyle = styles.destructiveButtonText;
-                    }
+                        let btnStyle = styles.primaryButton;
+                        let textStyle = styles.primaryButtonText;
 
-                    return (
-                      <TouchableOpacity
-                        key={index}
-                        style={[
-                          btnStyle,
-                          config.buttons.length > 2
-                            ? styles.buttonStacked
-                            : config.buttons.length === 1
-                            ? styles.buttonSingle
-                            : styles.buttonFlex,
-                        ]}
-                        activeOpacity={0.85}
-                        onPress={() => {
-                          hideAlert();
-                          if (btn.onPress) {
-                            btn.onPress();
-                          }
-                        }}>
-                        <Text style={textStyle}>{btn.text}</Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
+                        if (isCancel) {
+                          btnStyle = styles.cancelButton;
+                          textStyle = styles.cancelButtonText;
+                        } else if (isDestructive) {
+                          btnStyle = styles.destructiveButton;
+                          textStyle = styles.destructiveButtonText;
+                        }
+
+                        return (
+                          <TouchableOpacity
+                            key={index}
+                            style={[
+                              btnStyle,
+                              shouldStack
+                                ? styles.buttonStacked
+                                : config.buttons.length === 1
+                                ? styles.buttonSingle
+                                : styles.buttonFlex,
+                            ]}
+                            activeOpacity={0.85}
+                            onPress={() => {
+                              hideAlert();
+                              if (btn.onPress) {
+                                btn.onPress();
+                              }
+                            }}>
+                            <Text style={textStyle} numberOfLines={2}>
+                              {btn.text}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  );
+                })()}
               </Animated.View>
             </TouchableWithoutFeedback>
           </Animated.View>
@@ -300,14 +310,14 @@ const styles = StyleSheet.create({
   },
   buttonContainerVertical: {
     flexDirection: 'column',
-    gap: 8,
+    gap: 10,
+    width: '100%',
   },
   buttonSingle: {
     width: '100%',
   },
   buttonStacked: {
     width: '100%',
-    marginBottom: 8,
   },
   buttonFlex: {
     flex: 1,
@@ -316,6 +326,7 @@ const styles = StyleSheet.create({
     height: 48,
     backgroundColor: colors.primary,
     borderRadius: 14,
+    paddingHorizontal: 14,
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: colors.primary,
@@ -329,6 +340,7 @@ const styles = StyleSheet.create({
     fontFamily: fonts.big,
     color: '#FFFFFF',
     letterSpacing: 0.2,
+    textAlign: 'center',
   },
   cancelButton: {
     height: 48,
@@ -336,6 +348,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E2E8F0',
     borderRadius: 14,
+    paddingHorizontal: 14,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -343,6 +356,7 @@ const styles = StyleSheet.create({
     fontSize: moderateScale(14),
     fontFamily: fonts.big,
     color: '#475569',
+    textAlign: 'center',
   },
   destructiveButton: {
     height: 48,

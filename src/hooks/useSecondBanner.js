@@ -5,6 +5,6 @@ export function useSecondBanner() {
   return useQuery({
     queryKey: ['secondBanner', 'active'],
     queryFn: getActiveSecondBanner,
-    staleTime: 1000 * 60 * 5,
+    select: (data) => (data?.data !== undefined ? data.data : data),
   });
 }

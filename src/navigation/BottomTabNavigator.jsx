@@ -1,8 +1,7 @@
 import React from 'react';
 import { StyleSheet, View, TouchableOpacity } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { useSelector } from 'react-redux';
-import { selectCartTotalQuantity } from '../redux/cartSlice';
+import { useCartStore } from '../store/cartStore';
 import HomeScreen from '../screens/HomeScreen';
 import BrandsScreen from '../screens/BrandsScreen';
 import CartScreen from '../screens/CartScreen';
@@ -51,7 +50,7 @@ const ProfileTabBarIcon = ({ color, size, focused }) => (
 );
 
 export default function BottomTabNavigator() {
-  const cartTotalQuantity = useSelector(selectCartTotalQuantity);
+  const cartTotalQuantity = useCartStore((state) => state.totalQuantity);
   const insets = useSafeAreaInsets();
 
   return (

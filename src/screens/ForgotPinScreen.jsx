@@ -13,7 +13,6 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useDispatch } from 'react-redux';
 import { ArrowLeft, RefreshCw, CheckCircle2, AlertCircle, Headphones } from 'lucide-react-native';
 import colors from '../theme/colors';
 import fonts from '../theme/typography';
@@ -21,10 +20,11 @@ import { EyeIcon, EyeOffIcon } from '../components/icons';
 import { moderateScale } from '../theme/responsive';
 import { requestForgotPinOtp, verifyResetOtp, resetPin } from '../api/auth';
 import { saveSession } from '../api/authStorage';
-import { clearCart, initializeCart } from '../redux/cartSlice';
+import { useCartStore } from '../store/cartStore';
 
 export default function ForgotPinScreen({ navigation, route }) {
-  const dispatch = useDispatch();
+  const clearCart = useCartStore((state) => state.clearCart);
+  const initializeCart = useCartStore((state) => state.initializeCart);
 
   // Initial phone number from route params (clean out +91 if present)
   const initialPhone = (route?.params?.phone || '')
@@ -251,8 +251,8 @@ export default function ForgotPinScreen({ navigation, route }) {
         }
 
         try {
-          dispatch(clearCart());
-          dispatch(initializeCart());
+          clearCart();
+          initializeCart();
         } catch (cartErr) {
           console.warn('Cart initialization warning:', cartErr);
         }

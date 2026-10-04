@@ -13,7 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { ChevronLeft, X, MapPin, CheckCircle2, PlusCircle } from 'lucide-react-native';
 import { useSelector } from 'react-redux';
-import { selectCartItems } from '../redux/cartSlice';
+import { useCartStore } from '../store/cartStore';
 import { selectSelectedAddress, selectAddresses } from '../redux/addressSlice';
 import colors from '../theme/colors';
 import fonts from '../theme/typography';
@@ -23,12 +23,12 @@ import { getUserAddresses } from '../api/address';
 import { getUser } from '../api/authStorage';
 import { moderateScale } from '../theme/responsive';
 import { getImageSource } from '../utils/imageOptimizer';
-import { isProductOutOfStock } from '../utils/productUtils';
+import { isProductOutOfStock, getProductStock } from '../utils/productUtils';
 
 const DUMMY_IMG = require('../../assets/dummy_product.png');
 
 export default function CheckoutScreen({ navigation, route }) {
-  const cartItems = useSelector(selectCartItems);
+  const cartItems = useCartStore((state) => state.items);
   const reduxSelectedAddress = useSelector(selectSelectedAddress);
   const reduxAddressesList = useSelector(selectAddresses);
 
@@ -111,12 +111,21 @@ export default function CheckoutScreen({ navigation, route }) {
     return `${startDay} ${month} - ${endDay} ${month}`;
   };
 
-  // Only order selected and in-stock items
+  // Only order selected and in-stock items with auto-clamped stock
   const orderItems = useMemo(() => {
-    if (route.params?.selectedCartItems && Array.isArray(route.params.selectedCartItems) && route.params.selectedCartItems.length > 0) {
-      return route.params.selectedCartItems.filter((item) => !isProductOutOfStock(item));
-    }
-    return cartItems.filter((item) => !isProductOutOfStock(item));
+    const rawItems = (route.params?.selectedCartItems && Array.isArray(route.params.selectedCartItems) && route.params.selectedCartItems.length > 0)
+      ? route.params.selectedCartItems
+      : cartItems;
+
+    return rawItems
+      .filter((item) => !isProductOutOfStock(item))
+      .map((item) => {
+        const stock = getProductStock(item);
+        if (typeof stock === 'number' && stock > 0 && item.quantity > stock) {
+          return { ...item, quantity: stock };
+        }
+        return item;
+      });
   }, [route.params?.selectedCartItems, cartItems]);
 
   // Generate estimates list for items

@@ -5,15 +5,21 @@
  */
 
 import React, { useEffect } from 'react';
-import { StatusBar, useColorScheme, Text, TextInput } from 'react-native';
+import { StatusBar, useColorScheme, Text, TextInput, AppState, Platform } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider, focusManager } from '@tanstack/react-query';
 import { Provider } from 'react-redux';
 import { store } from './src/redux/store';
-import { initializeCart } from './src/redux/cartSlice';
+import { initializeCart } from './src/store/cartStore';
 import { initializeAddresses, fetchAddresses } from './src/redux/addressSlice';
 import RootNavigator from './src/navigation/RootNavigator';
 import { CustomAlertProvider } from './src/components/CustomAlert';
+
+function onAppStateChange(status) {
+  if (Platform.OS !== 'web') {
+    focusManager.setFocused(status === 'active');
+  }
+}
 
 // Cap how much the device's system font-size setting can scale our text.
 // Without this, a user with a large accessibility font size breaks fixed-width
@@ -23,11 +29,15 @@ Text.defaultProps.maxFontSizeMultiplier = 1.2;
 TextInput.defaultProps = TextInput.defaultProps || {};
 TextInput.defaultProps.maxFontSizeMultiplier = 1.2;
 
-const queryClient = new QueryClient({
+export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      retry: 1,
-      staleTime: 60 * 1000,
+      retry: 2,
+      staleTime: 0, // Always consider data stale so backend changes reflect instantly
+      refetchOnMount: 'always', // Always fetch fresh data on screen mount / navigation
+      refetchOnReconnect: 'always',
+      refetchInterval: 3000, // Auto-sync active screen with backend every 3 seconds
+      refetchIntervalInBackground: false, // Pause polling when app is minimized to save battery
     },
   },
 });
@@ -36,10 +46,12 @@ function App() {
   const isDarkMode = useColorScheme() === 'dark';
 
   useEffect(() => {
-    store.dispatch(initializeCart());
+    const subscription = AppState.addEventListener('change', onAppStateChange);
+    initializeCart();
     store.dispatch(initializeAddresses()).then(() => {
       store.dispatch(fetchAddresses());
     });
+    return () => subscription.remove();
   }, []);
 
   return (

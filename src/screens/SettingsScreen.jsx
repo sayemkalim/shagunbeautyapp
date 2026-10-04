@@ -10,7 +10,6 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useDispatch } from 'react-redux';
 import {
   User,
   MapPin,
@@ -27,11 +26,11 @@ import {
 import colors from '../theme/colors';
 import fonts from '../theme/typography';
 import { clearSession, getUser } from '../api/authStorage';
-import { clearCart } from '../redux/cartSlice';
+import { useCartStore } from '../store/cartStore';
 import { moderateScale } from '../theme/responsive';
 
 export default function SettingsScreen({ navigation }) {
-  const dispatch = useDispatch();
+  const clearCart = useCartStore((state) => state.clearCart);
   const [user, setUser] = useState(null);
 
   useFocusEffect(
@@ -55,7 +54,7 @@ export default function SettingsScreen({ navigation }) {
         style: 'destructive',
         onPress: async () => {
           await clearSession();
-          dispatch(clearCart());
+          clearCart();
           navigation.replace('SignIn');
         },
       },

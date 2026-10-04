@@ -5,16 +5,25 @@ export function useProducts({ category = '', sub_category = '', brand = '', per_
   return useQuery({
     queryKey: ['products', category, sub_category, brand, per_page, search],
     queryFn: () => getProducts({ category, sub_category, brand, per_page, search }),
-    select: (data) => data.data || [],
+    select: (data) => {
+      if (Array.isArray(data)) return data;
+      if (Array.isArray(data?.data)) return data.data;
+      if (Array.isArray(data?.products)) return data.products;
+      return [];
+    },
   });
 }
 
 export function useProductDetail(productId, initialData = null) {
   return useQuery({
     queryKey: ['product', productId],
-    queryFn: () => getProductById(productId),
+    queryFn: async () => {
+      const res = await getProductById(productId);
+      return res?.data !== undefined ? res.data : res;
+    },
     enabled: !!productId,
-    initialData: initialData ? { data: initialData } : undefined,
-    select: (res) => res?.data || res,
+    placeholderData: initialData || undefined,
+    staleTime: 0,
+    refetchOnMount: 'always',
   });
 }

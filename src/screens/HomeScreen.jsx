@@ -2,10 +2,10 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import {
   ActivityIndicator,
   Dimensions,
+  FlatList,
   Image,
   Platform,
   RefreshControl,
-  ScrollView,
   StatusBar,
   StyleSheet,
   Text,
@@ -38,7 +38,6 @@ import {
   ChevronRight,
 } from 'lucide-react-native';
 import { useIsFocused } from '@react-navigation/native';
-import { useDispatch, useSelector } from 'react-redux';
 import { useQueryClient } from '@tanstack/react-query';
 import BottomSheetModal from '../components/BottomSheetModal';
 import { useCategories } from '../hooks/useCategories';
@@ -48,12 +47,13 @@ import { useBanners } from '../hooks/useBanners';
 import { useSecondBanner } from '../hooks/useSecondBanner';
 import { useCardBanners } from '../hooks/useCardBanners';
 import { useMarquee } from '../hooks/useMarquee';
-import { addToCart } from '../redux/cartSlice';
+import { useCartStore } from '../store/cartStore';
 import { addToCartApi } from '../api/cart';
 import { Skeleton } from '../components/Skeleton';
 import MarqueeBanner from '../components/MarqueeBanner';
 import BrandMarqueeBanner from '../components/BrandMarqueeBanner';
 import CardBannerSection from '../components/CardBannerSection';
+import ProductCard from '../components/ProductCard';
 import { getImageSource } from '../utils/imageOptimizer';
 import { isProductOutOfStock, getProductStockStatus } from '../utils/productUtils';
 
@@ -267,7 +267,6 @@ const DEALS_TITLES_ROTATION = [
 
 export default function HomeScreen({ navigation }) {
   const isFocused = useIsFocused();
-  const dispatch = useDispatch();
   const queryClient = useQueryClient();
   const [activeSlide, setActiveSlide] = useState(0);
   const [bestsellerActivePage, setBestsellerActivePage] = useState(0);
@@ -566,94 +565,26 @@ export default function HomeScreen({ navigation }) {
 
   const sliderRef = useRef(null);
 
-  const cartItems = useSelector((state) => state.cart.items || []);
-  const [loadingProductId, setLoadingProductId] = useState(null);
-
-  const handleAddToCart = async (product) => {
-    const pId = product._id || product.id;
-    const cached = queryClient?.getQueryData(['product', pId]);
-    const effectiveItem = cached ? { ...product, ...(cached.data || cached) } : product;
-    if (isProductOutOfStock(effectiveItem)) {
-      return;
-    }
-
-    const isInCart = cartItems.some((ci) => (ci.productId || ci.id) === pId);
-
-    if (isInCart) {
-      navigation.navigate('Bag');
-      return;
-    }
-
-    setLoadingProductId(pId);
-
-    const originalPrice = product.price || 0;
-    const finalPrice = product.discounted_price || product.price || 999;
-    
-    let bName = '';
-    if (typeof product.brand === 'object' && product.brand?.name) {
-      bName = product.brand.name;
-    } else if (product.brandName) {
-      bName = product.brandName;
-    } else if (typeof product.brand === 'string') {
-      if (/^[0-9a-fA-F]{24}$/.test(product.brand)) {
-        const found = brands.find((b) => b._id === product.brand);
-        bName = found ? found.name : '';
-      } else {
-        bName = product.brand;
-      }
-    }
-
-    const imageUri = product.images?.[0] || product.image || product.banner_image;
-
-    dispatch(
-      addToCart({
-        productId: pId,
-        name: product.name,
-        brandName: bName,
-        price: originalPrice > 0 ? originalPrice : finalPrice,
-        discountedPrice: finalPrice,
-        baseDiscountedPrice: finalPrice,
-        price_tiers: product.price_tiers || product.priceTiers || null,
-        image: imageUri,
-        quantity: 1,
-        available_inventory: product.available_inventory,
-        base_available_inventory: product.base_available_inventory,
-      })
-    );
-
-    try {
-      await addToCartApi({
-        type: 'product',
-        productId: pId,
-        quantity: 1,
-      });
-    } catch (e) {
-      console.log('Add to cart API error:', e);
-    } finally {
-      setLoadingProductId(null);
-    }
-  };
-
-  const handleScroll = (event) => {
+  const handleScroll = useCallback((event) => {
     const slideSize = event.nativeEvent.layoutMeasurement.width;
     const offset = event.nativeEvent.contentOffset.x;
     const activeIndex = Math.floor((offset + slideSize / 2) / slideSize);
     setActiveSlide(activeIndex);
-  };
+  }, []);
 
-  const handleBestsellerScroll = (event) => {
+  const handleBestsellerScroll = useCallback((event) => {
     const offset = event.nativeEvent.contentOffset.x;
     const pageIndex = Math.round(offset / BESTSELLER_SNAP_INTERVAL);
     setBestsellerActivePage(pageIndex);
-  };
+  }, []);
 
 
   useEffect(() => {
     if (bannerSlides.length < 2) return undefined;
     const timer = setInterval(() => {
       if (sliderRef.current) {
-        sliderRef.current.scrollTo({
-          x: ((activeSlide + 1) % bannerSlides.length) * BANNER_WIDTH,
+        sliderRef.current.scrollToOffset({
+          offset: ((activeSlide + 1) % bannerSlides.length) * BANNER_WIDTH,
           animated: true,
         });
       }
@@ -662,155 +593,134 @@ export default function HomeScreen({ navigation }) {
     return () => clearInterval(timer);
   }, [activeSlide, bannerSlides.length]);
 
-  return (
-    <SafeAreaView style={styles.safeArea} edges={['top']}>
-      {isFocused && (
-        <StatusBar
-          backgroundColor="#FFFFFF"
-          barStyle="dark-content"
-          translucent={false}
-        />
-      )}
+  const HOME_SECTIONS = useMemo(() => [
+    { id: 'top_lavender' },
+    { id: 'brand_marquee' },
+    { id: 'luxury_banner' },
+    { id: 'categories' },
+    { id: 'spotlight_brands' },
+    { id: 'card_banners' },
+    { id: 'bestsellers' },
+    { id: 'deals' },
+    { id: 'footer' },
+  ], []);
 
-      {/* ── Search Bar ── */}
-      <GridBackground style={styles.searchSection}>
-        <View style={styles.logoSearchRow}>
-          <View style={styles.logoWrapper}>
-            <Image
-              source={require('../../assets/SBL.png')}
-              style={styles.headerLogoImage}
-              resizeMode="contain"
+  const renderSectionItem = useCallback(({ item }) => {
+    switch (item.id) {
+      case 'top_lavender':
+        return (
+          <GridBackground style={styles.topLavenderSection}>
+            {/* Continuous Sliding Marquee Sale Banner */}
+            {marqueeItems.length > 0 && (
+              <MarqueeBanner
+                items={marqueeItems}
+                onPress={() =>
+                  navigation.navigate('Products', {
+                    filterType: 'supersaver',
+                    headerTitle: 'For You',
+                  })
+                }
+              />
+            )}
+
+            {/* Weekend Sale Banner */}
+            <TouchableOpacity
+              style={styles.saleBannerContainer}
+              activeOpacity={0.9}
+              onPress={handleSecondBannerPress}>
+              <Image
+                source={secondBannerSource}
+                style={styles.saleBannerImage}
+                resizeMode="cover"
+              />
+            </TouchableOpacity>
+
+            {/* Deal Chips FlatList */}
+            <FlatList
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.dealChipsScroll}
+              data={DEAL_CHIPS}
+              keyExtractor={(chip) => chip.id}
+              renderItem={({ item: chip }) => {
+                const hasImage = !!chip.image;
+                return (
+                  <TouchableOpacity
+                    style={hasImage ? styles.dealChipCardImageOnly : styles.dealChipCard}
+                    activeOpacity={0.85}
+                    onPress={() => {
+                      let filterType = '';
+                      let headerTitle = '';
+                      if (chip.id === '1') {
+                        filterType = 'lightning';
+                        headerTitle = 'Lightning Deals';
+                      } else if (chip.id === '2') {
+                        filterType = 'monsoon';
+                        headerTitle = 'Monsoon Sale';
+                      } else if (chip.id === '3') {
+                        filterType = 'freegift';
+                        headerTitle = 'Free Gift Inside';
+                      } else if (chip.id === '4') {
+                        filterType = 'bestseller';
+                        headerTitle = 'Bestsellers of the Season';
+                      } else if (chip.id === '5') {
+                        filterType = 'supersaver';
+                        headerTitle = 'Super Savers';
+                      }
+                      navigation.navigate('Products', { filterType, headerTitle });
+                    }}>
+                    {hasImage ? (
+                      <Image
+                        source={chip.image}
+                        style={styles.dealChipFullImage}
+                        resizeMode="cover"
+                      />
+                    ) : (
+                      <>
+                        <View style={[styles.chipIconContainer, { backgroundColor: chip.iconBg }]}>
+                          <chip.Icon size={22} color={chip.iconColor} />
+                        </View>
+                        <Text style={styles.dealChipTitle}>{chip.title}</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                );
+              }}
             />
-          </View>
-          <TouchableOpacity
-            style={styles.searchBar}
-            activeOpacity={0.8}
-            onPress={() => navigation.navigate('Search')}>
-            <Search size={20} color="#64748B" style={styles.searchIcon} />
-            <SearchHintText />
-          </TouchableOpacity>
-        </View>
-      </GridBackground>
+          </GridBackground>
+        );
 
-      <ScrollView
-        style={styles.scrollView}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            colors={[colors.primary]}
-            tintColor={colors.primary}
+      case 'brand_marquee':
+        return brands.length > 0 ? (
+          <BrandMarqueeBanner
+            brands={brands}
+            style={styles.brandMarqueeWrapper}
           />
-        }>
+        ) : null;
 
-        {/* ── Top Lavender Grid Section ── */}
-        <GridBackground style={styles.topLavenderSection}>
-          {/* Continuous Sliding Marquee Sale Banner (Only rendered when active marquee exists from API) */}
-          {marqueeItems.length > 0 && (
-            <MarqueeBanner
-              items={marqueeItems}
-              onPress={() =>
-                navigation.navigate('Products', {
-                  filterType: 'supersaver',
-                  headerTitle: 'For You',
-                })
-              }
-            />
-          )}
-
-          {/* Weekend Sale Banner */}
-          <TouchableOpacity
-            style={styles.saleBannerContainer}
-            activeOpacity={0.9}
-            onPress={handleSecondBannerPress}>
-            <Image
-              source={secondBannerSource}
-              style={styles.saleBannerImage}
-              resizeMode="cover"
-            />
-          </TouchableOpacity>
-
-          {/* Deal Chips */}
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.dealChipsScroll}>
-            {DEAL_CHIPS.map((chip) => {
-              const hasImage = !!chip.image;
-              return (
-                <TouchableOpacity
-                  key={chip.id}
-                  style={hasImage ? styles.dealChipCardImageOnly : styles.dealChipCard}
-                  activeOpacity={0.85}
-                  onPress={() => {
-                    let filterType = '';
-                    let headerTitle = '';
-                    if (chip.id === '1') {
-                      filterType = 'lightning';
-                      headerTitle = 'Lightning Deals';
-                    } else if (chip.id === '2') {
-                      filterType = 'monsoon';
-                      headerTitle = 'Monsoon Sale';
-                    } else if (chip.id === '3') {
-                      filterType = 'freegift';
-                      headerTitle = 'Free Gift Inside';
-                    } else if (chip.id === '4') {
-                      filterType = 'bestseller';
-                      headerTitle = 'Bestsellers of the Season';
-                    } else if (chip.id === '5') {
-                      filterType = 'supersaver';
-                      headerTitle = 'Super Savers';
-                    }
-                    navigation.navigate('Products', { filterType, headerTitle });
-                  }}>
-                  {hasImage ? (
-                    <Image
-                      source={chip.image}
-                      style={styles.dealChipFullImage}
-                      resizeMode="cover"
-                    />
-                  ) : (
-                    <>
-                      <View style={[styles.chipIconContainer, { backgroundColor: chip.iconBg }]}>
-                        <chip.Icon size={22} color={chip.iconColor} />
-                      </View>
-                      <Text style={styles.dealChipTitle}>{chip.title}</Text>
-                    </>
-                  )}
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
-        </GridBackground>
-
-        {/* ── Bottom White Section ── */}
-        <View style={styles.bottomWhiteSection}>
-          {/* Continuous Sliding Brand Logos Marquee Banner */}
-          {brands.length > 0 && (
-            <BrandMarqueeBanner
-              brands={brands}
-              style={styles.brandMarqueeWrapper}
-            />
-          )}
-
-          {/* New Luxury Ritual Banner Slider */}
-          <View style={styles.luxuryBanner}>
-            {(bannersLoading || refreshing) ? (
-              <Skeleton width={BANNER_WIDTH} height={180} radius={16} />
-            ) : (
-              <ScrollView
-                ref={sliderRef}
-                horizontal
-                pagingEnabled
-                showsHorizontalScrollIndicator={false}
-                onScroll={handleScroll}
-                scrollEventThrottle={16}>
-                {bannerItems.map(({ banner, key, imageSource }) => {
-                  return (
+      case 'luxury_banner':
+        return (
+          <View style={styles.luxuryBannerWrapper}>
+            <View style={styles.luxuryBanner}>
+              {(bannersLoading || refreshing) ? (
+                <Skeleton width={BANNER_WIDTH} height={180} radius={16} />
+              ) : (
+                <FlatList
+                  ref={sliderRef}
+                  horizontal
+                  pagingEnabled
+                  showsHorizontalScrollIndicator={false}
+                  onScroll={handleScroll}
+                  scrollEventThrottle={16}
+                  data={bannerItems}
+                  keyExtractor={(bItem) => bItem.key}
+                  getItemLayout={(_, index) => ({
+                    length: BANNER_WIDTH,
+                    offset: BANNER_WIDTH * index,
+                    index,
+                  })}
+                  renderItem={({ item: { banner, imageSource } }) => (
                     <TouchableOpacity
-                      key={key}
                       activeOpacity={0.95}
                       style={{ width: BANNER_WIDTH, height: 180 }}
                       onPress={() => {
@@ -851,133 +761,104 @@ export default function HomeScreen({ navigation }) {
                         preset="BANNER_HERO"
                       />
                     </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
+                  )}
+                />
+              )}
+            </View>
+
+            {/* Carousel Dots below the banner */}
+            {!bannersLoading && bannerSlides.length > 1 && (
+              <View style={styles.luxuryBannerDots}>
+                {bannerSlides.map((banner, index) => (
+                  <View
+                    key={banner._id || banner.id || index}
+                    style={[styles.luxuryDot, activeSlide === index && styles.luxuryDotActive]}
+                  />
+                ))}
+              </View>
             )}
           </View>
+        );
 
-          {/* Carousel Dots below the banner */}
-          {!bannersLoading && bannerSlides.length > 1 && (
-            <View style={styles.luxuryBannerDots}>
-              {bannerSlides.map((banner, index) => (
-                <View
-                  key={banner._id || banner.id || index}
-                  style={[styles.luxuryDot, activeSlide === index && styles.luxuryDotActive]}
-                />
-              ))}
-            </View>
-          )}
-
-          {/* Categories Section */}
+      case 'categories':
+        return (
           <View style={styles.categoriesSection}>
             <View style={styles.categoriesHeader}>
               <Text style={styles.categoriesTitle}>Shop By Category</Text>
             </View>
 
-            <ScrollView
+            <FlatList
               horizontal
               showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.categoriesScroll}>
-              {(categoriesLoading || refreshing) ? (
-                Array.from({ length: 6 }).map((_, i) => (
-                  <View key={i} style={styles.categoryItem}>
-                    <CategorySkeleton />
-                  </View>
-                ))
-              ) : categories.length === 0 ? (
-                CATEGORIES.map((cat) => (
-                  <TouchableOpacity
-                    key={cat.id}
-                    style={styles.categoryItem}
-                    activeOpacity={0.95}
-                    onPress={() => navigation.navigate('Products', { categoryId: cat.id, categoryName: cat.name })}>
-                    <Image source={cat.image} style={styles.categoryItemImage} />
-                    <Text style={styles.categoryItemLabel}>{cat.name}</Text>
-                  </TouchableOpacity>
-                ))
-              ) : (
-                categoryItems.map(({ cat, imageSource }) => {
+              contentContainerStyle={styles.categoriesScroll}
+              data={
+                categoriesLoading || refreshing
+                  ? Array.from({ length: 6 }).map((_, i) => ({ isSkeleton: true, id: `cat-skel-${i}` }))
+                  : categories.length === 0
+                  ? CATEGORIES.map((cat) => ({ ...cat, isStatic: true }))
+                  : categoryItems.map((ci) => ({ ...ci.cat, imageSource: ci.imageSource }))
+              }
+              keyExtractor={(catItem, index) => catItem._id || catItem.id || `cat-${index}`}
+              renderItem={({ item: catItem }) => {
+                if (catItem.isSkeleton) {
+                  return (
+                    <View style={styles.categoryItem}>
+                      <CategorySkeleton />
+                    </View>
+                  );
+                }
+                if (catItem.isStatic) {
                   return (
                     <TouchableOpacity
-                      key={cat._id}
                       style={styles.categoryItem}
-                      activeOpacity={0.85}
-                      onPress={() => navigation.navigate('Products', { categoryId: cat._id, categoryName: cat.name })}>
-                      <RemoteImage source={imageSource} defaultSource={require('../../assets/dummy_product.png')} style={styles.categoryItemImage} radius={42} preset="CATEGORY_ICON" />
-                      <Text style={styles.categoryItemLabel}>{cat.name}</Text>
+                      activeOpacity={0.95}
+                      onPress={() => navigation.navigate('Products', { categoryId: catItem.id, categoryName: catItem.name })}>
+                      <Image source={catItem.image} style={styles.categoryItemImage} />
+                      <Text style={styles.categoryItemLabel}>{catItem.name}</Text>
                     </TouchableOpacity>
                   );
-                })
-              )}
-            </ScrollView>
+                }
+                return (
+                  <TouchableOpacity
+                    style={styles.categoryItem}
+                    activeOpacity={0.85}
+                    onPress={() => navigation.navigate('Products', { categoryId: catItem._id, categoryName: catItem.name })}>
+                    <RemoteImage
+                      source={catItem.imageSource}
+                      defaultSource={require('../../assets/dummy_product.png')}
+                      style={styles.categoryItemImage}
+                      radius={42}
+                      preset="CATEGORY_ICON"
+                    />
+                    <Text style={styles.categoryItemLabel}>{catItem.name}</Text>
+                  </TouchableOpacity>
+                );
+              }}
+            />
           </View>
+        );
 
-          {/* ── BRANDS IN SPOTLIGHT Section ── */}
-          {(brandsLoading || refreshing || spotlightBrands.length > 0) ? (
-            <LinearGradient
-              colors={['#FDEAB0', '#FEF2CB', '#FFF8E1']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 0, y: 1 }}
-              style={styles.spotlightSection}>
-              {/* Header with Centered Title & AD Badge */}
-              <View style={styles.spotlightHeader}>
-                <Text style={styles.spotlightTitle}>BRANDS IN SPOTLIGHT</Text>
-                
-              </View>
+      case 'spotlight_brands':
+        return (brandsLoading || refreshing || spotlightBrands.length > 0) ? (
+          <LinearGradient
+            colors={['#FDEAB0', '#FEF2CB', '#FFF8E1']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={styles.spotlightSection}>
+            <View style={styles.spotlightHeader}>
+              <Text style={styles.spotlightTitle}>BRANDS IN SPOTLIGHT</Text>
+            </View>
 
-              {(brandsLoading || refreshing) ? (
-                <BrandSkeleton />
-              ) : (
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.spotlightScrollContent}>
-                  {spotlightBrands.map((item) => {
-                    return (
-                      <TouchableOpacity
-                        key={item.brand._id || item.brand.id}
-                        style={styles.spotlightCard}
-                        activeOpacity={0.88}
-                        onPress={() =>
-                          navigation.navigate('Products', {
-                            brandId: item.brand._id,
-                            brandName: item.brand.name,
-                          })
-                        }>
-                        <View style={styles.spotlightCardContent}>
-                          <View style={styles.spotlightImageContainer}>
-                            {item.logoImage ? (
-                              <Image
-                                source={getImageSource(item.logoImage, 'BRAND_LOGO')}
-                                style={styles.spotlightBrandHeroImage}
-                                resizeMode="contain"
-                              />
-                            ) : (
-                              <View style={styles.spotlightFallbackEmblem}>
-                                <Text style={styles.spotlightFallbackInitial}>
-                                  {item.brand.name?.charAt(0).toUpperCase()}
-                                </Text>
-                              </View>
-                            )}
-                          </View>
-
-                          <View style={styles.spotlightBrandFooter}>
-                            <Text style={styles.spotlightBrandNameText} numberOfLines={1}>
-                              {item.brand.name?.trim().toUpperCase()}
-                            </Text>
-                            {item.subtitleText ? (
-                              <Text style={styles.spotlightSubtitleText} numberOfLines={1}>
-                                {item.subtitleText}
-                              </Text>
-                            ) : null}
-                          </View>
-                        </View>
-                      </TouchableOpacity>
-                    );
-                  })}
-
-                  {/* View All Brands Card at the End */}
+            {(brandsLoading || refreshing) ? (
+              <BrandSkeleton />
+            ) : (
+              <FlatList
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.spotlightScrollContent}
+                data={spotlightBrands}
+                keyExtractor={(bItem) => bItem.brand._id || bItem.brand.id}
+                ListFooterComponent={
                   <TouchableOpacity
                     style={[styles.spotlightCard, styles.spotlightViewAllCard]}
                     activeOpacity={0.85}
@@ -990,182 +871,135 @@ export default function HomeScreen({ navigation }) {
                       <Text style={styles.spotlightViewAllSubtitle}>View all brands</Text>
                     </View>
                   </TouchableOpacity>
-                </ScrollView>
-              )}
-            </LinearGradient>
-          ) : null}
+                }
+                renderItem={({ item: bItem }) => (
+                  <TouchableOpacity
+                    style={styles.spotlightCard}
+                    activeOpacity={0.88}
+                    onPress={() =>
+                      navigation.navigate('Products', {
+                        brandId: bItem.brand._id,
+                        brandName: bItem.brand.name,
+                      })
+                    }>
+                    <View style={styles.spotlightCardContent}>
+                      <View style={styles.spotlightImageContainer}>
+                        {bItem.logoImage ? (
+                          <Image
+                            source={getImageSource(bItem.logoImage, 'BRAND_LOGO')}
+                            style={styles.spotlightBrandHeroImage}
+                            resizeMode="contain"
+                          />
+                        ) : (
+                          <View style={styles.spotlightFallbackEmblem}>
+                            <Text style={styles.spotlightFallbackInitial}>
+                              {bItem.brand.name?.charAt(0).toUpperCase()}
+                            </Text>
+                          </View>
+                        )}
+                      </View>
 
-          {/* ── Dynamic Card Banners / Cards Slider Section ── */}
+                      <View style={styles.spotlightBrandFooter}>
+                        <Text style={styles.spotlightBrandNameText} numberOfLines={1}>
+                          {bItem.brand.name?.trim().toUpperCase()}
+                        </Text>
+                        {bItem.subtitleText ? (
+                          <Text style={styles.spotlightSubtitleText} numberOfLines={1}>
+                            {bItem.subtitleText}
+                          </Text>
+                        ) : null}
+                      </View>
+                    </View>
+                  </TouchableOpacity>
+                )}
+              />
+            )}
+          </LinearGradient>
+        ) : null;
+
+      case 'card_banners':
+        return (
           <CardBannerSection
             cardBanners={cardBanners}
             isLoading={cardBannersLoading}
             refreshing={refreshing}
             navigation={navigation}
           />
+        );
 
+      case 'bestsellers':
+        return (productsLoading || refreshing || bestsellerProducts.length > 0) ? (
+          <View style={styles.bestsellerSection}>
+            <View style={styles.bestsellerHeader}>
+              <Text style={styles.bestsellerTitle}>Best Sellers</Text>
+            </View>
 
-          {/* ── Best Sellers Slider Section ── */}
-          {(productsLoading || refreshing || bestsellerProducts.length > 0) ? (
-            <View style={styles.bestsellerSection}>
-              <View style={styles.bestsellerHeader}>
-                <Text style={styles.bestsellerTitle}>Best Sellers</Text>
-              </View>
-
-              {(productsLoading || refreshing) ? (
-                <ScrollView
+            {(productsLoading || refreshing) ? (
+              <FlatList
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                snapToInterval={BESTSELLER_SNAP_INTERVAL}
+                decelerationRate="fast"
+                snapToAlignment="start"
+                contentContainerStyle={styles.bestsellerScrollContent}
+                data={Array.from({ length: 4 })}
+                keyExtractor={(_, i) => `bs-skel-${i}`}
+                renderItem={() => (
+                  <View style={styles.bestsellerCard}>
+                    <Skeleton width="100%" height={150} radius={12} />
+                    <Skeleton width="90%" height={11} radius={5} style={{ marginTop: 10 }} />
+                    <Skeleton width="60%" height={11} radius={5} style={{ marginTop: 6 }} />
+                    <Skeleton width="50%" height={14} radius={5} style={{ marginTop: 8 }} />
+                    <Skeleton width="100%" height={36} radius={10} style={{ marginTop: 12 }} />
+                  </View>
+                )}
+              />
+            ) : (
+              <>
+                <FlatList
                   horizontal
                   showsHorizontalScrollIndicator={false}
                   snapToInterval={BESTSELLER_SNAP_INTERVAL}
                   decelerationRate="fast"
                   snapToAlignment="start"
-                  contentContainerStyle={styles.bestsellerScrollContent}>
-                  {Array.from({ length: 4 }).map((_, i) => (
-                    <View key={i} style={styles.bestsellerCard}>
-                      <Skeleton width="100%" height={150} radius={12} />
-                      <Skeleton width="90%" height={11} radius={5} style={{ marginTop: 10 }} />
-                      <Skeleton width="60%" height={11} radius={5} style={{ marginTop: 6 }} />
-                      <Skeleton width="50%" height={14} radius={5} style={{ marginTop: 8 }} />
-                      <Skeleton width="100%" height={36} radius={10} style={{ marginTop: 12 }} />
-                    </View>
-                  ))}
-                </ScrollView>
-              ) : (
-                <>
-                  <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    snapToInterval={BESTSELLER_SNAP_INTERVAL}
-                    decelerationRate="fast"
-                    snapToAlignment="start"
-                    onScroll={handleBestsellerScroll}
-                    scrollEventThrottle={16}
-                    contentContainerStyle={styles.bestsellerScrollContent}>
-                    {bestsellerProducts.map(({ item, itemId, originalPrice, finalPrice, discount, imageSource, brandNameStr, titleText }) => {
-                      const isInCart = cartItems.some((ci) => (ci.productId || ci.id) === itemId);
-                      const isLoadingThis = loadingProductId === itemId;
+                  onScroll={handleBestsellerScroll}
+                  scrollEventThrottle={16}
+                  contentContainerStyle={styles.bestsellerScrollContent}
+                  data={bestsellerProducts}
+                  keyExtractor={(bsItem, idx) => bsItem.itemId || bsItem.item?._id || `bs-${idx}`}
+                  renderItem={({ item: bsItem }) => {
+                    const productItem = bsItem.item || bsItem;
+                    return (
+                      <ProductCard
+                        product={productItem}
+                        width={BESTSELLER_CARD_WIDTH}
+                        style={styles.bestsellerCard}
+                        brands={brands}
+                      />
+                    );
+                  }}
+                />
 
-                      return (
-                        <TouchableOpacity
-                          key={item._id || item.id}
-                          style={styles.bestsellerCard}
-                          activeOpacity={0.85}
-                          onPress={() =>
-                            navigation.navigate('ProductDetail', {
-                              productId: item._id || item.id,
-                              product: item,
-                            })
-                          }>
-                          {/* Image Box */}
-                          <View style={styles.imageContainer}>
-                            <LinearGradient
-                              colors={['#A78BFA', colors.primary]}
-                              start={{ x: 0, y: 0 }}
-                              end={{ x: 1, y: 0 }}
-                              style={styles.gradientBadge}>
-                              <Text style={styles.gradientBadgeText}>BESTSELLER</Text>
-                            </LinearGradient>
-                            <RemoteImage
-                              source={imageSource}
-                              defaultSource={require('../../assets/dummy_product.png')}
-                              style={styles.productImage}
-                              resizeMode="cover"
-                            />
-                          </View>
+                {bestsellerProducts.length > 2 && (
+                  <View style={styles.bestsellerDotsRow}>
+                    {Array.from({ length: Math.min(6, Math.ceil(bestsellerProducts.length / 2)) }).map((_, i) => (
+                      <View
+                        key={i}
+                        style={[styles.bestsellerDot, bestsellerActivePage === i && styles.bestsellerDotActive]}
+                      />
+                    ))}
+                  </View>
+                )}
+              </>
+            )}
+          </View>
+        ) : null;
 
-                          {/* Details Container */}
-                          <View style={styles.detailsContainer}>
-                            <View>
-                              <Text numberOfLines={2} style={styles.productTitle}>
-                                {brandNameStr ? <Text style={styles.brandText}>{brandNameStr} </Text> : null}
-                                {titleText}
-                              </Text>
-
-                              {/* Price Row */}
-                              <View style={styles.priceRow}>
-                                {discount > 0 ? (
-                                  <>
-                                    <Text style={styles.originalPrice}>₹{originalPrice}</Text>
-                                    <Text style={styles.finalPrice}>₹{finalPrice}</Text>
-                                    <Text style={styles.discountText}>{discount}% OFF</Text>
-                                  </>
-                                ) : (
-                                  <Text style={styles.finalPrice}>₹{finalPrice}</Text>
-                                )}
-                              </View>
-                            </View>
-
-                            {/* ADD TO BAG / GO TO BAG Button with Spinner */}
-                            {(() => {
-                              const pId = item._id || item.id || itemId;
-                              const cached = queryClient?.getQueryData(['product', pId]);
-                              const effectiveItem = cached ? { ...item, ...(cached.data || cached) } : item;
-                              const { isCompletelyOutOfStock, isSelectOption } = getProductStockStatus(effectiveItem);
-                              return (
-                                <TouchableOpacity
-                                  style={[
-                                    styles.addToBagButton,
-                                    isInCart && styles.goToBagButton,
-                                    isCompletelyOutOfStock && styles.outOfStockButton,
-                                  ]}
-                                  activeOpacity={0.85}
-                                  disabled={isCompletelyOutOfStock || isLoadingThis}
-                                  onPress={() => {
-                                    if (isSelectOption) {
-                                      navigation.navigate('ProductDetail', {
-                                        productId: effectiveItem._id || effectiveItem.id || itemId,
-                                        product: effectiveItem,
-                                      });
-                                    } else {
-                                      handleAddToCart(effectiveItem);
-                                    }
-                                  }}>
-                                  {isLoadingThis ? (
-                                    <ActivityIndicator size="small" color={isInCart ? '#FFFFFF' : colors.primary} />
-                                  ) : (
-                                    <Text
-                                      style={[
-                                        styles.addToBagText,
-                                        isInCart && styles.goToBagText,
-                                        isCompletelyOutOfStock && styles.outOfStockText,
-                                      ]}>
-                                      {isCompletelyOutOfStock
-                                        ? 'OUT OF STOCK'
-                                        : isSelectOption
-                                        ? 'SELECT OPTION'
-                                        : isInCart
-                                        ? 'GO TO BAG'
-                                        : 'ADD TO BAG'}
-                                    </Text>
-                                  )}
-                                </TouchableOpacity>
-                              );
-                            })()}
-                          </View>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </ScrollView>
-
-                  {bestsellerProducts.length > 2 && (
-                    <View style={styles.bestsellerDotsRow}>
-                      {Array.from({ length: Math.min(6, Math.ceil(bestsellerProducts.length / 2)) }).map((_, i) => (
-                        <View
-                          key={i}
-                          style={[styles.bestsellerDot, bestsellerActivePage === i && styles.bestsellerDotActive]}
-                        />
-                      ))}
-                    </View>
-                  )}
-                </>
-              )}
-            </View>
-          ) : null}
-
-          {/* ── Deals Of The Day (Light Primary Purple LinearGradient Background) ── */}
+      case 'deals':
+        return (
           <LinearGradient
             colors={['#F3E8FF', '#FAF5FF', '#FFFFFF']}
             style={styles.dealsLinearSection}>
-            {/* Centered Banner Header */}
             <View style={styles.dealsHeaderCard}>
               <View style={{ alignItems: 'center' }}>
                 <Text style={styles.dealsTitle}>{currentDealsHeader.title}</Text>
@@ -1181,110 +1015,16 @@ export default function HomeScreen({ navigation }) {
               </View>
             ) : realProducts.length > 0 ? (
               <View style={styles.dealsGrid}>
-                {dealsProducts.map(({ item, itemId, originalPrice, finalPrice, discount, imageSource, brandNameStr, titleText }) => {
-                  const isInCart = cartItems.some((ci) => (ci.productId || ci.id) === itemId);
-                  const isLoadingThis = loadingProductId === itemId;
-
+                {dealsProducts.map((deal) => {
+                  const dealItem = deal.item || deal;
                   return (
-                    <TouchableOpacity
-                      key={item._id || item.id}
+                    <ProductCard
+                      key={dealItem._id || dealItem.id || `deal-${deal.itemId}`}
+                      product={dealItem}
+                      width={DEAL_CARD_WIDTH}
                       style={styles.dealProductCard}
-                      activeOpacity={0.85}
-                      onPress={() =>
-                        navigation.navigate('ProductDetail', {
-                          productId: item._id || item.id,
-                          product: item,
-                        })
-                      }>
-                      {/* Image Box */}
-                      <View style={styles.imageContainer}>
-                        {(item.is_best_seller || item.isBestSeller || item.is_bestseller || item.tag === 'bestseller') && (
-                          <LinearGradient
-                            colors={['#A78BFA', colors.primary]}
-                            start={{ x: 0, y: 0 }}
-                            end={{ x: 1, y: 0 }}
-                            style={styles.gradientBadge}>
-                            <Text style={styles.gradientBadgeText}>BESTSELLER</Text>
-                          </LinearGradient>
-                        )}
-                        <RemoteImage
-                          source={imageSource}
-                          defaultSource={require('../../assets/dummy_product.png')}
-                          style={styles.productImage}
-                          resizeMode="cover"
-                        />
-                      </View>
-
-                      {/* Details Container */}
-                      <View style={styles.detailsContainer}>
-                        <View>
-                          <Text numberOfLines={2} style={styles.productTitle}>
-                            {brandNameStr ? <Text style={styles.brandText}>{brandNameStr} </Text> : null}
-                            {titleText}
-                          </Text>
-
-                          {/* Price Row */}
-                          <View style={styles.priceRow}>
-                            {discount > 0 ? (
-                              <>
-                                <Text style={styles.originalPrice}>₹{originalPrice}</Text>
-                                <Text style={styles.finalPrice}>₹{finalPrice}</Text>
-                                <Text style={styles.discountText}>{discount}% OFF</Text>
-                              </>
-                            ) : (
-                              <Text style={styles.finalPrice}>₹{finalPrice}</Text>
-                            )}
-                          </View>
-                        </View>
-
-                        {/* ADD TO BAG / GO TO BAG Button with Spinner */}
-                        {(() => {
-                          const pId = item._id || item.id;
-                          const cached = queryClient?.getQueryData(['product', pId]);
-                          const effectiveItem = cached ? { ...item, ...(cached.data || cached) } : item;
-                          const { isCompletelyOutOfStock, isSelectOption } = getProductStockStatus(effectiveItem);
-                          return (
-                            <TouchableOpacity
-                              style={[
-                                styles.addToBagButton,
-                                isInCart && styles.goToBagButton,
-                                isCompletelyOutOfStock && styles.outOfStockButton,
-                              ]}
-                              activeOpacity={0.85}
-                              disabled={isCompletelyOutOfStock || isLoadingThis}
-                              onPress={() => {
-                                if (isSelectOption) {
-                                  navigation.navigate('ProductDetail', {
-                                    productId: effectiveItem._id || effectiveItem.id,
-                                    product: effectiveItem,
-                                  });
-                                } else {
-                                  handleAddToCart(effectiveItem);
-                                }
-                              }}>
-                              {isLoadingThis ? (
-                                <ActivityIndicator size="small" color={isInCart ? '#FFFFFF' : colors.primary} />
-                              ) : (
-                                <Text
-                                  style={[
-                                    styles.addToBagText,
-                                    isInCart && styles.goToBagText,
-                                    isCompletelyOutOfStock && styles.outOfStockText,
-                                  ]}>
-                                  {isCompletelyOutOfStock
-                                    ? 'OUT OF STOCK'
-                                    : isSelectOption
-                                    ? 'SELECT OPTION'
-                                    : isInCart
-                                    ? 'GO TO BAG'
-                                    : 'ADD TO BAG'}
-                                </Text>
-                              )}
-                            </TouchableOpacity>
-                          );
-                        })()}
-                      </View>
-                    </TouchableOpacity>
+                      brands={brands}
+                    />
                   );
                 })}
               </View>
@@ -1296,8 +1036,10 @@ export default function HomeScreen({ navigation }) {
               style={styles.bottomGradientFade}
             />
           </LinearGradient>
+        );
 
-          {/* Premium Home Screen Footer */}
+      case 'footer':
+        return (
           <View style={styles.homeFooter}>
             <Text style={styles.homeFooterTitle}>
               Empower{"\n"}Your Beauty!
@@ -1308,8 +1050,89 @@ export default function HomeScreen({ navigation }) {
               <Text style={styles.homeFooterSubtitle}> in India</Text>
             </View>
           </View>
+        );
+
+      default:
+        return null;
+    }
+  }, [
+    marqueeItems,
+    secondBannerSource,
+    handleSecondBannerPress,
+    navigation,
+    brands,
+    brandsLoading,
+    bannersLoading,
+    refreshing,
+    bannerItems,
+    handleScroll,
+    activeSlide,
+    bannerSlides,
+    categoriesLoading,
+    categories,
+    categoryItems,
+    spotlightBrands,
+    cardBanners,
+    cardBannersLoading,
+    productsLoading,
+    bestsellerProducts,
+    handleBestsellerScroll,
+    bestsellerActivePage,
+    currentDealsHeader,
+    realProducts.length,
+    dealsProducts,
+  ]);
+
+  return (
+    <SafeAreaView style={styles.safeArea} edges={['top']}>
+      {isFocused && (
+        <StatusBar
+          backgroundColor="#FFFFFF"
+          barStyle="dark-content"
+          translucent={false}
+        />
+      )}
+
+      {/* ── Search Bar ── */}
+      <GridBackground style={styles.searchSection}>
+        <View style={styles.logoSearchRow}>
+          <View style={styles.logoWrapper}>
+            <Image
+              source={require('../../assets/SBL.png')}
+              style={styles.headerLogoImage}
+              resizeMode="contain"
+            />
+          </View>
+          <TouchableOpacity
+            style={styles.searchBar}
+            activeOpacity={0.8}
+            onPress={() => navigation.navigate('Search')}>
+            <Search size={20} color="#64748B" style={styles.searchIcon} />
+            <SearchHintText />
+          </TouchableOpacity>
         </View>
-      </ScrollView>
+      </GridBackground>
+
+      <FlatList
+        data={HOME_SECTIONS}
+        keyExtractor={(sec) => sec.id}
+        renderItem={renderSectionItem}
+        style={styles.scrollView}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scrollContent}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={[colors.primary]}
+            tintColor={colors.primary}
+          />
+        }
+        initialNumToRender={5}
+        maxToRenderPerBatch={5}
+        windowSize={7}
+        removeClippedSubviews={Platform.OS === 'android'}
+      />
     </SafeAreaView>
   );
 }
@@ -1706,6 +1529,30 @@ const styles = StyleSheet.create({
   },
   outOfStockText: {
     color: '#FFFFFF',
+  },
+  outOfStockOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(255, 255, 255, 0.65)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
+    borderRadius: 8,
+  },
+  outOfStockBadge: {
+    backgroundColor: '#334155',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
+  },
+  outOfStockBadgeLabel: {
+    color: '#FFFFFF',
+    fontSize: moderateScale(10),
+    fontFamily: fonts.big,
+    letterSpacing: 0.5,
   },
   bottomGradientFade: {
     height: 14,

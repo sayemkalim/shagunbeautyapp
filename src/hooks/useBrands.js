@@ -5,6 +5,11 @@ export function useBrands({ per_page = 1000 } = {}) {
   return useQuery({
     queryKey: ['brands', per_page],
     queryFn: () => getBrands({ per_page }),
-    select: (data) => data.brands || [],
+    select: (data) => {
+      if (Array.isArray(data)) return data;
+      if (Array.isArray(data?.brands)) return data.brands;
+      if (Array.isArray(data?.data)) return data.data;
+      return [];
+    },
   });
 }

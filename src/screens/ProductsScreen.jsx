@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   ActivityIndicator,
   Dimensions,
@@ -25,19 +25,15 @@ import {
 
 import { useIsFocused } from '@react-navigation/native';
 import { useQueryClient } from '@tanstack/react-query';
-import { useDispatch, useSelector } from 'react-redux';
 import LinearGradient from 'react-native-linear-gradient';
 import { useProducts } from '../hooks/useProducts';
 import { useBrands } from '../hooks/useBrands';
-import { addToCart } from '../redux/cartSlice';
-import { addToCartApi } from '../api/cart';
 import { ProductCardSkeleton } from '../components/Skeleton';
-import OptimizedImage from '../components/OptimizedImage';
+import ProductCard from '../components/ProductCard';
 import MarqueeText from '../components/MarqueeText';
 import colors from '../theme/colors';
 import fonts from '../theme/typography';
 import { moderateScale } from '../theme/responsive';
-import { isProductOutOfStock, getProductStockStatus } from '../utils/productUtils';
 
 const { height } = Dimensions.get('window');
 
@@ -100,80 +96,12 @@ export default function ProductsScreen({ route, navigation }) {
 
   const isFocused = useIsFocused();
   const queryClient = useQueryClient();
-  const dispatch = useDispatch();
-  const cartItems = useSelector((state) => state.cart.items || []);
-  const [loadingProductId, setLoadingProductId] = useState(null);
 
   useEffect(() => {
     if (isFocused) {
       queryClient.invalidateQueries({ queryKey: ['products'] });
     }
   }, [isFocused, queryClient]);
-
-  const handleAddToCart = async (product) => {
-    const pId = product._id || product.id;
-    const cached = queryClient?.getQueryData(['product', pId]);
-    const effectiveItem = cached ? { ...product, ...(cached.data || cached) } : product;
-    if (isProductOutOfStock(effectiveItem)) {
-      return;
-    }
-
-    const isInCart = cartItems.some((ci) => (ci.productId || ci.id) === pId);
-
-    if (isInCart) {
-      navigation.navigate('BottomTabs', { screen: 'Bag' });
-      return;
-    }
-
-    setLoadingProductId(pId);
-
-    const originalPrice = parsePrice(product.price);
-    const finalPrice = parsePrice(product.discounted_price) || originalPrice || 999;
-    
-    let bName = '';
-    if (typeof product.brand === 'object' && product.brand?.name) {
-      bName = product.brand.name;
-    } else if (product.brandName) {
-      bName = product.brandName;
-    } else if (typeof product.brand === 'string') {
-      if (/^[0-9a-fA-F]{24}$/.test(product.brand)) {
-        const found = brands.find((b) => b._id === product.brand);
-        bName = found ? found.name : '';
-      } else {
-        bName = product.brand;
-      }
-    }
-
-    const imageUri = product.images?.[0] || product.image || product.banner_image;
-
-    dispatch(
-      addToCart({
-        productId: pId,
-        name: product.name,
-        brandName: bName,
-        price: originalPrice > 0 ? originalPrice : finalPrice,
-        discountedPrice: finalPrice,
-        baseDiscountedPrice: finalPrice,
-        price_tiers: product.price_tiers || product.priceTiers || null,
-        image: imageUri,
-        quantity: 1,
-        available_inventory: product.available_inventory,
-        base_available_inventory: product.base_available_inventory,
-      })
-    );
-
-    try {
-      await addToCartApi({
-        type: 'product',
-        productId: pId,
-        quantity: 1,
-      });
-    } catch (e) {
-      console.log('Add to cart API error:', e);
-    } finally {
-      setLoadingProductId(null);
-    }
-  };
 
   const { data: brands = [], isLoading: isBrandsLoading } = useBrands();
 
@@ -196,13 +124,24 @@ export default function ProductsScreen({ route, navigation }) {
   const {
     data: fetchedProducts = [],
     isLoading: isProductsLoading,
-    isRefetching,
     refetch,
   } = useProducts({
     category: categoryId,
     brand: brandId,
     per_page: 1000,
   });
+
+  const [pullRefreshing, setPullRefreshing] = useState(false);
+  const handlePullRefresh = useCallback(async () => {
+    setPullRefreshing(true);
+    try {
+      await refetch();
+    } catch (e) {
+      console.log('Products pull refresh error:', e);
+    } finally {
+      setPullRefreshing(false);
+    }
+  }, [refetch]);
 
   const products = useMemo(() => {
     if (hasBannerProducts) {
@@ -460,132 +399,12 @@ export default function ProductsScreen({ route, navigation }) {
   };
 
   const renderProductItem = ({ item }) => {
-    const originalPrice = parsePrice(item.price);
-    const finalPrice = parsePrice(item.discounted_price) || originalPrice;
-    const discount = originalPrice > finalPrice
-      ? Math.round(((originalPrice - finalPrice) / originalPrice) * 100)
-      : 0;
-
-    const isFav = !!favorites[item._id];
-    const rawImg = item.images?.[0] || item.image || item.banner_image;
-
-    let brandNameStr = '';
-    if (typeof item.brand === 'object' && item.brand?.name) {
-      brandNameStr = item.brand.name;
-    } else if (item.brandName) {
-      brandNameStr = item.brandName;
-    } else if (typeof item.brand === 'string') {
-      if (/^[0-9a-fA-F]{24}$/.test(item.brand)) {
-        const found = brands.find((b) => b._id === item.brand);
-        brandNameStr = found ? found.name : '';
-      } else {
-        brandNameStr = item.brand;
-      }
-    }
-
-    const titleText = brandNameStr
-      ? (item.name.toLowerCase().startsWith(brandNameStr.toLowerCase())
-          ? item.name.slice(brandNameStr.length).trim()
-          : item.name)
-      : item.name;
-
     return (
-      <TouchableOpacity
-        style={[styles.productCard, { width: COLUMN_WIDTH }]}
-        activeOpacity={0.85}
-        onPress={() =>
-          navigation.navigate('ProductDetail', {
-            productId: item._id,
-            product: item,
-          })
-        }>
-        <View style={styles.imageContainer}>
-          {(item.is_best_seller || item.isBestSeller || item.is_bestseller || item.tag === 'bestseller') && (
-            <LinearGradient
-              colors={['#A78BFA', colors.primary]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={styles.gradientBadge}>
-              <Text style={styles.gradientBadgeText}>BESTSELLER</Text>
-            </LinearGradient>
-          )}
-          <OptimizedImage
-            source={rawImg}
-            preset="PRODUCT_CARD"
-            defaultSource={require('../../assets/dummy_product.png')}
-            style={styles.productImage}
-            resizeMode="cover"
-          />
-        </View>
-
-        <View style={styles.detailsContainer}>
-          <Text numberOfLines={2} style={styles.productTitle}>
-            {brandNameStr ? <Text style={styles.brandText}>{brandNameStr} </Text> : null}
-            {titleText}
-          </Text>
-
-          <View style={styles.priceRow}>
-            {discount > 0 ? (
-              <>
-                <Text style={styles.originalPrice}>₹{originalPrice}</Text>
-                <Text style={styles.finalPrice}>₹{finalPrice}</Text>
-                <Text style={styles.discountText}>{discount}% OFF</Text>
-              </>
-            ) : (
-              <Text style={styles.finalPrice}>₹{finalPrice}</Text>
-            )}
-          </View>
-
-          {(() => {
-            const pId = item._id || item.id;
-            const cached = queryClient?.getQueryData(['product', pId]);
-            const effectiveItem = cached ? { ...item, ...(cached.data || cached) } : item;
-            const { isCompletelyOutOfStock, isSelectOption } = getProductStockStatus(effectiveItem);
-            const isInCart = cartItems.some((ci) => (ci.productId || ci.id) === pId);
-            const isLoadingThis = loadingProductId === pId;
-
-            return (
-              <TouchableOpacity
-                style={[
-                  styles.addToBagButton,
-                  isInCart && styles.goToBagButton,
-                  isCompletelyOutOfStock && styles.outOfStockButton,
-                ]}
-                activeOpacity={0.85}
-                disabled={isCompletelyOutOfStock || isLoadingThis}
-                onPress={() => {
-                  if (isSelectOption) {
-                    navigation.navigate('ProductDetail', {
-                      productId: effectiveItem._id || effectiveItem.id,
-                      product: effectiveItem,
-                    });
-                  } else {
-                    handleAddToCart(effectiveItem);
-                  }
-                }}>
-                {isLoadingThis ? (
-                  <ActivityIndicator size="small" color={isInCart ? '#FFFFFF' : colors.primary} />
-                ) : (
-                  <Text
-                    style={[
-                      styles.addToBagText,
-                      isInCart && styles.goToBagText,
-                      isCompletelyOutOfStock && styles.outOfStockText,
-                    ]}>
-                    {isCompletelyOutOfStock
-                      ? 'OUT OF STOCK'
-                      : isSelectOption
-                      ? 'SELECT OPTION'
-                      : isInCart
-                      ? 'GO TO BAG'
-                      : 'ADD TO BAG'}
-                  </Text>
-                )}
-              </TouchableOpacity>
-            );
-          })()}
-        </View>
-      </TouchableOpacity>
+      <ProductCard
+        product={item}
+        width={COLUMN_WIDTH}
+        brands={brands}
+      />
     );
   };
 
@@ -655,8 +474,9 @@ export default function ProductsScreen({ route, navigation }) {
           showsVerticalScrollIndicator={false}
           refreshControl={
             <RefreshControl
-              refreshing={isRefetching}
-              onRefresh={refetch}
+              refreshing={pullRefreshing}
+              onRefresh={handlePullRefresh}
+              colors={[colors.primary]}
               tintColor={colors.primary}
             />
           }
@@ -1073,6 +893,30 @@ const styles = StyleSheet.create({
   },
   outOfStockText: {
     color: '#FFFFFF',
+  },
+  outOfStockOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(255, 255, 255, 0.65)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
+    borderRadius: 16,
+  },
+  outOfStockBadge: {
+    backgroundColor: '#334155',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
+  },
+  outOfStockBadgeLabel: {
+    color: '#FFFFFF',
+    fontSize: moderateScale(10),
+    fontFamily: fonts.big,
+    letterSpacing: 0.5,
   },
   floatingFilterBar: {
     position: 'absolute',

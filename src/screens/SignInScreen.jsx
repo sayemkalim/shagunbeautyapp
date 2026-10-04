@@ -14,19 +14,19 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useDispatch } from 'react-redux';
 import colors from '../theme/colors';
 import fonts from '../theme/typography';
 import { GoogleIcon, EyeIcon, EyeOffIcon } from '../components/icons';
 import { loginWithPhone, verifyLogin, registerUser } from '../api/auth';
 import { saveSession } from '../api/authStorage';
-import { clearCart, initializeCart } from '../redux/cartSlice';
+import { useCartStore } from '../store/cartStore';
 import { moderateScale } from '../theme/responsive';
 
 const isValidEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 
 export default function SignInScreen({ navigation, route }) {
-  const dispatch = useDispatch();
+  const clearCart = useCartStore((state) => state.clearCart);
+  const initializeCart = useCartStore((state) => state.initializeCart);
   const [phone, setPhone] = useState(route?.params?.phone || '');
   const [pin, setPin] = useState(['', '', '', '']);
   const [name, setName] = useState('');
@@ -153,8 +153,8 @@ export default function SignInScreen({ navigation, route }) {
         email: data.email,
         phone: data.phone,
       });
-      dispatch(clearCart());
-      await dispatch(initializeCart());
+      clearCart();
+      await initializeCart();
       const pendingProductId = route?.params?.pendingProductId;
       navigation.replace('BottomTabs');
       if (pendingProductId) {
@@ -454,7 +454,11 @@ export default function SignInScreen({ navigation, route }) {
               });
             }}
             style={styles.troubleTouch}>
-            <Text style={styles.troubleText}>
+            <Text
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.8}
+              style={styles.troubleText}>
               Trouble logging in? <Text style={styles.troubleNumber}>+91 90457 91373</Text>
             </Text>
           </TouchableOpacity>

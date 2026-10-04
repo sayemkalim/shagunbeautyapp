@@ -5,6 +5,7 @@ import {
   Dimensions,
   Image,
   Modal,
+  RefreshControl,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -48,16 +49,11 @@ import {
 } from 'lucide-react-native';
 
 import {
-  selectCartItems,
-  selectCartTotalAmount,
-  selectCartTotalQuantity,
-  removeFromCart,
-  updateQuantity,
-  clearCart,
-  setCartData,
+  useCartStore,
   parsePriceTiers,
   resolveItemPricing,
-} from '../redux/cartSlice';
+} from '../store/cartStore';
+
 import { removeFromCartApi, getCart, addToCartApi } from '../api/cart';
 import { getActiveCoupons } from '../api/coupon';
 import { useQueryClient } from '@tanstack/react-query';
@@ -106,33 +102,42 @@ const isColorLight = (hexColor) => {
 const extractCleanShadeName = (name) => {
   if (!name || typeof name !== 'string') return '';
   let clean = name.trim();
-  // Strip trailing packaging/volume in parentheses like (30ml), (55g), (3.4g), (20ml)
   clean = clean.replace(/\s*\(\s*\d+(?:\.\d+)?\s*(?:ml|l|ltr|g|gm|kg|pcs)?\s*\)\s*$/i, '').trim();
 
-  // Try split by " - "
-  if (clean.includes(' - ')) {
-    const parts = clean.split(' - ');
+  if (/[\u2014\u2013]/.test(clean)) {
+    const parts = clean.split(/[\u2014\u2013]/);
+    const last = parts[parts.length - 1].trim().replace(/^-\s*/, '');
+    if (last && last.length < 40 && !/^\d+\s*(?:ml|l|ltr|g|gm|kg|pcs)$/i.test(last)) {
+      const colorSub = last.match(/(?:COLOR|COLOUR|SHADE)\s*-\s*(.+)$/i);
+      if (colorSub && colorSub[1]) return colorSub[1].trim();
+      return last;
+    }
+  }
+
+  if (/\s+-\s*/.test(clean)) {
+    const parts = clean.split(/\s+-\s*/);
     const last = parts[parts.length - 1].trim();
     if (last && last.length < 40 && !/^\d+\s*(?:ml|l|ltr|g|gm|kg|pcs)$/i.test(last)) {
       return last;
     }
   }
-  // Try split by "-"
-  if (clean.includes('-')) {
-    const parts = clean.split('-');
+
+  if (/[:|]/.test(clean)) {
+    const parts = clean.split(/[:|]/);
     const last = parts[parts.length - 1].trim();
     if (last && last.length < 40 && !/^\d+\s*(?:ml|l|ltr|g|gm|kg|pcs)$/i.test(last)) {
       return last;
     }
   }
-  // Try split by ":"
-  if (clean.includes(':')) {
-    const parts = clean.split(':');
-    const last = parts[parts.length - 1].trim();
-    if (last && last.length < 40) {
-      return last;
+
+  const shadeMatch = clean.match(/(?:COLOR|COLOUR|SHADE)\s*[-:]?\s*([0-9A-Za-z\s/&.'#]+)$/i);
+  if (shadeMatch && shadeMatch[1]) {
+    const candidate = shadeMatch[1].trim();
+    if (candidate.length > 0 && candidate.length < 40 && !/^\d+\s*(?:ml|l|ltr|g|gm|kg|pcs)$/i.test(candidate)) {
+      return candidate;
     }
   }
+
   return '';
 };
 
@@ -201,19 +206,16 @@ const extractCartItemOption = (item) => {
   // Check item.variantName if it's a clean shade name
   if (!shadeName && typeof item.variantName === 'string' && item.variantName.trim() !== '') {
     const cleanVar = item.variantName.replace(/^(?:Option|Size|Shade):\s*/i, '').trim();
-    if (!cleanVar.startsWith('#') && !cleanVar.startsWith('SKU-')) {
-      shadeName = cleanVar;
+    if (!cleanVar.startsWith('#') && !cleanVar.startsWith('SKU-') && !/^\d+(?:\.\d+)?\s*(?:ml|l|ltr|g|gm|kg|pcs)$/i.test(cleanVar)) {
+      if (!item.name || !item.name.toLowerCase().includes(cleanVar.toLowerCase())) {
+        shadeName = cleanVar;
+      }
     }
   }
 
-  // Extract from variant name
-  if (!shadeName && typeof v.name === 'string' && v.name.trim() !== '') {
+  // Extract from variant name only if variant exists and differs from product name
+  if (!shadeName && v && typeof v.name === 'string' && v.name.trim() !== '' && v.name !== item.name) {
     shadeName = extractCleanShadeName(v.name);
-  }
-
-  // Extract from item / product name (handles base product shade!)
-  if (!shadeName && typeof item.name === 'string' && item.name.trim() !== '') {
-    shadeName = extractCleanShadeName(item.name);
   }
 
   // 3. Size / Weight / Volume extraction
@@ -224,6 +226,12 @@ const extractCartItemOption = (item) => {
   } else if (v.weight !== undefined && v.weight !== null && v.weight !== '') {
     const isMl = (item.name && /ml/i.test(item.name)) || (v.name && /ml/i.test(v.name));
     sizeLabel = `${v.weight} ${isMl ? 'ml' : 'g'}`;
+  } else if (item.weight_in_grams !== undefined && item.weight_in_grams !== null && item.weight_in_grams !== '') {
+    const isMl = (item.name && /ml/i.test(item.name)) || (item.variantName && /ml/i.test(item.variantName));
+    sizeLabel = `${item.weight_in_grams} ${isMl ? 'ml' : 'g'}`;
+  } else if (item.product?.weight_in_grams !== undefined && item.product?.weight_in_grams !== null && item.product?.weight_in_grams !== '') {
+    const isMl = (item.name && /ml/i.test(item.name)) || (item.variantName && /ml/i.test(item.variantName));
+    sizeLabel = `${item.product.weight_in_grams} ${isMl ? 'ml' : 'g'}`;
   } else if (typeof item.variantName === 'string') {
     const cleanVarName = item.variantName.replace(/^Option:\s*/i, '').replace(/^Size:\s*/i, '').trim();
     const match = cleanVarName.match(/^\d+(?:\.\d+)?\s*(?:ml|l|ltr|g|gm|kg|pcs)$/i);
@@ -239,23 +247,24 @@ const extractCartItemOption = (item) => {
     }
   }
 
+  if (!sizeLabel && typeof item.name === 'string') {
+    const match = item.name.match(/\(\s*(\d+(?:\.\d+)?\s*(?:ml|l|ltr|g|gm|kg|pcs))\s*\)/i);
+    if (match) {
+      sizeLabel = match[1];
+    }
+  }
+
   // 4. Fallback option name if no color, no shade, no size
   let fallbackOption = '';
   if (!color && !sizeLabel && !shadeName) {
     if (item.variantName) {
       const clean = item.variantName.replace(/^(?:Option|Size|Net Vol|Net Wt):\s*/i, '').trim();
-      if (!clean.startsWith('SKU-') && !clean.startsWith('#')) {
+      if (!clean.startsWith('SKU-') && !clean.startsWith('#') && (!item.name || !item.name.toLowerCase().includes(clean.toLowerCase()))) {
         fallbackOption = clean;
       }
     }
     if (!fallbackOption && v.name && v.name !== item.name) {
       fallbackOption = v.name;
-    }
-    if (!fallbackOption && item.variantName) {
-      const cleanSku = item.variantName.replace(/^SKU-/, '');
-      if (!cleanSku.startsWith('#')) {
-        fallbackOption = cleanSku;
-      }
     }
   }
 
@@ -280,7 +289,7 @@ const extractCartItemOption = (item) => {
 
     // Never show hex code as the text!
     if (!label || label.startsWith('#')) {
-      label = extractCleanShadeName(item.name) || extractCleanShadeName(v.name) || '';
+      label = (v.name && extractCleanShadeName(v.name)) || '';
     }
     if (!label || label.startsWith('#')) {
       label = !color.startsWith('#') ? color : 'Shade';
@@ -365,57 +374,77 @@ export default function CartScreen({ navigation }) {
   const insets = useSafeAreaInsets();
   const dispatch = useDispatch();
   const queryClient = useQueryClient();
-  const cartItems = useSelector(selectCartItems);
-  const totalAmount = useSelector(selectCartTotalAmount);
-  const totalQuantity = useSelector(selectCartTotalQuantity);
+  const cartItems = useCartStore((state) => state.items);
+  const totalAmount = useCartStore((state) => state.totalAmount);
+  const totalQuantity = useCartStore((state) => state.totalQuantity);
+  const removeFromCart = useCartStore((state) => state.removeFromCart);
+  const updateQuantity = useCartStore((state) => state.updateQuantity);
+  const setCartData = useCartStore((state) => state.setCartData);
 
   const [backendCartData, setBackendCartData] = useState(null);
   const [loadingCart, setLoadingCart] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [updatingCartItemId, setUpdatingCartItemId] = useState(null);
   const [showDeliveryInfoModal, setShowDeliveryInfoModal] = useState(false);
   const [itemsStockMap, setItemsStockMap] = useState({});
 
+  const itemSeqRef = useRef({});
+
   const getItemStock = React.useCallback(
     (item) => {
-      if (!item) return 999;
+      if (!item) return 0;
       const pId = item.productId || item.id;
+      const targetSku = item.variant?.sku || item.variant_sku || item.sku;
+      const targetId = item.variant?._id || item.variant?.id || item.variantId;
+
       // 1. Live fetched stock map from getProductById in CartScreen
       if (itemsStockMap && itemsStockMap[pId]) {
         const liveProd = itemsStockMap[pId];
-        const targetSku = item.variant?.sku || item.variant_sku || item.variant?._id;
-        const matchingVariant = targetSku && Array.isArray(liveProd.variants)
-          ? liveProd.variants.find((v) => v.sku === targetSku || v._id === targetSku || String(v._id) === String(targetSku))
-          : item.variant;
+        let matchingVariant = null;
+
+        if (Array.isArray(liveProd.variants) && liveProd.variants.length > 0) {
+          // Strict SKU match first
+          if (targetSku) {
+            matchingVariant = liveProd.variants.find((v) => v.sku === targetSku);
+          }
+          // Strict _id match
+          if (!matchingVariant && targetId) {
+            matchingVariant = liveProd.variants.find(
+              (v) => v._id === targetId || v.id === targetId || String(v._id) === String(targetId)
+            );
+          }
+          // Attribute match (unique name + color/shade/weight)
+          if (!matchingVariant && item.variant) {
+            matchingVariant = liveProd.variants.find(
+              (v) =>
+                (v.sku && v.sku === item.variant.sku) ||
+                (v._id && (v._id === item.variant._id || String(v._id) === String(item.variant._id)))
+            );
+          }
+        }
         return getProductStock(liveProd, matchingVariant || item.variant);
       }
+
       // 2. React Query cache
       const cached = queryClient?.getQueryData(['product', pId]);
       if (cached) {
         const prodData = cached.data || cached;
-        const targetSku = item.variant?.sku || item.variant_sku || item.variant?._id;
-        const matchingVariant = targetSku && Array.isArray(prodData.variants)
-          ? prodData.variants.find((v) => v.sku === targetSku || v._id === targetSku || String(v._id) === String(targetSku))
-          : item.variant;
+        let matchingVariant = null;
+        if (Array.isArray(prodData.variants) && prodData.variants.length > 0) {
+          if (targetSku) {
+            matchingVariant = prodData.variants.find((v) => v.sku === targetSku);
+          }
+          if (!matchingVariant && targetId) {
+            matchingVariant = prodData.variants.find(
+              (v) => v._id === targetId || v.id === targetId || String(v._id) === String(targetId)
+            );
+          }
+        }
         return getProductStock(prodData, matchingVariant || item.variant);
       }
-      // 3. Variant available_inventory if present
-      if (item.variant && typeof item.variant.available_inventory === 'number') {
-        return item.variant.available_inventory;
-      }
-      // 4. Base product: base_available_inventory if present
-      if (typeof item.base_available_inventory === 'number') {
-        return item.base_available_inventory;
-      }
-      if (item.product && typeof item.product.base_available_inventory === 'number') {
-        return item.product.base_available_inventory;
-      }
-      if (typeof item.available_inventory === 'number') {
-        return item.available_inventory;
-      }
-      if (item.product && typeof item.product.available_inventory === 'number') {
-        return item.product.available_inventory;
-      }
-      return 999;
+
+      // 3. Direct item variant stock
+      return getProductStock(item, item.variant);
     },
     [itemsStockMap, queryClient]
   );
@@ -437,31 +466,109 @@ export default function CartScreen({ navigation }) {
     return cartItems.some((item) => checkIfOutOfStock(item));
   }, [cartItems, checkIfOutOfStock]);
 
-  const refreshCart = async (addressId, couponCode) => {
+  // Sort cart items so all in-stock items appear first, and out-of-stock items are pushed to the bottom
+  const sortedCartItems = useMemo(() => {
+    return [...cartItems].sort((a, b) => {
+      const aOut = checkIfOutOfStock(a);
+      const bOut = checkIfOutOfStock(b);
+      if (aOut && !bOut) return 1;
+      if (!aOut && bOut) return -1;
+      return 0;
+    });
+  }, [cartItems, checkIfOutOfStock]);
+
+  // Coupon state
+  const extractCouponList = (res) => {
+    if (Array.isArray(res)) return res;
+    if (Array.isArray(res?.data)) return res.data;
+    if (Array.isArray(res?.coupons)) return res.coupons;
+    if (Array.isArray(res?.data?.data)) return res.data.data;
+    if (Array.isArray(res?.data?.coupons)) return res.data.coupons;
+    if (res?.code || res?.couponCode) return [res];
+    if (res?.data?.code || res?.data?.couponCode) return [res.data];
+    return [];
+  };
+
+  const [showCouponSheet, setShowCouponSheet] = useState(false);
+  const [couponInput, setCouponInput] = useState('');
+  const [appliedCoupon, setAppliedCoupon] = useState(null);
+  const appliedCouponRef = useRef(null);
+  const [couponDiscount, setCouponDiscount] = useState(0);
+  const [isApplyingCoupon, setIsApplyingCoupon] = useState(false);
+  const [applyingCode, setApplyingCode] = useState(null);
+  const [couponError, setCouponError] = useState(null);
+  const [availableCoupons, setAvailableCoupons] = useState([]);
+  const [loadingCoupons, setLoadingCoupons] = useState(false);
+  const [expandedCouponId, setExpandedCouponId] = useState(null);
+
+  const refreshCart = React.useCallback(async (addressId, couponCode) => {
     const addrId = addressId !== undefined ? addressId : selectedAddress?.id;
-    const cpCode = couponCode !== undefined ? couponCode : appliedCoupon;
+    const cpCode = couponCode !== undefined ? couponCode : appliedCouponRef.current;
     try {
       setLoadingCart(true);
-      const res = await getCart(addrId, cpCode);
+      const res = await getCart(addrId, cpCode || undefined);
       const data = res?.data?.data || res?.data || res || {};
       setBackendCartData(data);
-      if (data.coupon && data.coupon.is_valid !== false) {
-        setAppliedCoupon(data.coupon.code || null);
-        setCouponDiscount(Math.round(Number(data.coupon.discount_amount || data.coupon_discount_amount || 0)));
+      
+      const returnedCoupon = data.coupon || data.applied_coupon || data.appliedCoupon;
+      const returnedCouponCode = returnedCoupon?.code || returnedCoupon?.couponCode || data.coupon_code || data.couponCode;
+      const returnedDiscount = Math.round(Number(
+        returnedCoupon?.discount_amount ||
+        returnedCoupon?.discountAmount ||
+        data.coupon_discount_amount ||
+        data.coupon_discount ||
+        data.discount_amount ||
+        0
+      ));
+
+      if (cpCode) {
+        if (returnedCoupon && returnedCoupon.is_valid === false) {
+          setAppliedCoupon(null);
+          appliedCouponRef.current = null;
+          setCouponDiscount(0);
+        } else {
+          const finalCode = returnedCouponCode || cpCode;
+          setAppliedCoupon(finalCode);
+          appliedCouponRef.current = finalCode;
+          if (returnedDiscount > 0) {
+            setCouponDiscount(returnedDiscount);
+          }
+        }
+      } else if (returnedCoupon && returnedCoupon.is_valid !== false && returnedCouponCode) {
+        setAppliedCoupon(returnedCouponCode);
+        appliedCouponRef.current = returnedCouponCode;
+        setCouponDiscount(returnedDiscount);
       } else {
         setAppliedCoupon(null);
+        appliedCouponRef.current = null;
         setCouponDiscount(0);
       }
-      dispatch(setCartData(data));
-      queryClient.invalidateQueries({ queryKey: ['cart'] });
+
+      setCartData(data);
     } catch (err) {
       console.log('Error refreshing cart from backend:', err);
     } finally {
       setLoadingCart(false);
     }
-  };
+  }, [selectedAddress?.id, setCartData]);
 
-
+  const onRefresh = React.useCallback(async () => {
+    setIsRefreshing(true);
+    try {
+      await Promise.all([
+        refreshCart(),
+        dispatch(fetchAddresses()),
+        queryClient.invalidateQueries({ queryKey: ['cart'] }),
+        queryClient.invalidateQueries({ queryKey: ['addresses'] }),
+      ]);
+    } catch (e) {
+      console.log('Cart pull refresh error:', e);
+    } finally {
+      setTimeout(() => {
+        setIsRefreshing(false);
+      }, 500);
+    }
+  }, [refreshCart, dispatch, queryClient]);
 
   // Quantity Modal state for cart item editing
   const [editingCartItem, setEditingCartItem] = useState(null);
@@ -518,10 +625,13 @@ export default function CartScreen({ navigation }) {
     React.useCallback(() => {
       let isMounted = true;
 
-      // 1. Fetch latest addresses in background into Redux (non-blocking)
+      // 1. Fetch full live cart from backend immediately whenever Cart Screen is focused
+      refreshCart(selectedAddress?.id, appliedCouponRef.current);
+
+      // 2. Fetch latest addresses in background into Redux (non-blocking)
       dispatch(fetchAddresses());
 
-      // 2. Fetch live stock for all items currently in cart
+      // 3. Fetch live stock for all items currently in cart
       if (cartItems && cartItems.length > 0) {
         const uniqueProductIds = [...new Set(cartItems.map((ci) => ci.productId).filter(Boolean))];
         const map = {};
@@ -548,11 +658,46 @@ export default function CartScreen({ navigation }) {
       return () => {
         isMounted = false;
       };
-      // Note: Empty dependency array ensures this runs strictly on screen focus,
-      // NOT in a continuous loop when cart items, quantities, or addresses change!
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [])
+    }, [refreshCart, selectedAddress?.id, dispatch])
   );
+
+  // Dedicated effect to keep itemsStockMap up to date whenever cartItems list changes and every 3 seconds live
+  useEffect(() => {
+    let isMounted = true;
+
+    const fetchStock = async () => {
+      if (cartItems && cartItems.length > 0) {
+        const uniqueProductIds = [...new Set(cartItems.map((ci) => ci.productId).filter(Boolean))];
+        const map = {};
+        await Promise.all(
+          uniqueProductIds.map(async (pId) => {
+            try {
+              const res = await getProductById(pId);
+              const data = res?.data?.data || res?.data || res;
+              if (data && isMounted) {
+                map[pId] = data;
+                queryClient.setQueryData(['product', pId], data);
+              }
+            } catch (e) {
+              console.log('Error fetching stock for cart item:', pId, e);
+            }
+          })
+        );
+        if (isMounted) {
+          setItemsStockMap((prev) => ({ ...prev, ...map }));
+        }
+      }
+    };
+
+    fetchStock();
+    const interval = setInterval(fetchStock, 3000);
+
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [cartItems, queryClient]);
 
   // Refresh cart with selectedAddress on mount and whenever selectedAddress ID actually changes
   useEffect(() => {
@@ -562,32 +707,6 @@ export default function CartScreen({ navigation }) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedAddress?.id]);
-
-  // Coupon state
-  // The active-coupons endpoint has been seen returning either a bare array,
-  // an object wrapping the array ({ data / coupons: [...] }), or a single
-  // coupon object directly — normalize all shapes to an array here.
-  const extractCouponList = (res) => {
-    if (Array.isArray(res)) return res;
-    if (Array.isArray(res?.data)) return res.data;
-    if (Array.isArray(res?.coupons)) return res.coupons;
-    if (Array.isArray(res?.data?.data)) return res.data.data;
-    if (Array.isArray(res?.data?.coupons)) return res.data.coupons;
-    if (res?.code || res?.couponCode) return [res];
-    if (res?.data?.code || res?.data?.couponCode) return [res.data];
-    return [];
-  };
-
-  const [showCouponSheet, setShowCouponSheet] = useState(false);
-  const [couponInput, setCouponInput] = useState('');
-  const [appliedCoupon, setAppliedCoupon] = useState(null);
-  const [couponDiscount, setCouponDiscount] = useState(0);
-  const [isApplyingCoupon, setIsApplyingCoupon] = useState(false);
-  const [applyingCode, setApplyingCode] = useState(null);
-  const [couponError, setCouponError] = useState(null);
-  const [availableCoupons, setAvailableCoupons] = useState([]);
-  const [loadingCoupons, setLoadingCoupons] = useState(false);
-  const [expandedCouponId, setExpandedCouponId] = useState(null);
 
   // Fetched once on mount (not gated on the sheet being open) so the collapsed
   // coupon card can also show a "save ₹X" / "add ₹X more" teaser.
@@ -612,6 +731,23 @@ export default function CartScreen({ navigation }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const openCouponSheet = () => {
+    setCouponError(null);
+    setShowCouponSheet(true);
+    setLoadingCoupons(true);
+    getActiveCoupons()
+      .then((res) => {
+        const list = extractCouponList(res);
+        setAvailableCoupons(list);
+      })
+      .catch((err) => {
+        console.error('getActiveCoupons error in CartScreen:', err);
+      })
+      .finally(() => {
+        setLoadingCoupons(false);
+      });
+  };
+
   const applyCoupon = async (rawCode) => {
     const code = (rawCode || '').trim().toUpperCase();
     if (!code) return;
@@ -621,17 +757,39 @@ export default function CartScreen({ navigation }) {
       setCouponError(null);
       const res = await getCart(selectedAddress?.id, code);
       const cartData = res?.data?.data || res?.data || res || {};
-      const couponInfo = cartData.coupon || {};
+      const couponInfo = cartData.coupon || cartData.applied_coupon || {};
       if (couponInfo.is_valid === false) {
         throw new Error(couponInfo.message || 'This coupon is not valid.');
       }
       setBackendCartData(cartData);
       setAppliedCoupon(code);
-      setCouponDiscount(Math.round(Number(cartData.coupon_discount_amount || couponInfo.discount_amount || 0)));
+      appliedCouponRef.current = code;
+      let discount = Math.round(Number(
+        cartData.coupon_discount_amount ||
+        cartData.coupon_discount ||
+        cartData.couponDiscount ||
+        couponInfo.discount_amount ||
+        couponInfo.discountAmount ||
+        couponInfo.discount ||
+        0
+      ));
+
+      if (discount <= 0 && availableCoupons && availableCoupons.length > 0) {
+        const matched = availableCoupons.find(
+          (c) => getCouponCode(c).toUpperCase() === code
+        );
+        if (matched) {
+          const { estimatedSavings, eligible } = getCouponEligibility(matched, totalSellingPrice);
+          if (eligible && estimatedSavings > 0) {
+            discount = estimatedSavings;
+          }
+        }
+      }
+
+      setCouponDiscount(discount);
       setCouponInput('');
       setShowCouponSheet(false);
-      dispatch(setCartData(cartData));
-      queryClient.invalidateQueries({ queryKey: ['cart'] });
+      setCartData(cartData);
     } catch (err) {
       console.error('applyCoupon error in CartScreen:', err);
       setCouponError(err?.message || 'Invalid or expired coupon code.');
@@ -643,21 +801,17 @@ export default function CartScreen({ navigation }) {
 
   const removeCoupon = async () => {
     try {
-      setLoadingCart(true);
-      const res = await getCart(selectedAddress?.id, '');
-      console.log('removeCoupon response in CartScreen:', JSON.stringify(res, null, 2));
-      const cartData = res?.data?.data || res?.data || res || {};
-      setBackendCartData(cartData);
       setAppliedCoupon(null);
+      appliedCouponRef.current = null;
       setCouponDiscount(0);
       setCouponInput('');
       setCouponError(null);
-      dispatch(setCartData(cartData));
-      queryClient.invalidateQueries({ queryKey: ['cart'] });
+      const res = await getCart(selectedAddress?.id, '');
+      const cartData = res?.data?.data || res?.data || res || {};
+      setBackendCartData(cartData);
+      setCartData(cartData);
     } catch (err) {
       console.error('removeCoupon error in CartScreen:', err);
-    } finally {
-      setLoadingCart(false);
     }
   };
 
@@ -680,7 +834,7 @@ export default function CartScreen({ navigation }) {
     } catch (err) {
       // Non-blocking fallback for offline/guest scenario
     } finally {
-      dispatch(removeFromCart(item.cartItemId));
+      removeFromCart(item.cartItemId);
       setIsRemoving(false);
       setRemovingCartItem(null);
       setUpdatingCartItemId(null);
@@ -693,59 +847,36 @@ export default function CartScreen({ navigation }) {
     return inStockCartItems.map((item) => item.cartItemId);
   }, [inStockCartItems]);
 
-  // Financial calculations
+  // Financial calculations - Calculated instantly and accurately from selected cart items
   const { totalMRP, totalSellingPrice, totalSavings, finalTotal, combinedSavings, shippingCharge } = useMemo(() => {
-    const allSelected = cartItems.length > 0 && selectedCartItems.length === cartItems.length;
-    if (allSelected && backendCartData && Array.isArray(backendCartData.items) && backendCartData.items.length > 0) {
-      let mrp = 0;
-      const items = backendCartData.items || [];
-      items.forEach((item) => {
-        const prod = item.product || {};
-        const variantObj = (item.variant_sku && Array.isArray(prod.variants))
-          ? prod.variants.find((v) => v.sku === item.variant_sku || v._id === item.variant_sku || String(v._id) === String(item.variant_sku))
-          : null;
-        const vPrice = toNumber(variantObj?.price);
-        const pPrice = toNumber(prod.price);
-        const basePrice = vPrice > 0 ? vPrice : (pPrice > 0 ? pPrice : (toNumber(item.price) || 0));
-        mrp += basePrice * (item.quantity || 1);
-      });
-
-      let itemsSelling = 0;
-      selectedCartItems.forEach((ci) => {
-        itemsSelling += (typeof ci.totalPrice === 'number' && ci.totalPrice > 0 ? ci.totalPrice : ((ci.unitPrice || 0) * (ci.quantity || 1)));
-      });
-      const backendSelling = backendCartData.total_price || 0;
-      const selling = (itemsSelling > 0 && backendSelling > itemsSelling) ? itemsSelling : (backendSelling || itemsSelling);
-      const savings = mrp > selling ? mrp - selling : 0;
-      const cDiscount = backendCartData.coupon_discount_amount ?? backendCartData.coupon?.discount_amount ?? 0;
-      
-      // Override shipping charge: ₹50 for orders below ₹2000, else ₹0
-      const sCharge = (selling > 0 && selling < 2000) ? 50 : 0;
-      const fTotal = Math.max(0, selling - cDiscount) + sCharge;
-      const combSavings = savings + cDiscount;
-
-      return {
-        totalMRP: Math.round(mrp),
-        totalSellingPrice: Math.round(selling),
-        totalSavings: Math.round(savings),
-        finalTotal: Math.round(fTotal),
-        combinedSavings: Math.round(combSavings),
-        shippingCharge: sCharge,
-      };
-    }
-
     let mrp = 0;
     let selling = 0;
     selectedCartItems.forEach((item) => {
-      const basePrice = item.price > 0 ? item.price : item.unitPrice;
-      mrp += basePrice * item.quantity;
-      selling += item.totalPrice;
+      const basePrice = (typeof item.price === 'number' && item.price > 0) ? item.price : (item.unitPrice || 0);
+      mrp += basePrice * (item.quantity || 1);
+      const itemTotal = (typeof item.totalPrice === 'number' && item.totalPrice > 0)
+        ? item.totalPrice
+        : ((item.unitPrice || 0) * (item.quantity || 1));
+      selling += itemTotal;
     });
+
     const savings = mrp > selling ? mrp - selling : 0;
-    const cDiscount = appliedCoupon ? (couponDiscount || 0) : 0;
+    const backendDiscount = Math.round(Number(
+      backendCartData?.coupon_discount_amount ||
+      backendCartData?.coupon_discount ||
+      backendCartData?.couponDiscount ||
+      backendCartData?.coupon?.discount_amount ||
+      0
+    ));
+    const cDiscount = appliedCoupon
+      ? (backendDiscount > 0 ? backendDiscount : (couponDiscount || 0))
+      : 0;
     
-    // Override shipping charge: ₹50 for orders below ₹2000, else ₹0
-    const sCharge = (selling > 0 && selling < 2000) ? 50 : 0;
+    // Delivery charge rule: sync with backend shipping charge if available, otherwise ₹50 below ₹2000
+    const sCharge = (backendCartData && typeof backendCartData.shipping_charge === 'number')
+      ? backendCartData.shipping_charge
+      : ((selling > 0 && selling < 2000) ? 50 : 0);
+
     const fTotal = Math.max(0, selling - cDiscount) + sCharge;
     const combSavings = savings + cDiscount;
 
@@ -757,7 +888,7 @@ export default function CartScreen({ navigation }) {
       combinedSavings: Math.round(combSavings),
       shippingCharge: sCharge,
     };
-  }, [backendCartData, selectedCartItems, cartItems.length, appliedCoupon, couponDiscount]);
+  }, [selectedCartItems, backendCartData, appliedCoupon, couponDiscount]);
 
   // Best coupon teaser for the collapsed coupon card — prefers the biggest
   // already-eligible saving, falling back to whichever coupon is closest to unlocking.
@@ -784,10 +915,15 @@ export default function CartScreen({ navigation }) {
       }
     }
 
-    dispatch(updateQuantity({ cartItemId, quantity: newQty }));
+    // 1. Instant local optimistic update in Zustand (Instant 0ms UI & price update)
+    updateQuantity({ cartItemId, quantity: newQty });
     setEditingCartItem(null);
 
+    // 2. Instant API call with sequence guard to eliminate race conditions
     if (item) {
+      const currentSeq = (itemSeqRef.current[cartItemId] || 0) + 1;
+      itemSeqRef.current[cartItemId] = currentSeq;
+
       try {
         setUpdatingCartItemId(cartItemId);
         if (newQty <= 0) {
@@ -802,14 +938,33 @@ export default function CartScreen({ navigation }) {
             variantSku: item.variant?.sku,
           });
         }
-        await refreshCart(selectedAddress?.id, appliedCoupon);
+
+        // Refresh cart from backend only if this response is still the latest one for this item
+        if (itemSeqRef.current[cartItemId] === currentSeq) {
+          await refreshCart(selectedAddress?.id, appliedCoupon);
+        }
       } catch (err) {
         console.error('Error updating cart quantity on backend:', err);
       } finally {
-        setUpdatingCartItemId(null);
+        if (itemSeqRef.current[cartItemId] === currentSeq) {
+          setUpdatingCartItemId(null);
+        }
       }
     }
   };
+
+  // Automatically clamp any cart item whose quantity exceeds available in-stock units (no manual tap needed)
+  useEffect(() => {
+    if (!cartItems || cartItems.length === 0) return;
+
+    cartItems.forEach((item) => {
+      const stock = getItemStock(item);
+      if (typeof stock === 'number' && stock > 0 && item.quantity > stock) {
+        handleUpdateQty(item.cartItemId, stock);
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [itemsStockMap, cartItems, getItemStock]);
 
   const handleRemove = (cartItemId) => {
     Alert.alert('Remove Item', 'Are you sure you want to remove this item from your bag?', [
@@ -818,8 +973,9 @@ export default function CartScreen({ navigation }) {
         text: 'Remove',
         style: 'destructive',
         onPress: async () => {
+          delete itemSeqRef.current[cartItemId];
           const item = cartItems.find((i) => i.cartItemId === cartItemId);
-          dispatch(removeFromCart(cartItemId));
+          removeFromCart(cartItemId);
           if (item) {
             try {
               setUpdatingCartItemId(cartItemId);
@@ -840,17 +996,50 @@ export default function CartScreen({ navigation }) {
   };
 
   const handlePlaceOrder = () => {
-    if (selectedCartItems.length === 0 || inStockCartItems.length === 0) {
-      if (hasOutOfStockItems) {
-        Alert.alert('Out of Stock', 'Items in your bag are currently out of stock and cannot be ordered. Please remove them or choose available items to place an order.');
-      } else {
-        Alert.alert('No Items Selected', 'Please select at least one item to place an order.');
-      }
+    if (cartItems.length === 0) {
+      Alert.alert('Empty Bag', 'Your bag is empty. Please add items to proceed.');
+      return;
+    }
+
+    if (inStockCartItems.length === 0) {
+      Alert.alert(
+        'All Items Out of Stock',
+        'All items in your bag are currently out of stock. Please remove them to proceed.'
+      );
+      return;
+    }
+
+    if (hasOutOfStockItems) {
+      const outCount = cartItems.length - inStockCartItems.length;
+      const inCount = inStockCartItems.length;
+
+      Alert.alert(
+        'Items Out of Stock',
+        `${outCount} item${outCount > 1 ? 's in your bag are' : ' in your bag is'} currently unavailable. Would you like to proceed with the ${inCount} available item${inCount > 1 ? 's' : ''}?`,
+        [
+          {
+            text: `Proceed with In-Stock (${inCount})`,
+            onPress: () => {
+              navigation.navigate('Checkout', {
+                selectedAddress,
+                couponCode: appliedCoupon,
+                totalAmount: finalTotal,
+                selectedCartItems: inStockCartItems,
+                selectedItemIds: inStockCartItems.map((item) => item.cartItemId),
+              });
+            },
+          },
+          {
+            text: 'Review Bag',
+            style: 'cancel',
+          },
+        ]
+      );
       return;
     }
 
     // Check if any selected item exceeds available inventory
-    const overStockItem = selectedCartItems.find((item) => {
+    const overStockItem = inStockCartItems.find((item) => {
       const stock = getItemStock(item);
       return stock > 0 && item.quantity > stock;
     });
@@ -858,7 +1047,7 @@ export default function CartScreen({ navigation }) {
       const stock = getItemStock(overStockItem);
       Alert.alert(
         'Stock Limit Exceeded',
-        `Only ${stock} items available for "${overStockItem.name || 'this product'}". Please adjust the quantity before placing your order.`
+        `Only ${stock} unit${stock > 1 ? 's' : ''} available for "${overStockItem.name || 'this product'}". Please adjust the quantity before placing your order.`
       );
       return;
     }
@@ -867,17 +1056,27 @@ export default function CartScreen({ navigation }) {
       selectedAddress,
       couponCode: appliedCoupon,
       totalAmount: finalTotal,
-      selectedCartItems,
+      selectedCartItems: inStockCartItems,
       selectedItemIds,
     });
   };
 
-  const renderFullScreenSkeleton = () => {
+  const renderFullScreenSkeleton = (withRefresh = true) => {
     return (
       <ScrollView
         style={styles.scrollView}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[styles.scrollContent, { gap: 16 }]}
+        refreshControl={
+          withRefresh ? (
+            <RefreshControl
+              refreshing={isRefreshing}
+              onRefresh={onRefresh}
+              colors={[colors.primary]}
+              tintColor={colors.primary}
+            />
+          ) : undefined
+        }
       >
         {/* Address Bar Shimmer */}
         <View style={{ paddingVertical: 14, borderBottomWidth: 1, borderColor: '#F1F5F9' }}>
@@ -890,12 +1089,11 @@ export default function CartScreen({ navigation }) {
           </View>
         </View>
 
-
-        {/* 3 Cart Item Skeletons */}
-        {Array.from({ length: 1 }).map((_, index) => (
-          <View key={`sk_item_${index}`} style={[styles.cartCard, { height: 153, justifyContent: 'center' }]}>
-            <View style={{ flexDirection: 'row', gap: 12 }}>
-              <Skeleton width={105} height={125} radius={14} />
+        {/* 2 Cart Item Skeletons with updated 115x150 dimensions */}
+        {Array.from({ length: 2 }).map((_, index) => (
+          <View key={`sk_item_${index}`} style={[styles.cartCard, { minHeight: 178, justifyContent: 'center' }]}>
+            <View style={{ flexDirection: 'row', gap: 14 }}>
+              <Skeleton width={115} height={150} radius={14} />
               <View style={{ flex: 1, gap: 8, paddingRight: 20 }}>
                 <Skeleton width="40%" height={12} radius={4} />
                 <Skeleton width="85%" height={12} radius={4} style={{ marginTop: 2 }} />
@@ -1018,33 +1216,54 @@ export default function CartScreen({ navigation }) {
         </View>
       </View>
 
-      {loadingCart && !backendCartData ? (
-        renderFullScreenSkeleton()
+      {(loadingCart && !backendCartData) || isRefreshing ? (
+        renderFullScreenSkeleton(true)
       ) : cartItems.length === 0 ? (
         /* ── Empty Cart View ── */
-        <View style={styles.emptyContainer}>
-          <View style={styles.emptyRingOuter}>
-            <View style={styles.emptyIconCircle}>
-              <Handbag size={40} color={colors.primary} strokeWidth={2} />
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={{ flexGrow: 1 }}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefreshing}
+              onRefresh={onRefresh}
+              colors={[colors.primary]}
+              tintColor={colors.primary}
+            />
+          }>
+          <View style={styles.emptyContainer}>
+            <View style={styles.emptyRingOuter}>
+              <View style={styles.emptyIconCircle}>
+                <Handbag size={40} color={colors.primary} strokeWidth={2} />
+              </View>
             </View>
+            <Text style={styles.emptyTitle}>Your Bag is Empty</Text>
+            <Text style={styles.emptySubText}>
+              Looks like you haven't added any products to your bag yet. Add products to get started!
+            </Text>
+            <TouchableOpacity
+              style={styles.shopNowBtn}
+              activeOpacity={0.85}
+              onPress={() => navigation.navigate('Home')}>
+              <Text style={styles.shopNowBtnText}>Start Shopping</Text>
+              <ChevronRight size={18} color="#FFFFFF" strokeWidth={2.5} style={{ marginLeft: 6 }} />
+            </TouchableOpacity>
           </View>
-          <Text style={styles.emptyTitle}>Your Bag is Empty</Text>
-          <Text style={styles.emptySubText}>
-            Looks like you haven't added any products to your bag yet. Add products to get started!
-          </Text>
-          <TouchableOpacity
-            style={styles.shopNowBtn}
-            activeOpacity={0.85}
-            onPress={() => navigation.navigate('Home')}>
-            <Text style={styles.shopNowBtnText}>Start Shopping</Text>
-            <ChevronRight size={18} color="#FFFFFF" strokeWidth={2.5} style={{ marginLeft: 6 }} />
-          </TouchableOpacity>
-        </View>
+        </ScrollView>
       ) : (
         <ScrollView
           style={styles.scrollView}
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.scrollContent}>
+          contentContainerStyle={styles.scrollContent}
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefreshing}
+              onRefresh={onRefresh}
+              colors={[colors.primary]}
+              tintColor={colors.primary}
+            />
+          }>
 
 
 
@@ -1059,7 +1278,7 @@ export default function CartScreen({ navigation }) {
           )}
 
           {/* ── Cart Item Cards ── */}
-          {cartItems.map((item) => {
+          {sortedCartItems.map((item) => {
             // Inline item loader is handled globally by the absolute overlay
 
             const isItemOutOfStock = checkIfOutOfStock(item);
@@ -1109,7 +1328,10 @@ export default function CartScreen({ navigation }) {
               <View key={item.cartItemId} style={[styles.cartCard, isItemOutOfStock && styles.cartCardOutOfStock]}>
                 {/* Remove Trash Button */}
                 <TouchableOpacity
-                  style={[styles.cardCloseBtn, isItemOutOfStock && styles.cardCloseBtnOutOfStock]}
+                  style={[
+                    styles.cardCloseBtn,
+                    isItemOutOfStock && styles.cardCloseBtnOutOfStock,
+                  ]}
                   activeOpacity={0.7}
                   hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                   onPress={() => setRemovingCartItem(item)}>
@@ -1152,9 +1374,9 @@ export default function CartScreen({ navigation }) {
                         </TouchableOpacity>
 
 
-                        {/* Option / Variant & Quantity Stepper */}
-                        <View style={styles.pillsRow}>
-                          {optionInfo ? (
+                        {/* Option / Variant Pill Row */}
+                        {optionInfo ? (
+                          <View style={styles.optionPillRow}>
                             <TouchableOpacity
                               style={styles.optionPill}
                               activeOpacity={0.75}
@@ -1181,94 +1403,96 @@ export default function CartScreen({ navigation }) {
                                 </Text>
                               )}
                             </TouchableOpacity>
-                          ) : null}
-
-                      {/* Quantity Stepper (+ / -) or Minimal Out of Stock Tag */}
-                      {isItemOutOfStock ? (
-                        <View style={styles.minimalOutOfStockTag}>
-                          <View style={styles.outOfStockDot} />
-                          <Text style={styles.minimalOutOfStockTagText}>Out of stock</Text>
-                        </View>
-                      ) : (() => {
-                        const itemStock = getItemStock(item);
-                        const rawAvailableQtys = (itemTiers && itemTiers.length > 0)
-                          ? [1, ...itemTiers.map((t) => t.quantity)].sort((a, b) => a - b)
-                          : null;
-                        const availableQtys = rawAvailableQtys && itemStock > 0
-                          ? rawAvailableQtys.filter((q) => q <= itemStock)
-                          : rawAvailableQtys;
-                        const currentQtyIdx = availableQtys ? availableQtys.indexOf(item.quantity) : -1;
-                        const isAtMaxTier = (availableQtys ? (currentQtyIdx === availableQtys.length - 1) : (item.quantity >= 10)) || (itemStock > 0 && item.quantity >= itemStock);
-
-                        return (
-                          <View style={styles.stepperContainer}>
-                            <TouchableOpacity
-                              style={styles.stepperBtn}
-                              activeOpacity={0.7}
-                              onPress={() => {
-                                if (availableQtys && availableQtys.length > 1) {
-                                  if (currentQtyIdx <= 0 || item.quantity <= 1) {
-                                    setRemovingCartItem(item);
-                                  } else {
-                                    const prevQty = currentQtyIdx !== -1 ? availableQtys[currentQtyIdx - 1] : availableQtys[0];
-                                    handleUpdateQty(item.cartItemId, prevQty);
-                                  }
-                                } else {
-                                  if (item.quantity <= 1) {
-                                    setRemovingCartItem(item);
-                                  } else {
-                                    handleUpdateQty(item.cartItemId, item.quantity - 1);
-                                  }
-                                }
-                              }}>
-                              <Minus size={13} color={colors.primary} strokeWidth={2.5} />
-                            </TouchableOpacity>
-
-                            <TouchableOpacity
-                              style={styles.stepperValueBtn}
-                              activeOpacity={0.8}
-                              onPress={() => {
-                                setEditingCartItem(item);
-                                setTempQuantity(item.quantity);
-                              }}>
-                              <Text style={styles.stepperValueText}>Qty: {item.quantity}</Text>
-                              <ChevronDown size={11} color={colors.primary} style={{ marginLeft: 2 }} />
-                            </TouchableOpacity>
-
-                            <TouchableOpacity
-                              style={styles.stepperBtn}
-                              activeOpacity={0.7}
-                              disabled={isAtMaxTier}
-                              onPress={() => {
-                                if (availableQtys && availableQtys.length > 1) {
-                                  if (currentQtyIdx !== -1 && currentQtyIdx < availableQtys.length - 1) {
-                                    const nextQty = availableQtys[currentQtyIdx + 1];
-                                    if (itemStock > 0 && nextQty > itemStock) {
-                                      Alert.alert('Stock Limit', `Only ${itemStock} items available in stock.`);
-                                      return;
-                                    }
-                                    handleUpdateQty(item.cartItemId, nextQty);
-                                  }
-                                } else {
-                                  if (itemStock > 0 && item.quantity >= itemStock) {
-                                    Alert.alert('Stock Limit', `Only ${itemStock} items available in stock.`);
-                                    return;
-                                  }
-                                  if (item.quantity < 10) {
-                                    handleUpdateQty(item.cartItemId, item.quantity + 1);
-                                  }
-                                }
-                              }}>
-                              <Plus
-                                size={13}
-                                color={isAtMaxTier ? '#CBD5E1' : colors.primary}
-                                strokeWidth={2.5}
-                              />
-                            </TouchableOpacity>
                           </View>
-                        );
-                      })()}
-                    </View>
+                        ) : null}
+
+                        {/* Quantity Stepper Row (Always below option on its own dedicated row) */}
+                        <View style={styles.stepperRow}>
+                          {isItemOutOfStock ? (
+                            <View style={styles.minimalOutOfStockTag}>
+                              <View style={styles.outOfStockDot} />
+                              <Text style={styles.minimalOutOfStockTagText}>Out of stock</Text>
+                            </View>
+                          ) : (() => {
+                            const itemStock = getItemStock(item);
+                            const rawAvailableQtys = (itemTiers && itemTiers.length > 0)
+                              ? [1, ...itemTiers.map((t) => t.quantity)].sort((a, b) => a - b)
+                              : null;
+                            const availableQtys = rawAvailableQtys && itemStock > 0
+                              ? rawAvailableQtys.filter((q) => q <= itemStock)
+                              : rawAvailableQtys;
+                            const currentQtyIdx = availableQtys ? availableQtys.indexOf(item.quantity) : -1;
+                            const isAtMaxTier = (availableQtys ? (currentQtyIdx === availableQtys.length - 1) : (item.quantity >= 10)) || (itemStock > 0 && item.quantity >= itemStock);
+
+                            return (
+                              <View style={styles.stepperContainer}>
+                                <TouchableOpacity
+                                  style={styles.stepperBtn}
+                                  activeOpacity={0.7}
+                                  onPress={() => {
+                                    if (availableQtys && availableQtys.length > 1) {
+                                      if (currentQtyIdx <= 0 || item.quantity <= 1) {
+                                        setRemovingCartItem(item);
+                                      } else {
+                                        const prevQty = currentQtyIdx !== -1 ? availableQtys[currentQtyIdx - 1] : availableQtys[0];
+                                        handleUpdateQty(item.cartItemId, prevQty);
+                                      }
+                                    } else {
+                                      if (item.quantity <= 1) {
+                                        setRemovingCartItem(item);
+                                      } else {
+                                        handleUpdateQty(item.cartItemId, item.quantity - 1);
+                                      }
+                                    }
+                                  }}>
+                                  <Minus size={13} color={colors.primary} strokeWidth={2.5} />
+                                </TouchableOpacity>
+
+                                <TouchableOpacity
+                                  style={styles.stepperValueBtn}
+                                  activeOpacity={0.8}
+                                  onPress={() => {
+                                    setEditingCartItem(item);
+                                    setTempQuantity(item.quantity);
+                                  }}>
+                                  <Text style={styles.stepperValueText}>Qty: {item.quantity}</Text>
+                                  <ChevronDown size={11} color={colors.primary} style={{ marginLeft: 2 }} />
+                                </TouchableOpacity>
+
+                                <TouchableOpacity
+                                  style={[styles.stepperBtn, isAtMaxTier && { opacity: 0.4 }]}
+                                  activeOpacity={0.7}
+                                  disabled={isAtMaxTier}
+                                  onPress={() => {
+                                    if (availableQtys && availableQtys.length > 1) {
+                                      if (currentQtyIdx !== -1 && currentQtyIdx < availableQtys.length - 1) {
+                                        const nextQty = availableQtys[currentQtyIdx + 1];
+                                        if (itemStock > 0 && nextQty > itemStock) {
+                                          Alert.alert('Stock Limit', `Only ${itemStock} items available in stock.`);
+                                          return;
+                                        }
+                                        handleUpdateQty(item.cartItemId, nextQty);
+                                      }
+                                    } else {
+                                      if (itemStock > 0 && item.quantity >= itemStock) {
+                                        Alert.alert('Stock Limit', `Only ${itemStock} items available in stock.`);
+                                        return;
+                                      }
+                                      if (item.quantity < 10) {
+                                        handleUpdateQty(item.cartItemId, item.quantity + 1);
+                                      }
+                                    }
+                                  }}>
+                                  <Plus
+                                    size={13}
+                                    color={isAtMaxTier ? '#CBD5E1' : colors.primary}
+                                    strokeWidth={2.5}
+                                  />
+                                </TouchableOpacity>
+                              </View>
+                            );
+                          })()}
+                        </View>
 
                     {/* Price Row */}
                     <View style={styles.cardPriceRow}>
@@ -1340,10 +1564,17 @@ export default function CartScreen({ navigation }) {
           })}
 
           {/* ── Coupon Card ── */}
-          <View style={[
-            styles.ticketContainer,
-            appliedCoupon ? styles.ticketContainerApplied : styles.ticketContainerIdle
-          ]}>
+          <TouchableOpacity
+            style={[
+              styles.ticketContainer,
+              appliedCoupon ? styles.ticketContainerApplied : styles.ticketContainerIdle,
+            ]}
+            activeOpacity={appliedCoupon ? 1 : 0.8}
+            onPress={() => {
+              if (!appliedCoupon) {
+                openCouponSheet();
+              }
+            }}>
             {/* Notches centered on the perforation line */}
             <View style={[
               styles.ticketNotchTop,
@@ -1389,7 +1620,14 @@ export default function CartScreen({ navigation }) {
                       {couponDiscount > 0 ? `You saved ₹${couponDiscount} on this order` : 'Coupon applied'}
                     </Text>
                   </View>
-                  <TouchableOpacity style={styles.removeCouponBtn} activeOpacity={0.7} onPress={removeCoupon}>
+                  <TouchableOpacity
+                    style={styles.removeCouponBtn}
+                    activeOpacity={0.7}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    onPress={(e) => {
+                      e?.stopPropagation?.();
+                      removeCoupon();
+                    }}>
                     <Text style={styles.removeCouponText}>Remove</Text>
                   </TouchableOpacity>
                 </>
@@ -1405,20 +1643,14 @@ export default function CartScreen({ navigation }) {
                         : 'Unlock instant discounts'}
                     </Text>
                   </View>
-                  <TouchableOpacity
-                    style={styles.viewCouponsBtn}
-                    activeOpacity={0.7}
-                    onPress={() => {
-                      setCouponError(null);
-                      setShowCouponSheet(true);
-                    }}>
+                  <View style={styles.viewCouponsBtn}>
                     <Text style={styles.applyCouponLink}>View</Text>
                     <ChevronRight size={13} color={colors.primary} />
-                  </TouchableOpacity>
+                  </View>
                 </>
               )}
             </View>
-          </View>
+          </TouchableOpacity>
 
           {/* ── Delivery Info Banner ── */}
           {totalSellingPrice > 0 && (
@@ -2310,12 +2542,12 @@ const styles = StyleSheet.create({
   cartCardMain: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: 12,
+    gap: 14,
   },
   cartItemImgContainer: {
     position: 'relative',
-    width: 105,
-    height: 125,
+    width: 115,
+    height: 150,
     borderRadius: 14,
     overflow: 'hidden',
     backgroundColor: '#F8FAFC',
@@ -2340,6 +2572,16 @@ const styles = StyleSheet.create({
     color: '#475569',
     marginTop: 2,
     lineHeight: moderateScale(18),
+  },
+  optionPillRow: {
+    marginTop: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  stepperRow: {
+    marginTop: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   pillsRow: {
     flexDirection: 'row',

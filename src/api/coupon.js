@@ -7,7 +7,6 @@ export async function getActiveCoupons() {
     method: 'GET',
     token,
   });
-  console.log('getActiveCoupons response:', JSON.stringify(res, null, 2));
   return res;
 }
 

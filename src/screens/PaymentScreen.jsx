@@ -14,17 +14,16 @@ import {
   BackHandler,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ChevronLeft, CreditCard, Banknote, CheckCircle2, ShoppingBag, MapPin, ShieldCheck } from 'lucide-react-native';
-import { useSelector, useDispatch } from 'react-redux';
+import { ChevronLeft, CreditCard, Banknote, CheckCircle2, ShoppingBag, MapPin, ShieldCheck, Lock, ArrowRight, Sparkles } from 'lucide-react-native';
 import RazorpayCheckout from 'react-native-razorpay';
-import { selectCartTotalAmount, selectCartItems, clearCart, removeFromCart } from '../redux/cartSlice';
+import { useCartStore } from '../store/cartStore';
 import colors from '../theme/colors';
 import fonts from '../theme/typography';
 import { moderateScale } from '../theme/responsive';
 import { getCart } from '../api/cart';
 import { createOrder, createRazorpayOrder, verifyRazorpayPayment, getRazorpayConfig } from '../api/order';
 import { getImageSource } from '../utils/imageOptimizer';
-import { isProductOutOfStock } from '../utils/productUtils';
+import { isProductOutOfStock, getProductStock } from '../utils/productUtils';
 
 const CONFETTI_PARTICLES = [
   { dx: -50, dy: -60, color: '#FF3366', size: 8 },
@@ -46,21 +45,66 @@ const CONFETTI_PARTICLES = [
 ];
 
 export default function PaymentScreen({ navigation, route }) {
-  const dispatch = useDispatch();
+  const cartItems = useCartStore((state) => state.items);
+  const cartTotalAmount = useCartStore((state) => state.totalAmount);
+  const clearCart = useCartStore((state) => state.clearCart);
+  const removeFromCart = useCartStore((state) => state.removeFromCart);
+
   const { addressId, address, couponCode, totalAmount: paramTotalAmount } = route.params || {};
-  const reduxTotalAmount = useSelector(selectCartTotalAmount);
   
   // Calculate final total amount (including the ₹50 delivery charge fallback if total is < ₹2000)
   const totalAmount = useMemo(() => {
     if (paramTotalAmount !== undefined) {
       return paramTotalAmount;
     }
-    if (reduxTotalAmount > 0 && reduxTotalAmount < 2000) {
-      return reduxTotalAmount + 50;
+    if (cartTotalAmount > 0 && cartTotalAmount < 2000) {
+      return cartTotalAmount + 50;
     }
-    return reduxTotalAmount;
-  }, [paramTotalAmount, reduxTotalAmount]);
-  const cartItems = useSelector(selectCartItems);
+    return cartTotalAmount;
+  }, [paramTotalAmount, cartTotalAmount]);
+
+  // Live display amount synced with backend & Razorpay
+  const [displayAmount, setDisplayAmount] = useState(totalAmount);
+
+  useEffect(() => {
+    setDisplayAmount(totalAmount);
+  }, [totalAmount]);
+
+  // Pre-sync accurate backend cart total on mount
+  useEffect(() => {
+    let isMounted = true;
+    (async () => {
+      try {
+        if (addressId) {
+          const cartRes = await getCart(addressId, couponCode);
+          const cartData = cartRes?.data?.data || cartRes?.data || cartRes;
+          if (isMounted && cartData && !paramTotalAmount) {
+            if (typeof cartData.final_price === 'number' && cartData.final_price > 0) {
+              setDisplayAmount(Math.round(cartData.final_price));
+            } else if (typeof cartData.final_total === 'number' && cartData.final_total > 0) {
+              setDisplayAmount(Math.round(cartData.final_total));
+            } else {
+              const rawTotal = cartData.total_price || 0;
+              const cDiscount = cartData.coupon_discount_amount ?? cartData.coupon?.discount_amount ?? 0;
+              const sCharge = (typeof cartData.shipping_charge === 'number')
+                ? cartData.shipping_charge
+                : ((rawTotal > 0 && rawTotal < 2000) ? 50 : 0);
+              const calcFinal = Math.max(0, rawTotal - cDiscount) + sCharge;
+              if (calcFinal > 0) {
+                setDisplayAmount(Math.round(calcFinal));
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.log('Error pre-fetching cart total on PaymentScreen:', err);
+      }
+    })();
+    return () => {
+      isMounted = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [addressId, couponCode, paramTotalAmount]);
 
   // Selected Payment Method: 'online' (Razorpay) or 'cod' (Cash on delivery)
   const [paymentMethod, setPaymentMethod] = useState('online');
@@ -122,19 +166,17 @@ export default function PaymentScreen({ navigation, route }) {
   }, [showSuccessOverlay, scaleAnim, confettiAnim]);
 
   // Handle hardware back press on Android:
-  // 1. While placing order / verifying payment: disable back button completely
-  // 2. When payment successful / success overlay is active: reset navigation to Home instead of going back to PaymentScreen
   useEffect(() => {
     const onHardwareBack = () => {
       if (isPlacingOrder) {
-        return true; // Block hardware back button while payment or order is in-flight
+        return true;
       }
       if (showSuccessOverlay) {
         navigation.reset({
           index: 0,
           routes: [{ name: 'BottomTabs', state: { routes: [{ name: 'Home' }] } }],
         });
-        return true; // Block going back to payment screen
+        return true;
       }
       return false;
     };
@@ -143,23 +185,20 @@ export default function PaymentScreen({ navigation, route }) {
     return () => backHandler.remove();
   }, [isPlacingOrder, showSuccessOverlay, navigation]);
 
-  // Handle React Navigation beforeRemove event (gesture back or header back)
+  // Handle React Navigation beforeRemove event
   useEffect(() => {
     const unsubscribe = navigation.addListener('beforeRemove', (e) => {
       if (isPlacingOrder) {
-        // Prevent leaving screen while placing order / verifying payment
         e.preventDefault();
         return;
       }
       
-      // If navigation is an intentional RESET or REPLACE action, let it proceed
       const actionType = e.data?.action?.type;
       if (actionType === 'RESET' || actionType === 'REPLACE') {
         return;
       }
 
       if (showSuccessOverlay) {
-        // Prevent returning to Payment screen; reset stack to Home
         e.preventDefault();
         navigation.reset({
           index: 0,
@@ -181,7 +220,6 @@ export default function PaymentScreen({ navigation, route }) {
     try {
       setIsPlacingOrder(true);
 
-      // 1. Fetch cart to retrieve its _id
       const cartRes = await getCart(addressId, couponCode);
       const cartId = cartRes?.data?.data?._id || cartRes?.data?._id;
       if (!cartId) {
@@ -189,10 +227,17 @@ export default function PaymentScreen({ navigation, route }) {
         return;
       }
 
-      // 2. Validate in-stock items
-      const finalOrderedItems = (route.params?.selectedCartItems && Array.isArray(route.params.selectedCartItems) && route.params.selectedCartItems.length > 0)
+      const rawOrderedItems = (route.params?.selectedCartItems && Array.isArray(route.params.selectedCartItems) && route.params.selectedCartItems.length > 0)
         ? route.params.selectedCartItems.filter((i) => !isProductOutOfStock(i))
         : cartItems.filter((i) => !isProductOutOfStock(i));
+
+      const finalOrderedItems = rawOrderedItems.map((i) => {
+        const stock = getProductStock(i);
+        if (typeof stock === 'number' && stock > 0 && i.quantity > stock) {
+          return { ...i, quantity: stock };
+        }
+        return i;
+      });
 
       if (finalOrderedItems.length === 0) {
         Alert.alert('Out of Stock', 'The selected item(s) are currently out of stock and cannot be ordered.');
@@ -212,24 +257,42 @@ export default function PaymentScreen({ navigation, route }) {
 
       const orderData = orderRes?.data || orderRes?.order || orderRes;
       setCreatedOrder(orderData);
+      if (orderData?.finalTotalAmount || orderData?.totalAmount) {
+        setDisplayAmount(Math.round(orderData.finalTotalAmount || orderData.totalAmount));
+      }
 
-      // 3. Success - Set orderedItems to ONLY what was actually ordered
       setOrderedItems([...finalOrderedItems]);
       setShowSuccessOverlay(true);
 
-      // Remove only the ordered items from Redux cart
       if (finalOrderedItems.length === cartItems.length) {
-        dispatch(clearCart());
+        clearCart();
       } else {
         finalOrderedItems.forEach((item) => {
           if (item.cartItemId) {
-            dispatch(removeFromCart(item.cartItemId));
+            removeFromCart(item.cartItemId);
           }
         });
       }
     } catch (e) {
       console.log('Order creation failed:', e);
-      Alert.alert('Order Placement Failed', e?.message || 'Something went wrong. Please try again.');
+      const errMsg = e?.message || 'Something went wrong. Please try again.';
+      const isStockError =
+        errMsg.toLowerCase().includes('out of stock') ||
+        errMsg.toLowerCase().includes('stock') ||
+        (Array.isArray(e?.outOfStockItems) && e.outOfStockItems.length > 0);
+
+      if (isStockError) {
+        Alert.alert(
+          'Item Out of Stock',
+          errMsg,
+          [
+            { text: 'Review Bag', onPress: () => navigation.navigate('Cart') },
+            { text: 'Cancel', style: 'cancel' },
+          ]
+        );
+      } else {
+        Alert.alert('Order Placement Failed', errMsg);
+      }
     } finally {
       setIsPlacingOrder(false);
     }
@@ -242,9 +305,17 @@ export default function PaymentScreen({ navigation, route }) {
       return;
     }
 
-    const finalOrderedItems = (route.params?.selectedCartItems && Array.isArray(route.params.selectedCartItems) && route.params.selectedCartItems.length > 0)
+    const rawOrderedItems = (route.params?.selectedCartItems && Array.isArray(route.params.selectedCartItems) && route.params.selectedCartItems.length > 0)
       ? route.params.selectedCartItems.filter((i) => !isProductOutOfStock(i))
       : cartItems.filter((i) => !isProductOutOfStock(i));
+
+    const finalOrderedItems = rawOrderedItems.map((i) => {
+      const stock = getProductStock(i);
+      if (typeof stock === 'number' && stock > 0 && i.quantity > stock) {
+        return { ...i, quantity: stock };
+      }
+      return i;
+    });
 
     if (finalOrderedItems.length === 0) {
       Alert.alert('Out of Stock', 'The selected item(s) are currently out of stock and cannot be ordered.');
@@ -265,7 +336,6 @@ export default function PaymentScreen({ navigation, route }) {
       const inStockItemIds = finalOrderedItems.map((i) => i.cartItemId);
       const selectedItemIds = (route.params?.selectedItemIds || inStockItemIds).filter((id) => inStockItemIds.includes(id));
 
-      // 1. Create Razorpay order directly with cart & address without pre-creating DB Order
       const rzpRes = await createRazorpayOrder({
         cartId,
         addressId,
@@ -278,11 +348,17 @@ export default function PaymentScreen({ navigation, route }) {
         throw new Error(rzpRes?.message || 'Failed to create Razorpay payment order.');
       }
 
-      // 2. Launch Razorpay Checkout
+      if (rzpData.amount) {
+        const orderAmountInRupees = Math.round(Number(rzpData.amount) / 100);
+        if (orderAmountInRupees > 0) {
+          setDisplayAmount(orderAmountInRupees);
+        }
+      }
+
       const checkoutOptions = {
         key: rzpData.keyId || razorpayKeyId,
         order_id: rzpData.razorpayOrderId,
-        amount: rzpData.amount, // in paise
+        amount: rzpData.amount,
         currency: rzpData.currency || 'INR',
         name: 'Shagun Beauty',
         description: 'Online Order Payment',
@@ -291,7 +367,7 @@ export default function PaymentScreen({ navigation, route }) {
           contact: rzpData.customer?.contact || address?.mobile || '',
           email: rzpData.customer?.email || '',
         },
-        theme: { color: '#E91E63' },
+        theme: { color: colors.primary },
       };
 
       setIsPlacingOrder(false);
@@ -303,7 +379,6 @@ export default function PaymentScreen({ navigation, route }) {
 
       RazorpayCheckout.open(checkoutOptions)
         .then(async (data) => {
-          // On payment success: verify payment and create DB Order ONLY now
           try {
             setIsPlacingOrder(true);
             const verifiedRes = await verifyRazorpayPayment({
@@ -321,16 +396,15 @@ export default function PaymentScreen({ navigation, route }) {
               setCreatedOrder(verifiedOrder);
             }
 
-            // On success, set ordered items, clear cart, show success screen
             setOrderedItems([...finalOrderedItems]);
             setShowSuccessOverlay(true);
 
             if (finalOrderedItems.length === cartItems.length) {
-              dispatch(clearCart());
+              clearCart();
             } else {
               finalOrderedItems.forEach((item) => {
                 if (item.cartItemId) {
-                  dispatch(removeFromCart(item.cartItemId));
+                  removeFromCart(item.cartItemId);
                 }
               });
             }
@@ -349,8 +423,6 @@ export default function PaymentScreen({ navigation, route }) {
           }
         })
         .catch((error) => {
-          // On user dismissal or payment failure:
-          // Since no order was created in DB, cart remains intact
           console.log('Razorpay payment cancelled / dismissed:', error);
           setIsPlacingOrder(false);
           Alert.alert(
@@ -363,7 +435,24 @@ export default function PaymentScreen({ navigation, route }) {
     } catch (e) {
       console.log('Online payment flow error:', e);
       setIsPlacingOrder(false);
-      Alert.alert('Payment Error', e?.message || 'Could not initiate online payment. Please try again.');
+      const errMsg = e?.message || 'Could not initiate online payment. Please try again.';
+      const isStockError =
+        errMsg.toLowerCase().includes('out of stock') ||
+        errMsg.toLowerCase().includes('stock') ||
+        (Array.isArray(e?.outOfStockItems) && e.outOfStockItems.length > 0);
+
+      if (isStockError) {
+        Alert.alert(
+          'Item Out of Stock',
+          errMsg,
+          [
+            { text: 'Review Bag', onPress: () => navigation.navigate('Cart') },
+            { text: 'Cancel', style: 'cancel' },
+          ]
+        );
+      } else {
+        Alert.alert('Payment Error', errMsg);
+      }
     }
   };
 
@@ -380,7 +469,7 @@ export default function PaymentScreen({ navigation, route }) {
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
       <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
 
-      {/* Header */}
+      {/* Zomato-style Clean Header */}
       <View style={styles.header}>
         <TouchableOpacity
           style={[styles.backButton, (isPlacingOrder || showSuccessOverlay) && styles.backButtonDisabled]}
@@ -391,61 +480,57 @@ export default function PaymentScreen({ navigation, route }) {
               navigation.goBack();
             }
           }}>
-          <ChevronLeft size={24} color={isPlacingOrder || showSuccessOverlay ? '#CBD5E1' : '#1A1C1E'} />
+          <ChevronLeft size={24} color={isPlacingOrder || showSuccessOverlay ? '#CBD5E1' : '#111827'} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Payment Option</Text>
+        <Text style={styles.headerTitle}>Select Payment Method</Text>
+        <View style={styles.headerSpacer} />
       </View>
 
       <ScrollView
         style={styles.container}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}>
-        {/* Amount Card */}
+        
+        {/* Zomato-style Bill Summary Strip */}
         <View style={styles.amountCard}>
-          <Text style={styles.amountLabel}>Total Payable Amount</Text>
-          <Text style={styles.amountValue}>₹{totalAmount.toLocaleString('en-IN')}</Text>
+          <View style={styles.amountLeftCol}>
+            <Text style={styles.amountLabel}>Total to Pay</Text>
+            <Text style={styles.amountSubtext}>Includes all taxes & delivery</Text>
+          </View>
+          <Text style={styles.amountValue}>₹{Math.round(displayAmount).toLocaleString('en-IN')}</Text>
         </View>
 
-        <Text style={styles.sectionTitle}>Select Payment Method</Text>
+        <Text style={styles.sectionTitle}>PAYMENT OPTIONS</Text>
 
-        {/* 1. Online Payment (Razorpay Checkout) */}
+        {/* 1. Online Payment (UPI / Cards / Net Banking) */}
         {razorpayEnabled && (
-          <>
-            <TouchableOpacity
-              style={[
-                styles.paymentCard,
-                paymentMethod === 'online' && styles.paymentCardActive,
-              ]}
-              activeOpacity={0.8}
-              onPress={() => setPaymentMethod('online')}>
-              <View style={styles.cardLeft}>
-                <View style={[styles.iconContainer, paymentMethod === 'online' && styles.iconContainerActive]}>
-                  <CreditCard size={22} color={paymentMethod === 'online' ? colors.primary : '#64748B'} />
-                </View>
-                <View style={styles.textContainer}>
-                  <View style={styles.titleRow}>
-                    <Text style={styles.methodTitle}>Online Payment</Text>
-                    <View style={styles.recommendedBadge}>
-                      <Text style={styles.recommendedBadgeText}>RECOMMENDED</Text>
-                    </View>
+          <TouchableOpacity
+            style={[
+              styles.paymentCard,
+              paymentMethod === 'online' && styles.paymentCardActive,
+            ]}
+            activeOpacity={0.85}
+            onPress={() => setPaymentMethod('online')}>
+            <View style={styles.cardLeft}>
+              <View style={[styles.iconContainer, paymentMethod === 'online' && styles.iconContainerActive]}>
+                <CreditCard size={22} color={paymentMethod === 'online' ? colors.primary : '#4B5563'} />
+              </View>
+              <View style={styles.textContainer}>
+                <View style={styles.titleRow}>
+                  <Text style={[styles.methodTitle, paymentMethod === 'online' && styles.methodTitleActive]}>
+                    Online Payment
+                  </Text>
+                  <View style={styles.recommendedBadge}>
+                    <Text style={styles.recommendedBadgeText}>RECOMMENDED</Text>
                   </View>
-                  <Text style={styles.methodDescription}>UPI, Debit/Credit Cards, Net Banking & Wallets</Text>
                 </View>
+                <Text style={styles.methodDescription}>UPI, Cards, Net Banking & Wallets</Text>
               </View>
-              <View style={[styles.radioOuter, paymentMethod === 'online' && styles.radioOuterActive]}>
-                {paymentMethod === 'online' && <View style={styles.radioInner} />}
-              </View>
-            </TouchableOpacity>
-
-            {paymentMethod === 'online' && (
-              <View style={styles.onlineBenefitBanner}>
-                <ShieldCheck size={18} color="#15803D" style={{ marginRight: 8 }} />
-                <Text style={styles.onlineBenefitText}>
-                  Fast & 100% secure payment verified directly via Razorpay.
-                </Text>
-              </View>
-            )}
-          </>
+            </View>
+            <View style={[styles.radioOuter, paymentMethod === 'online' && styles.radioOuterActive]}>
+              {paymentMethod === 'online' && <View style={styles.radioInner} />}
+            </View>
+          </TouchableOpacity>
         )}
 
         {/* 2. Cash on Delivery (COD) */}
@@ -454,15 +539,17 @@ export default function PaymentScreen({ navigation, route }) {
             styles.paymentCard,
             paymentMethod === 'cod' && styles.paymentCardActive,
           ]}
-          activeOpacity={0.8}
+          activeOpacity={0.85}
           onPress={() => setPaymentMethod('cod')}>
           <View style={styles.cardLeft}>
             <View style={[styles.iconContainer, paymentMethod === 'cod' && styles.iconContainerActive]}>
-              <Banknote size={22} color={paymentMethod === 'cod' ? colors.primary : '#64748B'} />
+              <Banknote size={22} color={paymentMethod === 'cod' ? colors.primary : '#4B5563'} />
             </View>
             <View style={styles.textContainer}>
-              <Text style={styles.methodTitle}>Cash on Delivery (COD)</Text>
-              <Text style={styles.methodDescription}>Pay with cash on delivery of your order.</Text>
+              <Text style={[styles.methodTitle, paymentMethod === 'cod' && styles.methodTitleActive]}>
+                Cash on Delivery (COD)
+              </Text>
+              <Text style={styles.methodDescription}>Pay with cash on delivery of your order</Text>
             </View>
           </View>
           <View style={[styles.radioOuter, paymentMethod === 'cod' && styles.radioOuterActive]}>
@@ -471,7 +558,7 @@ export default function PaymentScreen({ navigation, route }) {
         </TouchableOpacity>
       </ScrollView>
 
-      {/* Sticky Bottom Payment Button */}
+      {/* Sticky Full-Width Bottom Pay Button */}
       <View style={styles.bottomBar}>
         <TouchableOpacity
           style={[styles.payButton, isPlacingOrder && styles.payButtonDisabled]}
@@ -483,8 +570,8 @@ export default function PaymentScreen({ navigation, route }) {
           ) : (
             <Text style={styles.payButtonText}>
               {paymentMethod === 'online'
-                ? `PAY NOW • ₹${Math.round(totalAmount).toLocaleString('en-IN')}`
-                : `PLACE ORDER (COD) • ₹${Math.round(totalAmount).toLocaleString('en-IN')}`}
+                ? `PAY NOW • ₹${Math.round(displayAmount).toLocaleString('en-IN')}`
+                : `PLACE ORDER (COD) • ₹${Math.round(displayAmount).toLocaleString('en-IN')}`}
             </Text>
           )}
         </TouchableOpacity>
@@ -612,7 +699,7 @@ export default function PaymentScreen({ navigation, route }) {
 
               <View style={styles.overlayTotalRow}>
                 <Text style={styles.overlayTotalLabel}>Grand Total</Text>
-                <Text style={styles.overlayTotalValue}>₹{Math.round(totalAmount)}</Text>
+                <Text style={styles.overlayTotalValue}>₹{Math.round(createdOrder?.finalTotalAmount || createdOrder?.totalAmount || displayAmount)}</Text>
               </View>
             </View>
 
@@ -667,10 +754,11 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 14,
     borderBottomWidth: 1,
-    borderBottomColor: '#F1F5F9',
+    borderBottomColor: '#F3F4F6',
     backgroundColor: '#FFFFFF',
   },
   backButton: {
@@ -679,50 +767,64 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: moderateScale(18),
     fontFamily: fonts.big,
-    color: '#1A1C1E',
-    marginLeft: 12,
+    color: '#111827',
+    textAlign: 'left',
+    width: '80%',
+  },
+  headerSpacer: {
+    width: 32,
   },
   container: {
     flex: 1,
-    backgroundColor: '#F8FAFC',
+    backgroundColor: '#F9FAFB',
   },
   scrollContent: {
     padding: 16,
     paddingBottom: 32,
   },
   amountCard: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
-    paddingVertical: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 26,
+    paddingVertical: 18,
+    paddingHorizontal: 18,
+    marginBottom: 20,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
-    shadowColor: '#0F172A',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.02,
-    shadowRadius: 10,
+    borderColor: '#E5E7EB',
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.03,
+    shadowRadius: 8,
     elevation: 1,
   },
+  amountLeftCol: {
+    flex: 1,
+  },
   amountLabel: {
-    fontSize: moderateScale(12),
+    fontSize: moderateScale(14),
+    fontFamily: fonts.big,
+    color: '#111827',
+  },
+  amountSubtext: {
+    fontSize: moderateScale(11),
     fontFamily: fonts.medium,
-    color: '#64748B',
-    marginBottom: 6,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
+    color: '#9CA3AF',
+    marginTop: 2,
   },
   amountValue: {
-    fontSize: moderateScale(32),
+    fontSize: moderateScale(22),
     fontFamily: fonts.big,
-    color: '#0F172A',
+    color: '#111827',
   },
   sectionTitle: {
-    fontSize: moderateScale(15),
+    fontSize: moderateScale(12),
     fontFamily: fonts.big,
-    color: '#1E293B',
-    marginBottom: 16,
+    color: '#6B7280',
+    letterSpacing: 0.8,
+    marginBottom: 12,
+    marginLeft: 2,
   },
   paymentCard: {
     flexDirection: 'row',
@@ -730,7 +832,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     backgroundColor: '#FFFFFF',
     borderWidth: 1.5,
-    borderColor: '#E2E8F0',
+    borderColor: '#E5E7EB',
     borderRadius: 16,
     padding: 16,
     marginBottom: 12,
@@ -743,13 +845,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
-    marginRight: 10,
+    marginRight: 12,
   },
   iconContainer: {
     width: 44,
     height: 44,
     borderRadius: 12,
-    backgroundColor: '#F8FAFC',
+    backgroundColor: '#F3F4F6',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 14,
@@ -764,18 +866,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     flexWrap: 'wrap',
-    marginBottom: 4,
+    marginBottom: 2,
   },
   methodTitle: {
-    fontSize: moderateScale(14),
+    fontSize: moderateScale(15),
     fontFamily: fonts.big,
-    color: '#0F172A',
+    color: '#111827',
+  },
+  methodTitleActive: {
+    color: '#111827',
   },
   recommendedBadge: {
     backgroundColor: '#FDF2F8',
     borderColor: '#FBCFE8',
     borderWidth: 1,
-    paddingHorizontal: 8,
+    paddingHorizontal: 7,
     paddingVertical: 2,
     borderRadius: 6,
     marginLeft: 8,
@@ -785,12 +890,13 @@ const styles = StyleSheet.create({
     color: '#BE185D',
     fontSize: moderateScale(9),
     fontFamily: fonts.big,
-    letterSpacing: 0.3,
+    letterSpacing: 0.4,
   },
   methodDescription: {
     fontSize: moderateScale(12),
     fontFamily: fonts.medium,
-    color: '#64748B',
+    color: '#6B7280',
+    marginTop: 3,
     lineHeight: moderateScale(16),
   },
   radioOuter: {
@@ -798,7 +904,7 @@ const styles = StyleSheet.create({
     height: 22,
     borderRadius: 11,
     borderWidth: 2,
-    borderColor: '#CBD5E1',
+    borderColor: '#D1D5DB',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -811,36 +917,17 @@ const styles = StyleSheet.create({
     borderRadius: 5,
     backgroundColor: colors.primary,
   },
-  onlineBenefitBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F0FDF4',
-    borderWidth: 1,
-    borderColor: '#DCFCE7',
-    borderRadius: 12,
-    padding: 12,
-    marginTop: -2,
-    marginBottom: 14,
-  },
-  onlineBenefitText: {
-    flex: 1,
-    fontSize: moderateScale(11),
-    fontFamily: fonts.medium,
-    color: '#166534',
-    lineHeight: moderateScale(16),
-    marginLeft: 8,
-  },
   bottomBar: {
     paddingHorizontal: 16,
     paddingVertical: 14,
     borderTopWidth: 1,
-    borderTopColor: '#F1F5F9',
+    borderTopColor: '#F3F4F6',
     backgroundColor: '#FFFFFF',
   },
   payButton: {
-    height: 48,
+    height: 50,
     backgroundColor: colors.primary,
-    borderRadius: 12,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
     width: '100%',
@@ -849,9 +936,10 @@ const styles = StyleSheet.create({
     opacity: 0.7,
   },
   payButtonText: {
-    fontSize: moderateScale(14),
+    fontSize: moderateScale(15),
     fontFamily: fonts.big,
     color: '#FFFFFF',
+    letterSpacing: 0.3,
   },
   backButtonDisabled: {
     opacity: 0.3,

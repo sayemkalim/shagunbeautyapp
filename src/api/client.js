@@ -1,11 +1,13 @@
 export const BASE_URL = 'https://shagunbeautybe.onrender.com';
 
 export class ApiRequestError extends Error {
-  constructor(message, { statusCode, status } = {}) {
+  constructor(message, { statusCode, status, data, outOfStockItems } = {}) {
     super(message);
     this.name = 'ApiRequestError';
     this.statusCode = statusCode;
     this.status = status;
+    this.data = data;
+    this.outOfStockItems = outOfStockItems;
   }
 }
 
@@ -14,10 +16,6 @@ export class ApiRequestError extends Error {
 // with success:false — always trust `success`, not the HTTP status.
 export async function apiRequest(path, { method = 'GET', body, token, headers } = {}) {
   const fullUrl = `${BASE_URL}${path}`;
-  console.log(`🌐 [API_REQUEST] ${method} ${fullUrl}`);
-  if (body !== undefined) {
-    console.log(`📦 [API_REQUEST_BODY]`, JSON.stringify(body));
-  }
 
   let response;
   try {
@@ -38,7 +36,6 @@ export async function apiRequest(path, { method = 'GET', body, token, headers } 
   let json;
   try {
     json = await response.json();
-    console.log(`📥 [API_RESPONSE] ${response.status} ${fullUrl}:`, JSON.stringify(json));
   } catch (err) {
     console.error(`🔴 [API_PARSE_ERROR] HTTP ${response.status} ${fullUrl}:`, err);
     throw new ApiRequestError('Unexpected response from server.', {
@@ -51,6 +48,8 @@ export async function apiRequest(path, { method = 'GET', body, token, headers } 
     throw new ApiRequestError(json.message || 'Something went wrong.', {
       statusCode: json.statusCode,
       status: response.status,
+      data: json,
+      outOfStockItems: json.outOfStockItems,
     });
   }
 

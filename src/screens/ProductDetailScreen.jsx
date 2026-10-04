@@ -6,6 +6,7 @@ import {
   Image,
   Modal,
   Platform,
+  RefreshControl,
   ScrollView,
   Share,
   StatusBar,
@@ -37,11 +38,10 @@ import {
   ChevronRight,
 } from 'lucide-react-native';
 
-import { useDispatch, useSelector } from 'react-redux';
 import { useFocusEffect } from '@react-navigation/native';
 import { useQueryClient } from '@tanstack/react-query';
 import LinearGradient from 'react-native-linear-gradient';
-import { addToCart, setCartData, selectCartItems, selectCartTotalQuantity } from '../redux/cartSlice';
+import { useCartStore } from '../store/cartStore';
 import { addToCartApi } from '../api/cart';
 
 import { useProductDetail, useProducts } from '../hooks/useProducts';
@@ -50,6 +50,7 @@ import { useCategories } from '../hooks/useCategories';
 import { useSubCategories } from '../hooks/useSubCategories';
 import BottomSheetModal from '../components/BottomSheetModal';
 import { Skeleton } from '../components/Skeleton';
+import ProductCard from '../components/ProductCard';
 import { resolveImageUrl, getImageSource } from '../utils/imageOptimizer';
 import { getProductStock, isProductOutOfStock } from '../utils/productUtils';
 import colors from '../theme/colors';
@@ -77,7 +78,7 @@ const COSMETIC_SHADE_PALETTE = [
   '#BA7847', // Mocha
 ];
 
-function ProductDetailSkeleton({ navigation }) {
+function ProductDetailSkeleton({ navigation, refreshControl }) {
   return (
     <>
       {/* Real, functional header so users aren't stuck while loading */}
@@ -98,7 +99,10 @@ function ProductDetailSkeleton({ navigation }) {
         </View>
       </View>
 
-      <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={{ flex: 1 }}
+        showsVerticalScrollIndicator={false}
+        refreshControl={refreshControl}>
         {/* Image carousel */}
         <View>
           <Skeleton width={width} height={IMAGE_HEIGHT} radius={0} />
@@ -363,52 +367,82 @@ function formatProductWeightOrVolume(weightVal, product, variant) {
 }
 
 function extractCleanShadeName(v, product, idx = 0) {
-  if (!v) return '';
+  if (!v && !product) return '';
 
-  // 1. Direct shade / color name attribute if provided
+  const target = v || product;
+
+  // 1. Direct color_name / shade / color name attribute if provided
   const directShade =
-    v.shade ||
-    v.shade_name ||
-    v.shadeName ||
-    v.color_name ||
-    v.colorName ||
-    v.attributes?.shade ||
-    v.attributes?.['Shade'] ||
-    v.attributes?.color_name ||
-    v.attributes?.['Color Name'];
+    target.color_name ||
+    target.colorName ||
+    target.shade_name ||
+    target.shadeName ||
+    target.shade ||
+    target.attributes?.color_name ||
+    target.attributes?.['Color Name'] ||
+    target.attributes?.shade ||
+    target.attributes?.['Shade'] ||
+    target.attributes?.['Color'] ||
+    target.attributes?.['Colour'] ||
+    target.attributes?.['Option'] ||
+    target.attributes?.['option'] ||
+    product?.color_name ||
+    product?.colorName;
 
   if (typeof directShade === 'string' && directShade.trim() !== '') {
-    return directShade.trim();
+    const trimmed = directShade.trim();
+    if (!trimmed.startsWith('#') && !/^sku-/i.test(trimmed)) {
+      return trimmed;
+    }
   }
 
-  // 2. Parse clean shade name from variant.name
-  if (typeof v.name === 'string' && v.name.trim() !== '') {
-    const vName = v.name.trim();
+  // 2. Parse clean shade name from variant.name or object name
+  const rawName = typeof target.name === 'string' && target.name.trim() !== '' ? target.name.trim() : (typeof target === 'string' ? target.trim() : '');
+  if (rawName) {
+    // Strip trailing weight in brackets e.g. (20g), (30ml)
+    const clean = rawName.replace(/\s*\(\s*\d+(?:\.\d+)?\s*(?:ml|l|ltr|g|gm|kg|pcs)?\s*\)\s*$/i, '').trim();
 
-    // Check if separated by " - " or "-" or ":"
-    if (vName.includes(' - ')) {
-      const parts = vName.split(' - ');
-      const lastPart = parts[parts.length - 1].trim();
-      if (lastPart && lastPart.length < 35) {
-        return lastPart;
-      }
-    } else if (vName.includes('-')) {
-      const parts = vName.split('-');
-      const lastPart = parts[parts.length - 1].trim();
-      if (lastPart && lastPart.length < 35 && !/^\d+g$/i.test(lastPart)) {
-        return lastPart;
-      }
-    } else if (vName.includes(':')) {
-      const parts = vName.split(':');
-      const lastPart = parts[parts.length - 1].trim();
-      if (lastPart && lastPart.length < 35) {
-        return lastPart;
+    // Check delimiter: em dash " — " or "—" or en dash " – " or "–"
+    if (/[\u2014\u2013]/.test(clean)) {
+      const parts = clean.split(/[\u2014\u2013]/);
+      const last = parts[parts.length - 1].trim().replace(/^-\s*/, '');
+      if (last && last.length < 35 && !/^\d+\s*(?:g|gm|gram|grams|ml|l|ltr|kg|pcs)$/i.test(last)) {
+        const colorSub = last.match(/(?:COLOR|COLOUR|SHADE)\s*-\s*(.+)$/i);
+        if (colorSub && colorSub[1]) return colorSub[1].trim();
+        return last;
       }
     }
 
-    // If variant.name itself is short and distinct from product.name
-    if (vName.length <= 25 && vName.toLowerCase() !== String(product?.name || '').trim().toLowerCase()) {
-      return vName;
+    // Check delimiter: " - " or space before hyphen
+    if (/\s+-\s*/.test(clean)) {
+      const parts = clean.split(/\s+-\s*/);
+      const last = parts[parts.length - 1].trim();
+      if (last && last.length < 35 && !/^\d+\s*(?:g|gm|gram|grams|ml|l|ltr|kg|pcs)$/i.test(last)) {
+        return last;
+      }
+    }
+
+    // Check delimiter: ":" or "|"
+    if (/[:|]/.test(clean)) {
+      const parts = clean.split(/[:|]/);
+      const last = parts[parts.length - 1].trim();
+      if (last && last.length < 35 && !/^\d+\s*(?:g|gm|gram|grams|ml|l|ltr|kg|pcs)$/i.test(last)) {
+        return last;
+      }
+    }
+
+    // Check pattern like "COLOR -200 EBONY BLACK" or "SHADE 02 RED"
+    const shadeMatch = clean.match(/(?:COLOR|COLOUR|SHADE)\s*[-:]?\s*([0-9A-Za-z\s/&.'#]+)$/i);
+    if (shadeMatch && shadeMatch[1]) {
+      const candidate = shadeMatch[1].trim();
+      if (candidate.length > 0 && candidate.length < 35 && !/^\d+\s*(?:g|gm|gram|grams|ml|l|ltr|kg|pcs)$/i.test(candidate)) {
+        return candidate;
+      }
+    }
+
+    // If variant.name itself is short (e.g. "200 Ebony Black", "Dark Brown", "Ruby Red")
+    if (clean.length <= 28 && clean.toLowerCase() !== String(product?.name || '').trim().toLowerCase() && !/^\d+\s*(?:g|gm|gram|grams|ml|l|ltr|kg|pcs)$/i.test(clean)) {
+      return clean;
     }
   }
 
@@ -416,7 +450,7 @@ function extractCleanShadeName(v, product, idx = 0) {
 }
 
 function getVariantCardDetails(v, product, idx = 0) {
-  if (!v) return { weightLabel: '', color: null, shadeName: '' };
+  if (!v) return { weightLabel: '', color: null, color_name: '', shadeName: '' };
 
   // 1. Color extraction (from v.color, v.attributes, v.hex, v.color_code, etc.)
   let colorValue = null;
@@ -480,11 +514,13 @@ function getVariantCardDetails(v, product, idx = 0) {
     }
   }
 
-  const cleanShade = extractCleanShadeName(v, product, idx);
+  const directColorName = v.color_name || v.colorName || v.attributes?.color_name || v.attributes?.['Color Name'] || '';
+  const cleanShade = directColorName || extractCleanShadeName(v, product, idx);
 
   return {
     weightLabel,
     color: colorValue,
+    color_name: directColorName,
     shadeName: cleanShade,
   };
 }
@@ -585,6 +621,76 @@ function RemoteImage({ source, defaultSource, style, resizeMode = 'cover', radiu
   );
 }
 
+function isCartItemMatchingSelection(cartItem, product, selectedVariantIndex) {
+  if (!cartItem || !product) return false;
+
+  const pId = String(product._id || product.id || '');
+  const itemPId = String(cartItem.productId || cartItem.id || '');
+  if (pId !== itemPId) return false;
+
+  const isBaseSelected = selectedVariantIndex === null;
+  const activeVar = !isBaseSelected && Array.isArray(product.variants) ? product.variants[selectedVariantIndex] : null;
+
+  const itemVar = cartItem.variant || null;
+  const itemSku = cartItem.variant_sku || cartItem.variantSku || itemVar?.sku;
+  const itemVarId = itemVar?._id || itemVar?.id;
+
+  if (isBaseSelected) {
+    // User selected the Base Product (Option 1, e.g. 25g)
+    if (!itemVar && !itemSku && !itemVarId) return true;
+    if (itemSku && product.sku && String(itemSku) === String(product.sku)) return true;
+    if (product.weight_in_grams && itemVar?.weight_in_grams && String(product.weight_in_grams) === String(itemVar.weight_in_grams)) return true;
+    return false;
+  }
+
+  // User selected a specific Variant (e.g. 50g, 80g, 15g)
+  if (!activeVar) return false;
+
+  const varSku = activeVar.sku;
+  const varId = activeVar._id || activeVar.id;
+  const varWeight = activeVar.weight_in_grams || activeVar.weight;
+  const varColor = activeVar.color || activeVar.hex || activeVar.color_code;
+  const varShade = activeVar.shade || activeVar.shade_name;
+
+  // 1. Match by SKU
+  if (varSku && itemSku && String(varSku) === String(itemSku)) {
+    return true;
+  }
+
+  // 2. Match by _id / id
+  if (varId && itemVarId && String(varId) === String(itemVarId)) {
+    return true;
+  }
+
+  // 3. Match by weight / volume (e.g. 25g vs 50g vs 80g vs 15g)
+  if (varWeight !== undefined && varWeight !== null && String(varWeight).trim() !== '') {
+    const itemWeight = itemVar?.weight_in_grams || itemVar?.weight;
+    if (itemWeight !== undefined && itemWeight !== null && String(itemWeight).trim() !== '') {
+      return String(varWeight) === String(itemWeight);
+    }
+  }
+
+  // 4. Match by color / shade / color_name
+  const varColorName = activeVar.color_name || activeVar.colorName;
+  const itemColorName = itemVar?.color_name || itemVar?.colorName || cartItem.color_name || cartItem.shadeName;
+  if (varColorName && itemColorName && String(varColorName).toLowerCase() === String(itemColorName).toLowerCase()) {
+    return true;
+  }
+  if (varColor && itemVar?.color && String(varColor).toLowerCase() === String(itemVar.color).toLowerCase()) {
+    return true;
+  }
+  if (varShade && itemVar?.shade && String(varShade).toLowerCase() === String(itemVar.shade).toLowerCase()) {
+    return true;
+  }
+
+  // 5. Match by distinct variant name if different from general product title
+  if (activeVar.name && itemVar?.name && activeVar.name !== product.name && activeVar.name === itemVar.name) {
+    return true;
+  }
+
+  return false;
+}
+
 const parsePrice = (value) => {
   if (value === null || value === undefined) return 0;
   if (typeof value === 'object' && '$numberDecimal' in value) {
@@ -628,6 +734,11 @@ export default function ProductDetailScreen({ route, navigation }) {
     };
   }, [fetchedProduct, initialProduct]);
 
+  const cartItems = useCartStore((state) => state.items);
+  const cartTotalQuantity = useCartStore((state) => state.totalQuantity);
+  const addToCart = useCartStore((state) => state.addToCart);
+  const setCartData = useCartStore((state) => state.setCartData);
+
   // Active UI States
   const [activeImageIndex, setActiveImageIndex] = useState(0);
   const [selectedVariantIndex, setSelectedVariantIndex] = useState(null); // null = base product selected by default
@@ -640,6 +751,27 @@ export default function ProductDetailScreen({ route, navigation }) {
   const [showShadeModal, setShowShadeModal] = useState(false);
   const [isImageModalOpen, setIsImageModalOpen] = useState(false);
   const [isQtyChanged, setIsQtyChanged] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const onRefresh = useCallback(async () => {
+    setIsRefreshing(true);
+    try {
+      await Promise.all([
+        refetch?.(),
+        queryClient.invalidateQueries({ queryKey: ['product', resolvedProductId] }),
+        queryClient.invalidateQueries({ queryKey: ['cart'] }),
+      ]);
+    } catch (e) {
+      console.log('Product detail refresh error:', e);
+    } finally {
+      setTimeout(() => {
+        setIsRefreshing(false);
+      }, 500);
+    }
+  }, [refetch, queryClient, resolvedProductId]);
+
+  // Track previous selection to detect product/variant switches
+  const previousSelectionRef = useRef({ productId: null, variantIndex: null });
 
   // Automatically pre-select variant if passed via navigation params (e.g. from Cart)
   // OR if base product is out of stock and variants are in stock!
@@ -670,13 +802,34 @@ export default function ProductDetailScreen({ route, navigation }) {
     }
   }, [product, targetVariantSku]);
 
-  // Automatically sync initial quantity if passed
+  // Synchronize quantity independently for each product and variant (resets on variant / product change)
   useEffect(() => {
-    if (initialQty && typeof initialQty === 'number' && initialQty > 0) {
-      setQuantity(initialQty);
-      setTempQty(initialQty);
+    const pId = product?._id || resolvedProductId;
+    if (!pId) return;
+
+    const prev = previousSelectionRef.current;
+    const isNewProduct = prev.productId !== pId;
+    const isNewVariant = prev.variantIndex !== selectedVariantIndex;
+
+    if (isNewProduct || isNewVariant) {
+      previousSelectionRef.current = { productId: pId, variantIndex: selectedVariantIndex };
+
+      const cartMatch = cartItems.find((item) =>
+        isCartItemMatchingSelection(item, product, selectedVariantIndex)
+      );
+
+      let targetQty = 1;
+      if (cartMatch && typeof cartMatch.quantity === 'number' && cartMatch.quantity > 0) {
+        targetQty = cartMatch.quantity;
+      } else if (isNewProduct && initialQty && typeof initialQty === 'number' && initialQty > 0) {
+        targetQty = initialQty;
+      }
+
+      setQuantity(targetQty);
+      setTempQty(targetQty);
+      setIsQtyChanged(false);
     }
-  }, [initialQty]);
+  }, [selectedVariantIndex, resolvedProductId, product, cartItems, initialQty]);
 
   // Scroll View Refs
   const mainCarouselRef = useRef(null);
@@ -813,25 +966,17 @@ export default function ProductDetailScreen({ route, navigation }) {
   const allShadeItems = useMemo(() => {
     const list = [];
 
-    // 1. If base product has a color or shade in name, add it as Main Shade (index: null)
+    // 1. If base product has a color or color_name, add it as Main Shade (index: null)
     const baseColor = product?.color && String(product.color).trim() !== '' ? String(product.color).trim() : null;
-    const baseShadeName = extractCleanShadeName(
-      {
-        name: product?.name,
-        shade: product?.shade || product?.shade_name || product?.shadeName,
-        color: product?.color,
-        attributes: product?.attributes,
-      },
-      product,
-      0
-    );
+    const baseColorName = product?.color_name || product?.colorName || '';
+    const baseShadeName = baseColorName || extractCleanShadeName(product, product, 0) || 'Main Shade';
 
     const hasVariantShades = Array.isArray(product?.variants) && product.variants.some((v, idx) => {
       const d = getVariantCardDetails(v, product, idx);
-      return !!d.color || (!!d.shadeName && !d.weightLabel);
+      return !!d.color || !!v.color_name || !!v.colorName || (!!d.shadeName && !d.weightLabel);
     });
 
-    if (baseColor || (hasVariantShades && baseShadeName && baseShadeName !== 'Standard' && baseShadeName !== 'Default')) {
+    if (baseColor || baseColorName || (hasVariantShades && baseShadeName && baseShadeName !== 'Standard' && baseShadeName !== 'Default')) {
       const baseImg =
         (Array.isArray(product?.images) && product?.images[0]) ||
         product?.image ||
@@ -843,7 +988,8 @@ export default function ProductDetailScreen({ route, navigation }) {
         index: null, // null means base product
         variant: null,
         color: baseColor || COSMETIC_SHADE_PALETTE[0],
-        shadeName: baseShadeName || 'Main Shade',
+        color_name: baseColorName || baseShadeName,
+        shadeName: baseColorName || baseShadeName || 'Main Shade',
         price: parsePrice(product?.discounted_price || product?.price),
         originalPrice: parsePrice(product?.price),
         image: baseImg,
@@ -854,7 +1000,8 @@ export default function ProductDetailScreen({ route, navigation }) {
     if (Array.isArray(product?.variants)) {
       product.variants.forEach((v, idx) => {
         const details = getVariantCardDetails(v, product, idx);
-        const isShade = !!details.color || (!!details.shadeName && !details.weightLabel);
+        const variantColorName = v.color_name || v.colorName || details.color_name || '';
+        const isShade = !!variantColorName || !!v.color || !!details.color || (!!details.shadeName && !details.weightLabel);
         if (isShade) {
           const vImg =
             (Array.isArray(v.images) && v.images[0]) ||
@@ -864,14 +1011,16 @@ export default function ProductDetailScreen({ route, navigation }) {
             product?.image ||
             null;
 
-          const swatchColor = details.color || COSMETIC_SHADE_PALETTE[(idx + 1) % COSMETIC_SHADE_PALETTE.length];
+          const swatchColor = details.color || v.color || COSMETIC_SHADE_PALETTE[(idx + 1) % COSMETIC_SHADE_PALETTE.length];
+          const shadeName = variantColorName || details.shadeName || `Shade ${idx + 1}`;
 
           list.push({
             id: v.sku || `variant-shade-${idx}`,
             index: idx,
             variant: v,
             color: swatchColor,
-            shadeName: details.shadeName || `Shade ${idx + 1}`,
+            color_name: variantColorName,
+            shadeName: shadeName,
             price: parsePrice(v.discounted_price || v.price),
             originalPrice: parsePrice(v.price || product?.price),
             image: vImg,
@@ -887,7 +1036,7 @@ export default function ProductDetailScreen({ route, navigation }) {
     if (!product?.variants || product.variants.length === 0) return [];
     const hasAnyColor = product.variants.some((v, idx) => {
       const d = getVariantCardDetails(v, product, idx);
-      return !!d.color || (!!d.shadeName && !d.weightLabel);
+      return !!d.color || !!v.color_name || !!v.colorName || (!!d.shadeName && !d.weightLabel);
     });
     let nonColorVariants = [];
     if (hasAnyColor) {
@@ -898,7 +1047,7 @@ export default function ProductDetailScreen({ route, navigation }) {
           index: idx,
           details: getVariantCardDetails(v, product, idx),
         }))
-        .filter((item) => !item.details.color && (!item.details.shadeName || item.details.weightLabel));
+        .filter((item) => !item.details.color && !item.variant?.color_name && !item.variant?.colorName && (!item.details.shadeName || item.details.weightLabel));
     } else {
       nonColorVariants = product.variants.map((v, idx) => ({
         variant: v,
@@ -951,18 +1100,24 @@ export default function ProductDetailScreen({ route, navigation }) {
   const activeShadeLabel = useMemo(() => {
     if (selectedVariantIndex !== null) {
       const activeShade = allShadeItems.find((s) => s.index === selectedVariantIndex);
-      if (activeShade) return activeShade.shadeName;
+      if (activeShade) return activeShade.color_name || activeShade.shadeName;
       if (currentVariant) {
+        if (currentVariant.color_name || currentVariant.colorName) {
+          return currentVariant.color_name || currentVariant.colorName;
+        }
         const details = getVariantCardDetails(currentVariant, product, selectedVariantIndex);
-        return details.shadeName || '';
+        return details.color_name || details.shadeName || '';
       }
     }
     // If base product is selected (selectedVariantIndex === null)
+    if (product?.color_name || product?.colorName) {
+      return product.color_name || product.colorName;
+    }
     const baseShade = allShadeItems.find((s) => s.index === null);
-    if (baseShade) return baseShade.shadeName;
+    if (baseShade) return baseShade.color_name || baseShade.shadeName;
 
     if (allShadeItems.length > 0) {
-      return allShadeItems[0].shadeName;
+      return allShadeItems[0].color_name || allShadeItems[0].shadeName;
     }
     return '';
   }, [selectedVariantIndex, allShadeItems, currentVariant, product]);
@@ -994,7 +1149,7 @@ export default function ProductDetailScreen({ route, navigation }) {
     return raw
       .filter((t) => t && typeof t.quantity === 'number' && t.quantity >= 2)
       .sort((a, b) => a.quantity - b.quantity);
-  }, [product?.price_tiers, product?.priceTiers, currentVariant?.price_tiers, currentVariant?.priceTiers, currentVariant]);
+  }, [product?.price_tiers, product?.priceTiers, currentVariant]);
 
   // Generate quantity options for Modal (derived directly from price_tiers, respecting available stock)
   const quantityOptions = useMemo(() => {
@@ -1023,10 +1178,15 @@ export default function ProductDetailScreen({ route, navigation }) {
 
         const rawPrice = parsePrice(tier.price);
         let unitP = rawPrice > 0 ? rawPrice : discountedPrice;
+        let totalP = rawPrice;
+
         if (price > 0 && rawPrice > price) {
-          unitP = Math.round(rawPrice / q);
+          totalP = rawPrice;
+          unitP = rawPrice / q;
+        } else {
+          totalP = Math.round(rawPrice * q);
+          unitP = rawPrice;
         }
-        const totalP = unitP * q;
 
         const baseTot = (price > 0 ? price : discountedPrice) * q;
         const savingsPercent = baseTot > totalP ? Math.round(((baseTot - totalP) / baseTot) * 100) : 0;
@@ -1034,7 +1194,8 @@ export default function ProductDetailScreen({ route, navigation }) {
 
         options.push({
           qty: q,
-          unitPrice: unitP,
+          unitPrice: Math.round(unitP),
+          exactUnitPrice: unitP,
           totalPrice: totalP,
           badge: isTierOutOfStock
             ? 'OUT OF STOCK'
@@ -1079,14 +1240,22 @@ export default function ProductDetailScreen({ route, navigation }) {
       if (matchedTiers.length > 0) {
         const latestTier = matchedTiers[matchedTiers.length - 1];
         const rawP = parsePrice(latestTier.price) || discountedPrice;
+        let totalP = rawP;
         let tierUnitPrice = rawP;
         if (price > 0 && rawP > price) {
-          tierUnitPrice = rawP / latestTier.quantity;
+          if (quantity === latestTier.quantity) {
+            totalP = rawP;
+            tierUnitPrice = rawP / quantity;
+          } else {
+            tierUnitPrice = rawP / latestTier.quantity;
+            totalP = Math.round(tierUnitPrice * quantity);
+          }
+        } else {
+          totalP = Math.round(rawP * quantity);
         }
-        const unitP = Math.round(tierUnitPrice);
         return {
-          unitPrice: unitP,
-          totalPrice: unitP * quantity,
+          unitPrice: Math.round(tierUnitPrice),
+          totalPrice: totalP,
         };
       }
     }
@@ -1121,16 +1290,46 @@ export default function ProductDetailScreen({ route, navigation }) {
     return 1;
   }, [activePriceTiers, quantityOptions, maxStock]);
 
-  // Automatically clamp quantity if it exceeds available stock
-  useEffect(() => {
-    if (maxStock > 0 && quantity > maxStock) {
-      const validQty = Math.max(1, maxStock);
-      setQuantity(validQty);
-      setTempQty(validQty);
-      const matched = resolveMatchingTierQty(validQty);
-      setSelectedTierQty(matched);
+  // Handle variant selection with instant reset and proper cart synchronization
+  const handleSelectVariant = useCallback((newIdx) => {
+    setSelectedVariantIndex(newIdx);
+
+    const pId = product?._id || resolvedProductId;
+    previousSelectionRef.current = { productId: pId, variantIndex: newIdx };
+
+    const matched = cartItems.find((ci) => isCartItemMatchingSelection(ci, product, newIdx));
+    const targetVariant = newIdx !== null && Array.isArray(product?.variants) ? product.variants[newIdx] : null;
+    const targetStock = getProductStock(product, targetVariant);
+
+    let initialSelectedQty = 1;
+    if (matched && typeof matched.quantity === 'number' && matched.quantity > 0) {
+      initialSelectedQty = matched.quantity;
     }
-  }, [maxStock, quantity, resolveMatchingTierQty]);
+    if (targetStock > 0 && initialSelectedQty > targetStock) {
+      initialSelectedQty = Math.max(1, targetStock);
+    }
+
+    setQuantity(initialSelectedQty);
+    setTempQty(initialSelectedQty);
+    const matchedTier = resolveMatchingTierQty(initialSelectedQty);
+    setSelectedTierQty(matchedTier);
+    setIsQtyChanged(false);
+  }, [cartItems, product, resolvedProductId, resolveMatchingTierQty]);
+
+  // Automatically clamp quantity if it exceeds available stock for the current selection
+  useEffect(() => {
+    const pId = product?._id || resolvedProductId;
+    const prev = previousSelectionRef.current;
+    if (prev.productId === pId && prev.variantIndex === selectedVariantIndex) {
+      if (maxStock > 0 && quantity > maxStock) {
+        const validQty = Math.max(1, maxStock);
+        setQuantity(validQty);
+        setTempQty(validQty);
+        const matched = resolveMatchingTierQty(validQty);
+        setSelectedTierQty(matched);
+      }
+    }
+  }, [maxStock, quantity, resolveMatchingTierQty, selectedVariantIndex, product?._id, resolvedProductId]);
 
   // Keep selectedTierQty and tempQty always in sync with quantity
   useEffect(() => {
@@ -1142,11 +1341,17 @@ export default function ProductDetailScreen({ route, navigation }) {
   // Open quantity / bulk tier modal with properly synchronized tier selection
   const openQuantityModal = useCallback(() => {
     const safeQty = maxStock > 0 && quantity > maxStock ? Math.max(1, maxStock) : quantity;
-    const matchedTierQty = resolveMatchingTierQty(safeQty);
-    setSelectedTierQty(matchedTierQty);
-    setTempQty(safeQty);
+    if (activePriceTiers.length > 0) {
+      const exactOption = quantityOptions.find((o) => o.qty === safeQty);
+      const chosenQty = exactOption ? exactOption.qty : resolveMatchingTierQty(safeQty);
+      setSelectedTierQty(chosenQty);
+      setTempQty(chosenQty);
+    } else {
+      setSelectedTierQty(safeQty);
+      setTempQty(safeQty);
+    }
     setShowQtyModal(true);
-  }, [quantity, maxStock, resolveMatchingTierQty]);
+  }, [quantity, maxStock, activePriceTiers.length, quantityOptions, resolveMatchingTierQty]);
 
   // Brand Name resolution (converts Mongo ObjectId to Brand Name)
   const brandName = useMemo(() => {
@@ -1236,20 +1441,16 @@ export default function ProductDetailScreen({ route, navigation }) {
 
   const [isAdding, setIsAdding] = useState(false);
 
-  const dispatch = useDispatch();
-  const cartItems = useSelector(selectCartItems);
-  const cartTotalQuantity = useSelector(selectCartTotalQuantity);
-
   // Check if current product / variant is already in cart
   const isInCart = useMemo(() => {
-    const pId = product._id || productId;
-    const vSku = currentVariant?.sku;
+    const pId = product._id || resolvedProductId;
+    const vSku = currentVariant?.sku || currentVariant?._id;
     return cartItems.some((item) => {
-      if (item.productId !== pId) return false;
-      if (vSku) return item.variant?.sku === vSku;
+      if (item.productId !== pId && item.id !== pId) return false;
+      if (vSku) return item.variant?.sku === vSku || item.variant?._id === vSku || item.variantSku === vSku;
       return !item.variant;
     });
-  }, [cartItems, product._id, productId, currentVariant]);
+  }, [cartItems, product._id, resolvedProductId, currentVariant]);
 
   // Display Title: completely replaced by selected variant's name if selected
   const displayTitle = useMemo(() => {
@@ -1261,6 +1462,7 @@ export default function ProductDetailScreen({ route, navigation }) {
 
   // Handlers
   const handleAddToCart = async () => {
+    if (isAdding) return; // Strict lock: wait until current add finishes
     if (isInCart && !isQtyChanged) {
       navigation.navigate('BottomTabs', { screen: 'Bag' });
       return;
@@ -1283,8 +1485,15 @@ export default function ProductDetailScreen({ route, navigation }) {
       product?.color ||
       null;
 
-    const resolvedShadeName =
+    const resolvedColorName =
+      currentVariant?.color_name ||
+      currentVariant?.colorName ||
+      (selectedVariantIndex === null ? (product?.color_name || product?.colorName) : null) ||
       (activeShadeLabel && !activeShadeLabel.startsWith('#') ? activeShadeLabel : '') ||
+      '';
+
+    const resolvedShadeName =
+      resolvedColorName ||
       (resolvedColor ? extractCleanShadeName(currentVariant || product, product, selectedVariantIndex) : '') ||
       '';
 
@@ -1293,7 +1502,14 @@ export default function ProductDetailScreen({ route, navigation }) {
       name: displayTitle || product.name,
       brandName: brandName || '',
       image: images[0] || null,
-      variant: currentVariant ? { ...currentVariant, color: resolvedColor || currentVariant.color } : null,
+      variant: currentVariant
+        ? {
+            ...currentVariant,
+            color: resolvedColor || currentVariant.color,
+            color_name: resolvedColorName || currentVariant.color_name || currentVariant.colorName || '',
+          }
+        : null,
+      color_name: resolvedColorName,
       variantName: resolvedShadeName || displayWeightInfo?.formatted || currentVariant?.name || null,
       shadeName: resolvedShadeName,
       color: resolvedColor,
@@ -1309,6 +1525,20 @@ export default function ProductDetailScreen({ route, navigation }) {
       base_available_inventory: product.base_available_inventory,
     };
 
+    // Optimistic instant Redux update so image & cart badge update at 0ms
+    console.log('🛒 [ADD_TO_CART] Product added to cart:', {
+      productId: itemToAdd.productId,
+      name: itemToAdd.name,
+      brand: itemToAdd.brandName,
+      variant: itemToAdd.variantName || itemToAdd.variant?.name || 'Base',
+      variantSku: currentVariant?.sku || null,
+      quantity: itemToAdd.quantity,
+      unitPrice: itemToAdd.unitPrice,
+      totalPrice: itemToAdd.totalPrice,
+      fullItem: itemToAdd,
+    });
+    addToCart(itemToAdd);
+
     try {
       setIsAdding(true);
       // Backend Cart API call
@@ -1320,14 +1550,12 @@ export default function ProductDetailScreen({ route, navigation }) {
       });
       const cartData = res?.data?.data || res?.data;
       if (cartData && Array.isArray(cartData.items)) {
-        dispatch(setCartData(cartData));
-      } else {
-        dispatch(addToCart(itemToAdd));
+        setCartData(cartData);
       }
       queryClient.invalidateQueries({ queryKey: ['cart'] });
     } catch (err) {
-      // Non-blocking fallback to local Redux state for guest/offline scenarios
-      dispatch(addToCart(itemToAdd));
+      // Offline / guest fallback already handled optimistically
+      console.log('Backend add to cart error:', err);
     } finally {
       queryClient.invalidateQueries({ queryKey: ['cart'] });
       setIsAdding(false);
@@ -1654,6 +1882,7 @@ export default function ProductDetailScreen({ route, navigation }) {
   };
 
   const handleAddSimilarToBag = async (item) => {
+    if (addingSimilarId || isAdding) return; // Strict lock: wait until current add finishes
     if (isProductOutOfStock(item)) {
       return;
     }
@@ -1698,17 +1927,23 @@ export default function ProductDetailScreen({ route, navigation }) {
       quantity: 1,
     };
 
+    // Instant optimistic update for 0ms UI and image display
+    addToCart(itemToAdd);
+
     try {
-      await addToCartApi({
+      const res = await addToCartApi({
         type: 'product',
         productId: pId,
         quantity: 1,
       });
+      const cartData = res?.data?.data || res?.data;
+      if (cartData && Array.isArray(cartData.items)) {
+        setCartData(cartData);
+      }
       queryClient.invalidateQueries({ queryKey: ['cart'] });
     } catch (e) {
-      // Offline / guest fallback
+      console.log('Similar product add to cart error:', e);
     } finally {
-      dispatch(addToCart(itemToAdd));
       queryClient.invalidateQueries({ queryKey: ['cart'] });
       setAddingSimilarId(null);
       setShowToast(true);
@@ -1716,11 +1951,21 @@ export default function ProductDetailScreen({ route, navigation }) {
     }
   };
 
-  if (isLoading && !product?.name) {
+  if ((isLoading && !product?.name) || isRefreshing) {
     return (
       <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
         <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
-        <ProductDetailSkeleton navigation={navigation} />
+        <ProductDetailSkeleton
+          navigation={navigation}
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefreshing}
+              onRefresh={onRefresh}
+              colors={[colors.primary]}
+              tintColor={colors.primary}
+            />
+          }
+        />
       </SafeAreaView>
     );
   }
@@ -1785,7 +2030,15 @@ export default function ProductDetailScreen({ route, navigation }) {
       <ScrollView
         style={styles.scrollView}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}>
+        contentContainerStyle={styles.scrollContent}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={onRefresh}
+            colors={[colors.primary]}
+            tintColor={colors.primary}
+          />
+        }>
 
         {/* ── Edge-to-Edge Full Width Image Gallery Carousel ── */}
         <View style={styles.fullWidthCarousel}>
@@ -1828,8 +2081,12 @@ export default function ProductDetailScreen({ route, navigation }) {
             <Share2 size={19} color="#1A1C1E" />
           </TouchableOpacity>
 
-          {/* Optional Bestseller Badge (ONLY if is_best_seller is true) */}
-          {(product?.is_best_seller || product?.isBestSeller || product?.is_bestseller || product?.tag === 'bestseller') ? (
+          {/* Optional Bestseller or Out of Stock Badge */}
+          {maxStock <= 0 ? (
+            <View style={styles.detailOutOfStockBadge}>
+              <Text style={styles.detailOutOfStockBadgeText}>OUT OF STOCK</Text>
+            </View>
+          ) : (product?.is_best_seller || product?.isBestSeller || product?.is_bestseller || product?.tag === 'bestseller') ? (
             <LinearGradient
               colors={['#A78BFA', colors.primary]}
               start={{ x: 0, y: 0 }}
@@ -1916,14 +2173,7 @@ export default function ProductDetailScreen({ route, navigation }) {
         </View>
 
         {/* ── Bulk Pricing Preview Banner ── */}
-        {isFetching && (!activePriceTiers || activePriceTiers.length === 0) ? (
-          <View style={skeletonStyles.bulkBanner}>
-            <Skeleton width={18} height={18} radius={4} />
-            <View style={{ flex: 1, marginLeft: 10 }}>
-              <Skeleton width="55%" height={13} radius={5} />
-            </View>
-          </View>
-        ) : activePriceTiers.length > 0 ? (
+        {activePriceTiers.length > 0 ? (
           <TouchableOpacity
             style={styles.bulkBanner}
             activeOpacity={0.85}
@@ -1951,18 +2201,6 @@ export default function ProductDetailScreen({ route, navigation }) {
           </TouchableOpacity>
         ) : null}
 
-        {/* ── Product Variants / Sizes ── */}
-        {isFetching && (!product?.variants || product.variants.length === 0) ? (
-          <View style={styles.sectionContainer}>
-            <Skeleton width="40%" height={15} radius={5} style={{ marginBottom: 12 }} />
-            <View style={{ flexDirection: 'row', gap: 12 }}>
-              <Skeleton width={72} height={46} radius={12} />
-              <Skeleton width={72} height={46} radius={12} />
-              <Skeleton width={72} height={46} radius={12} />
-            </View>
-          </View>
-        ) : null}
-
         {/* ── Select Option (Weight / Size Pills) ── */}
         {variantWeightItems.length > 0 && (
           <View style={styles.sectionContainer}>
@@ -1976,7 +2214,10 @@ export default function ProductDetailScreen({ route, navigation }) {
                 </Text>
               ) : null} */}
             </View>
-            <View style={styles.variantsRow}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.variantsScrollContent}>
               {variantWeightItems.map((item) => {
                 const { variant: v, index: idx, details, price: itemPrice } = item;
                 const isSelected = idx === null
@@ -1995,11 +2236,8 @@ export default function ProductDetailScreen({ route, navigation }) {
                     style={styles.variantItemWrapper}
                     activeOpacity={0.8}
                     onPress={() => {
-                      if (idx === null) {
-                        setSelectedVariantIndex(null);
-                      } else {
-                        setSelectedVariantIndex(isSelected ? null : idx);
-                      }
+                      const newIdx = idx === null ? null : (isSelected ? null : idx);
+                      handleSelectVariant(newIdx);
                     }}>
                     
                     {/* The Option Box / Pill */}
@@ -2050,7 +2288,7 @@ export default function ProductDetailScreen({ route, navigation }) {
                   </TouchableOpacity>
                 );
               })}
-            </View>
+            </ScrollView>
           </View>
         )}
 
@@ -2094,11 +2332,8 @@ export default function ProductDetailScreen({ route, navigation }) {
                     key={item.id}
                     activeOpacity={0.8}
                     onPress={() => {
-                      if (item.index === null) {
-                        setSelectedVariantIndex(null);
-                      } else {
-                        setSelectedVariantIndex(isSelected ? null : item.index);
-                      }
+                      const newIdx = item.index === null ? null : (isSelected ? null : item.index);
+                      handleSelectVariant(newIdx);
                     }}
                     style={styles.colorSwatchItemWrapper}>
                     <View
@@ -2295,96 +2530,24 @@ export default function ProductDetailScreen({ route, navigation }) {
               <Text style={styles.similarTitle}>Similar Products</Text>
             </View>
 
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.similarScrollContent}>
-              {similarProductCards.map(
-                ({ item, itemId, originalPrice, finalPrice, discount, imageSource, brandNameStr, titleText, isBestseller }) => {
-                  const isItemInCart = cartItems.some((ci) => (ci.productId || ci.id) === itemId);
-                  const isAddingThis = addingSimilarId === itemId;
-
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.similarScrollContent}>
+                {similarProductCards.map((card) => {
+                  const productItem = card.item || card;
                   return (
-                    <TouchableOpacity
-                      key={itemId}
+                    <ProductCard
+                      key={card.itemId || productItem._id || productItem.id}
+                      product={productItem}
+                      width={SIMILAR_CARD_WIDTH}
                       style={styles.similarCard}
-                      activeOpacity={0.85}
-                      onPress={() => handleOpenSimilarProduct(item)}>
-                      {/* Image Box */}
-                      <View style={styles.similarImageContainer}>
-                        {isBestseller ? (
-                          <LinearGradient
-                            colors={['#A78BFA', colors.primary]}
-                            start={{ x: 0, y: 0 }}
-                            end={{ x: 1, y: 0 }}
-                            style={styles.similarGradientBadge}>
-                            <Text style={styles.similarGradientBadgeText}>BESTSELLER</Text>
-                          </LinearGradient>
-                        ) : null}
-                        <RemoteImage
-                          source={imageSource}
-                          defaultSource={DUMMY_IMG}
-                          style={styles.similarProductImage}
-                          resizeMode="cover"
-                        />
-                      </View>
-
-                      {/* Details Container */}
-                      <View style={styles.similarDetailsContainer}>
-                        <View>
-                          <Text numberOfLines={2} style={styles.similarProductTitle}>
-                            {brandNameStr ? <Text style={styles.similarBrandText}>{brandNameStr} </Text> : null}
-                            {titleText}
-                          </Text>
-
-                          {/* Price Row */}
-                          <View style={styles.similarPriceRow}>
-                            {discount > 0 ? (
-                              <>
-                                <Text style={styles.similarOriginalPrice}>₹{originalPrice}</Text>
-                                <Text style={styles.similarFinalPrice}>₹{finalPrice}</Text>
-                                <Text style={styles.similarDiscountText}>{discount}% OFF</Text>
-                              </>
-                            ) : (
-                              <Text style={styles.similarFinalPrice}>₹{finalPrice}</Text>
-                            )}
-                          </View>
-                        </View>
-
-                        {/* ADD TO BAG / GO TO BAG Button with Spinner */}
-                        {(() => {
-                          const isSimilarOutOfStock = isProductOutOfStock(item);
-                          return (
-                            <TouchableOpacity
-                              style={[
-                                styles.similarAddToBagButton,
-                                isItemInCart && styles.similarGoToBagButton,
-                                isSimilarOutOfStock && styles.similarOutOfStockButton,
-                              ]}
-                              activeOpacity={0.85}
-                              disabled={isSimilarOutOfStock || isAddingThis}
-                              onPress={() => handleAddSimilarToBag(item)}>
-                              {isAddingThis ? (
-                                <ActivityIndicator size="small" color={isItemInCart ? '#FFFFFF' : colors.primary} />
-                              ) : (
-                                <Text
-                                  style={[
-                                    styles.similarAddToBagText,
-                                    isItemInCart && styles.similarGoToBagText,
-                                    isSimilarOutOfStock && styles.similarOutOfStockText,
-                                  ]}>
-                                  {isSimilarOutOfStock ? 'OUT OF STOCK' : isItemInCart ? 'GO TO BAG' : 'ADD TO BAG'}
-                                </Text>
-                              )}
-                            </TouchableOpacity>
-                          );
-                        })()}
-                      </View>
-                    </TouchableOpacity>
+                      brands={brands}
+                      onPress={handleOpenSimilarProduct}
+                    />
                   );
-                }
-              )}
-            </ScrollView>
+                })}
+              </ScrollView>
           </View>
         ) : null}
       </ScrollView>
@@ -2686,11 +2849,12 @@ export default function ProductDetailScreen({ route, navigation }) {
           ]}
           activeOpacity={0.85}
           onPress={() => {
-            if (maxStock > 0 && tempQty > maxStock) {
+            const chosenQty = activePriceTiers.length > 0 ? (selectedTierQty || tempQty || 1) : tempQty;
+            if (maxStock > 0 && chosenQty > maxStock) {
               Alert.alert('Stock Limit', `Only ${maxStock} items available in stock.`);
               return;
             }
-            selectQuantityOption(tempQty);
+            selectQuantityOption(chosenQty);
             setShowQtyModal(false);
           }}>
           <Text style={styles.confirmQtyBtnText}>Confirm</Text>
@@ -2799,7 +2963,7 @@ export default function ProductDetailScreen({ route, navigation }) {
                   style={styles.shadeTwoColItem}
                   activeOpacity={0.8}
                   onPress={() => {
-                    setSelectedVariantIndex(item.index);
+                    handleSelectVariant(item.index);
                     setActiveImageIndex(0);
                     if (mainCarouselRef.current) {
                       mainCarouselRef.current.scrollTo({ x: 0, animated: true });
@@ -2851,11 +3015,12 @@ export default function ProductDetailScreen({ route, navigation }) {
       <View style={styles.bottomBar}>
         {/* Quantity Selector Trigger - Opens Bottom Sheet */}
         <TouchableOpacity
-          style={styles.quantityContainer}
+          style={[styles.quantityContainer, maxStock <= 0 && { opacity: 0.5, borderColor: '#E2E8F0', backgroundColor: '#F8FAFC' }]}
           activeOpacity={0.8}
+          disabled={maxStock <= 0}
           onPress={openQuantityModal}>
-          <Text style={styles.qtyBtnText}>Qty: {quantity}</Text>
-          <ChevronDown size={16} color={colors.primary} />
+          <Text style={[styles.qtyBtnText, maxStock <= 0 && { color: '#94A3B8' }]}>Qty: {quantity}</Text>
+          <ChevronDown size={16} color={maxStock <= 0 ? '#94A3B8' : colors.primary} />
         </TouchableOpacity>
 
         {/* Primary Color Add to Bag / Go to Bag Button */}
@@ -3224,6 +3389,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 12,
+  },
+  variantsScrollContent: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    paddingVertical: 3,
+    paddingHorizontal: 2,
   },
   variantItemWrapper: {
     alignItems: 'center',
@@ -4295,5 +4467,45 @@ const styles = StyleSheet.create({
   },
   remoteImageWrapper: {
     overflow: 'hidden',
+  },
+  detailOutOfStockBadge: {
+    position: 'absolute',
+    top: 14,
+    left: 14,
+    backgroundColor: '#334155',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 6,
+    zIndex: 10,
+  },
+  detailOutOfStockBadgeText: {
+    color: '#FFFFFF',
+    fontSize: moderateScale(11),
+    fontFamily: fonts.big,
+    letterSpacing: 0.6,
+  },
+  outOfStockOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(255, 255, 255, 0.65)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
+    borderRadius: 8,
+  },
+  outOfStockBadge: {
+    backgroundColor: '#334155',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
+  },
+  outOfStockBadgeLabel: {
+    color: '#FFFFFF',
+    fontSize: moderateScale(10),
+    fontFamily: fonts.big,
+    letterSpacing: 0.5,
   },
 });

@@ -5,7 +5,11 @@ export function useCardBanners(params = {}) {
   return useQuery({
     queryKey: ['cardBanners', params],
     queryFn: () => getActiveCardBanners(params),
-    select: (data) => (Array.isArray(data) ? data : data?.banners || data?.data || []),
-    staleTime: 1000 * 60 * 5,
+    select: (data) => {
+      if (Array.isArray(data)) return data;
+      if (Array.isArray(data?.banners)) return data.banners;
+      if (Array.isArray(data?.data)) return data.data;
+      return [];
+    },
   });
 }
