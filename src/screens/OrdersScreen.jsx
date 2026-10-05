@@ -365,20 +365,25 @@ export default function OrdersScreen({ navigation }) {
       case 'confirmed':
         return { bg: '#EFF6FF', text: '#1D4ED8', label: 'Confirmed' };
       case 'pending':
-        return { bg: '#FEF3C7', text: '#D97706', label: 'Payment Pending' };
+        return { bg: '#FEF3C7', text: '#D97706', label: 'Pending' };
       default:
         return { bg: '#FEF3C7', text: '#D97706', label: status || 'Pending' };
     }
   };
 
   const renderOrderItem = ({ item }) => {
-    const isRefunded = String(item.status || '').toLowerCase() === 'refunded' || String(item.paymentStatus || '').toLowerCase() === 'refunded';
+    const itemStatus = String(item.status || '').toLowerCase();
+    const isRefunded = itemStatus === 'refunded' || String(item.paymentStatus || '').toLowerCase() === 'refunded';
+    const isCancelled = itemStatus === 'cancelled' || !!item.isCancelled;
+    const isReturned = itemStatus === 'returned' || itemStatus === 'return_requested';
+    const isDelivered = itemStatus === 'delivered';
     const statusDetails = getStatusStyle(item.status, item.paymentStatus);
     const orderItems = item.items || [];
     const totalQty = orderItems.reduce((acc, current) => acc + (current.quantity || 1), 0);
     const totalAmount = parseFloat(item.finalTotalAmount?.$numberDecimal || item.finalTotalAmount || 0);
     const refundAmount = item.refundAmount !== undefined && item.refundAmount !== null ? parseFloat(item.refundAmount?.$numberDecimal || item.refundAmount) : null;
-    const isPendingOnline = item.paymentMode === 'ONLINE' && item.paymentStatus === 'pending' && item.status !== 'cancelled' && !isRefunded;
+    const isPendingOnline = item.paymentMode === 'ONLINE' && item.paymentStatus === 'pending' && !isCancelled && !isRefunded;
+    const canShowInvoice = isDelivered && !isCancelled && !isRefunded && !isReturned && !!(item.billUrl || item.billurl);
 
     return (
       <TouchableOpacity
@@ -461,7 +466,7 @@ export default function OrdersScreen({ navigation }) {
               <CreditCard size={14} color="#FFFFFF" style={{ marginRight: 6 }} />
               <Text style={styles.completePaymentBtnText}>Complete Payment</Text>
             </TouchableOpacity>
-          ) : String(item.status || '').toLowerCase() !== 'delivered' && String(item.status || '').toLowerCase() !== 'cancelled' ? (
+          ) : (!isDelivered && !isCancelled && !isReturned) ? (
             <TouchableOpacity
               style={styles.trackBtn}
               activeOpacity={0.7}
@@ -472,7 +477,7 @@ export default function OrdersScreen({ navigation }) {
               }}>
               <Text style={styles.trackBtnText}>Track Order</Text>
             </TouchableOpacity>
-          ) : (item.billUrl || item.billurl) ? (
+          ) : canShowInvoice ? (
             <TouchableOpacity
               style={styles.invoiceBtn}
               activeOpacity={0.7}

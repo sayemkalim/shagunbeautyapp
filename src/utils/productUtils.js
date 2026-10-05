@@ -61,3 +61,25 @@ export function getProductStockStatus(product) {
     anyVariantInStock,
   };
 }
+
+export function getItemVariantSku(item) {
+  if (!item) return undefined;
+  if (item.variant && typeof item.variant === 'object') {
+    if (item.variant.sku) return item.variant.sku;
+    if (item.variant._id) return String(item.variant._id);
+  }
+  if (typeof item.variant === 'string' && item.variant.trim()) {
+    return item.variant.trim();
+  }
+  if (item.variant_sku && typeof item.variant_sku === 'string' && item.variant_sku.trim()) {
+    return item.variant_sku.trim();
+  }
+  if (item.sku && typeof item.sku === 'string' && item.sku.trim()) {
+    return item.sku.trim();
+  }
+  if (item.cartItemId && typeof item.cartItemId === 'string' && item.cartItemId.includes('_')) {
+    const part = item.cartItemId.split('_')[1];
+    if (part && part !== 'base') return part;
+  }
+  return undefined;
+}

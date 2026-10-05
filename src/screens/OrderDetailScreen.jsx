@@ -13,7 +13,27 @@ import {
   Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ChevronLeft, Calendar, MapPin, ShoppingBag, FileText, Wallet, CreditCard, Download, AlertCircle, Clock, MessageSquare, RotateCcw, ShieldCheck, CheckCircle2, Check } from 'lucide-react-native';
+import {
+  ChevronLeft,
+  ChevronDown,
+  ChevronUp,
+  Calendar,
+  MapPin,
+  ShoppingBag,
+  FileText,
+  Wallet,
+  CreditCard,
+  Download,
+  AlertCircle,
+  Clock,
+  MessageSquare,
+  RotateCcw,
+  ShieldCheck,
+  CheckCircle2,
+  Check,
+  Info,
+  Banknote,
+} from 'lucide-react-native';
 import RazorpayCheckout from 'react-native-razorpay';
 import colors from '../theme/colors';
 import fonts from '../theme/typography';
@@ -132,6 +152,9 @@ export default function OrderDetailScreen({ navigation, route }) {
   const [selectedReturnReason, setSelectedReturnReason] = useState('Damaged product');
   const [customReturnReason, setCustomReturnReason] = useState('');
   const [isSubmittingReturn, setIsSubmittingReturn] = useState(false);
+  const [isPriceDetailsExpanded, setIsPriceDetailsExpanded] = useState(true);
+  const [showFeesBreakdown, setShowFeesBreakdown] = useState(false);
+  const [showDiscountBreakdown, setShowDiscountBreakdown] = useState(false);
 
   const fetchOrderDetails = useCallback(async () => {
     if (!orderId) return;
@@ -297,7 +320,7 @@ export default function OrderDetailScreen({ navigation, route }) {
       case 'confirmed':
         return { bg: '#EFF6FF', text: '#1D4ED8', label: 'Confirmed' };
       case 'pending':
-        return { bg: '#FEF3C7', text: '#D97706', label: 'Payment Pending' };
+        return { bg: '#FEF3C7', text: '#D97706', label: 'Pending' };
       default:
         return { bg: '#FEF3C7', text: '#D97706', label: status || 'Pending' };
     }
@@ -371,14 +394,17 @@ export default function OrderDetailScreen({ navigation, route }) {
     );
   }
 
-  const isRefunded = String(order.status || '').toLowerCase() === 'refunded' || String(order.paymentStatus || '').toLowerCase() === 'refunded';
+  const orderStatus = String(order.status || '').toLowerCase();
+  const isCancelled = orderStatus === 'cancelled' || !!order.isCancelled;
+  const isReturned = orderStatus === 'returned' || orderStatus === 'return_requested';
+  const isRefunded = orderStatus === 'refunded' || String(order.paymentStatus || '').toLowerCase() === 'refunded';
+  const canShowInvoice = (order?.billUrl || order?.billurl) && orderStatus === 'delivered' && !isCancelled && !isRefunded && !isReturned;
   const refundAmount = order.refundAmount !== undefined && order.refundAmount !== null ? parseFloat(order.refundAmount?.$numberDecimal || order.refundAmount) : null;
   const statusDetails = getStatusStyle(order.status, order.paymentStatus);
-  const orderStatus = String(order.status).toLowerCase();
-  const canRetryPayment = String(order.paymentMode || '').toUpperCase() === 'ONLINE' && String(order.paymentStatus || '').toLowerCase() === 'pending' && orderStatus !== 'cancelled' && !isRefunded;
+  const canRetryPayment = String(order.paymentMode || '').toUpperCase() === 'ONLINE' && String(order.paymentStatus || '').toLowerCase() === 'pending' && !isCancelled && !isRefunded;
   
   const isWithin48HoursOfDelivery = () => {
-    if (orderStatus !== 'delivered') return false;
+    if (orderStatus !== 'delivered' || isCancelled || isRefunded) return false;
     const deliveryTime = new Date(order.deliveredAt || order.updatedAt || order.createdAt);
     const currentTime = new Date();
     const diffInMs = currentTime - deliveryTime;
@@ -386,11 +412,11 @@ export default function OrderDetailScreen({ navigation, route }) {
     return diffInHours <= 48;
   };
 
-  // Cancel Order: ONLY when status in ['pending', 'confirmed', 'processing', 'shipped']
-  const canCancelOrder = ['pending', 'confirmed', 'processing', 'shipped'].includes(orderStatus) && !isRefunded;
+  // Cancel Order: ONLY when status in ['pending', 'confirmed', 'processing'] (cannot cancel once shipped or delivered)
+  const canCancelOrder = ['pending', 'confirmed', 'processing'].includes(orderStatus) && !isRefunded && !isCancelled;
   
   // Return Order: ONLY when status === 'delivered', not already requested/returned, and within 48 hours of delivery
-  const canReturnOrder = orderStatus === 'delivered' && !isRefunded && orderStatus !== 'return_requested' && orderStatus !== 'returned' && isWithin48HoursOfDelivery();
+  const canReturnOrder = orderStatus === 'delivered' && !isRefunded && !isCancelled && orderStatus !== 'return_requested' && orderStatus !== 'returned' && isWithin48HoursOfDelivery();
 
   const items = order.items || [];
   const address = order.address || {};
@@ -402,6 +428,9 @@ export default function OrderDetailScreen({ navigation, route }) {
   const couponCode = order.couponCode || '';
   const paymentMode = order.paymentMode || '';
   const paymentStatusDetails = getPaymentStatusStyle(order.paymentStatus);
+  const mrpDiscount = totalAmount > discountedTotal && discountedTotal > 0 ? Math.round(totalAmount - discountedTotal) : 0;
+  const otherDiscount = mrpDiscount + Math.round(couponDiscountAmount);
+  const sellingPrice = discountedTotal > 0 ? Math.round(discountedTotal) : Math.round(totalAmount);
 
   const handleCancelOrder = () => {
     setIsCancelSheetVisible(true);
@@ -478,7 +507,7 @@ export default function OrderDetailScreen({ navigation, route }) {
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Order Details</Text>
         </View>
-        {(order?.billUrl || order?.billurl) && orderStatus === 'delivered' ? (
+        {canShowInvoice ? (
           <TouchableOpacity
             style={styles.receiptButton}
             activeOpacity={0.7}
@@ -586,32 +615,6 @@ export default function OrderDetailScreen({ navigation, route }) {
             </View>
           </View>
         )}
-
-        {/* Invoice Card */}
-        {(order?.billUrl || order?.billurl) && orderStatus === 'delivered' ? (
-          <View style={styles.sectionContainer}>
-            <TouchableOpacity
-              style={styles.invoiceCard}
-              activeOpacity={0.85}
-              onPress={() => {
-                const url = order.billUrl || order.billurl;
-                Linking.openURL(url).catch((err) => {
-                  console.log('Error opening bill URL:', err);
-                  Alert.alert('Error', 'Unable to open invoice URL.');
-                });
-              }}>
-              <View style={styles.invoiceCardContent}>
-                <View style={styles.invoiceIconContainer}>
-                  <FileText size={20} color="#FFFFFF" />
-                </View>
-                <Text style={styles.invoiceTitle}>Download Invoice</Text>
-                <View style={styles.downloadIconContainer}>
-                  <Download size={18} color={colors.primary} />
-                </View>
-              </View>
-            </TouchableOpacity>
-          </View>
-        ) : null}
 
         {/* Return Video Note & Button - ONLY for return_requested orders */}
         {orderStatus === 'return_requested' && (
@@ -738,79 +741,153 @@ export default function OrderDetailScreen({ navigation, route }) {
           </View>
         </View>
 
-        {/* Payment Method Card */}
+        {/* ── Modern Price Details Card (Matching Screenshot Reference) ── */}
         <View style={styles.sectionContainer}>
-          <Text style={styles.sectionTitle}>Payment Method</Text>
-          <View style={[styles.card, styles.cardPadding]}>
-            <View style={styles.paymentRow}>
-              {paymentMode === 'COD' ? (
-                <Wallet size={18} color={colors.primary} />
+          <View style={styles.priceDetailsHeaderRow}>
+            <Text style={styles.priceDetailsMainTitle}>Price details</Text>
+            <TouchableOpacity
+              style={styles.collapseToggleBtn}
+              activeOpacity={0.7}
+              onPress={() => setIsPriceDetailsExpanded((prev) => !prev)}>
+              {isPriceDetailsExpanded ? (
+                <ChevronUp size={18} color="#1A1C1E" />
               ) : (
-                <CreditCard size={18} color={colors.primary} />
+                <ChevronDown size={18} color="#1A1C1E" />
               )}
-              <Text style={styles.paymentMethodText}>{getPaymentModeLabel(paymentMode)}</Text>
-            </View>
-            <View style={styles.paymentSubRow}>
-              <Text style={styles.paymentLabel}>Payment Status: </Text>
-              <Text style={[styles.paymentValue, { color: isRefunded ? '#E11D48' : paymentStatusDetails.color }]}>
-                {isRefunded ? 'Refunded' : paymentStatusDetails.label}
-              </Text>
-            </View>
+            </TouchableOpacity>
           </View>
-        </View>
 
-        {/* Price Calculations */}
-        <View style={styles.sectionContainer}>
-          <Text style={styles.sectionTitle}>Order Summary</Text>
-          <View style={styles.receiptContainer}>
-            <View style={styles.receiptContent}>
-              <View style={styles.billRow}>
-                <Text style={styles.billLabel}>Total Amount (MRP)</Text>
-                <Text style={styles.billValue}>₹{Math.round(totalAmount)}</Text>
+          {isPriceDetailsExpanded && (
+            <View style={styles.priceDetailsBoxCard}>
+              {/* Listing price */}
+              <View style={styles.priceRowItem}>
+                <Text style={styles.priceRowLabel}>Total MRP</Text>
+                <Text style={mrpDiscount > 0 ? styles.priceRowValueStrikethrough : styles.priceRowValue}>
+                  ₹{Math.round(totalAmount)}
+                </Text>
               </View>
-              {discountedTotal < totalAmount ? (
-                <>
-                  <View style={styles.billRow}>
-                    <Text style={styles.billLabel}>Wholesale Discount</Text>
-                    <Text style={[styles.billValue, { color: '#137333' }]}>
-                      -₹{Math.round(totalAmount - discountedTotal)}
-                    </Text>
-                  </View>
-                  <View style={styles.billRow}>
-                    <Text style={styles.billLabel}>Discounted Total</Text>
-                    <Text style={styles.billValue}>₹{Math.round(discountedTotal)}</Text>
-                  </View>
-                </>
-              ) : null}
-              {couponDiscountAmount > 0 ? (
-                <View style={styles.billRow}>
-                  <Text style={styles.billLabel}>
-                    Coupon Discount{couponCode ? ` (${couponCode})` : ''}
-                  </Text>
-                  <Text style={[styles.billValue, { color: '#137333' }]}>
-                    -₹{Math.round(couponDiscountAmount)}
-                  </Text>
+
+              {/* Selling price */}
+              <View style={styles.priceRowItem}>
+                <View style={styles.labelWithInfoRow}>
+                  <Text style={styles.priceRowLabel}>Discount on MRP</Text>
+                  {/* <TouchableOpacity
+                    activeOpacity={0.7}
+                    onPress={() => Alert.alert('Selling Price', 'The price of items after wholesale/catalog discount.')}>
+                    <Info size={14} color="#94A3B8" style={{ marginLeft: 5 }} />
+                  </TouchableOpacity> */}
                 </View>
-              ) : null}
-              <View style={styles.billRow}>
-                <Text style={styles.billLabel}>Shipping & Delivery</Text>
-                <Text style={styles.billValue}>
+                <Text style={styles.priceRowValue}>₹{sellingPrice}</Text>
+              </View>
+
+              {/* Total fees */}
+              <View style={styles.priceRowItem}>
+                <TouchableOpacity
+                  style={styles.labelWithChevronRow}
+                  activeOpacity={0.7}
+                  onPress={() => setShowFeesBreakdown((prev) => !prev)}>
+                  <Text style={styles.priceRowLabel}>Total fees</Text>
+                  {showFeesBreakdown ? (
+                    <ChevronUp size={14} color="#64748B" style={{ marginLeft: 4 }} />
+                  ) : (
+                    <ChevronDown size={14} color="#64748B" style={{ marginLeft: 4 }} />
+                  )}
+                </TouchableOpacity>
+                <Text style={styles.priceRowValue}>
                   {shippingCost > 0 ? `₹${Math.round(shippingCost)}` : 'FREE'}
                 </Text>
               </View>
-              <View style={styles.billDivider} />
-              <View style={styles.billRowTotal}>
-                <Text style={styles.billLabelTotal}>Grand Total</Text>
-                <Text style={styles.billValueTotal}>₹{Math.round(finalTotalAmount)}</Text>
+
+              {/* Optional fees breakdown */}
+              {showFeesBreakdown && (
+                <View style={styles.breakdownSubBox}>
+                  <View style={styles.breakdownRow}>
+                    <Text style={styles.breakdownLabel}>• Delivery & Handling</Text>
+                    <Text style={styles.breakdownValue}>
+                      {shippingCost > 0 ? `₹${Math.round(shippingCost)}` : 'FREE'}
+                    </Text>
+                  </View>
+                </View>
+              )}
+
+              {/* Other discount */}
+              {otherDiscount > 0 && (
+                <>
+                  <View style={styles.priceRowItem}>
+                    <TouchableOpacity
+                      style={styles.labelWithChevronRow}
+                      activeOpacity={0.7}
+                      onPress={() => setShowDiscountBreakdown((prev) => !prev)}>
+                      <Text style={styles.priceRowLabel}>Other discount</Text>
+                      {showDiscountBreakdown ? (
+                        <ChevronUp size={14} color="#64748B" style={{ marginLeft: 4 }} />
+                      ) : (
+                        <ChevronDown size={14} color="#64748B" style={{ marginLeft: 4 }} />
+                      )}
+                    </TouchableOpacity>
+                    <Text style={styles.priceRowDiscountGreen}>-₹{otherDiscount}</Text>
+                  </View>
+
+                  {/* Optional discount breakdown */}
+                  {showDiscountBreakdown && (
+                    <View style={styles.breakdownSubBox}>
+                      {mrpDiscount > 0 && (
+                        <View style={styles.breakdownRow}>
+                          <Text style={styles.breakdownLabel}>• MRP Savings</Text>
+                          <Text style={styles.breakdownValueGreen}>-₹{mrpDiscount}</Text>
+                        </View>
+                      )}
+                      {couponDiscountAmount > 0 && (
+                        <View style={styles.breakdownRow}>
+                          <Text style={styles.breakdownLabel}>• Coupon Discount{couponCode ? ` (${couponCode})` : ''}</Text>
+                          <Text style={styles.breakdownValueGreen}>-₹{Math.round(couponDiscountAmount)}</Text>
+                        </View>
+                      )}
+                    </View>
+                  )}
+                </>
+              )}
+
+              {/* Dashed line */}
+              <View style={styles.dashedDividerLine} />
+
+              {/* Total amount */}
+              <View style={styles.totalAmountRow}>
+                <Text style={styles.totalAmountLabel}>Total amount</Text>
+                <Text style={styles.totalAmountValue}>₹{Math.round(finalTotalAmount)}</Text>
               </View>
+
+              {/* Paid By */}
+              <View style={styles.paidByCard}>
+                <Text style={styles.paidByLabel}>Paid By</Text>
+                <View style={styles.paidByMethodBadge}>
+                  {paymentMode === 'COD' ? (
+                    <Banknote size={18} color="#1A1C1E" style={{ marginRight: 6 }} />
+                  ) : (
+                    <CreditCard size={18} color="#1A1C1E" style={{ marginRight: 6 }} />
+                  )}
+                  <Text style={styles.paidByMethodText}>{getPaymentModeLabel(paymentMode)}</Text>
+                </View>
+              </View>
+
+              {/* Download Invoice Button (Only shown if order is delivered and not cancelled/refunded) */}
+              {canShowInvoice && (
+                <TouchableOpacity
+                  style={styles.downloadInvoiceBtnOutline}
+                  activeOpacity={0.8}
+                  onPress={() => {
+                    const url = order.billUrl || order.billurl;
+                    Linking.openURL(url).catch((err) => {
+                      console.log('Error opening bill URL:', err);
+                      Alert.alert('Error', 'Unable to open invoice URL.');
+                    });
+                  }}>
+                  <Download size={18} color="#1A1C1E" style={{ marginRight: 8 }} />
+                  <Text style={styles.downloadInvoiceBtnOutlineText}>Download Invoice</Text>
+                </TouchableOpacity>
+              )}
             </View>
-            {/* Ticket Cut / Receipt Wavy Edge */}
-            <View style={styles.receiptJaggedEdgeContainer}>
-              {Array.from({ length: 50 }).map((_, i) => (
-                <View key={i} style={styles.jaggedTooth} />
-              ))}
-            </View>
-          </View>
+          )}
         </View>
 
         {/* Cancel / Return / Complete Payment Action Buttons */}
@@ -828,21 +905,21 @@ export default function OrderDetailScreen({ navigation, route }) {
                   ) : (
                     <>
                       <CreditCard size={18} color="#FFFFFF" style={{ marginRight: 8 }} />
-                      <Text style={styles.actionButtonText}>Complete Payment</Text>
+                      <Text style={styles.completePaymentPrimaryBtnText}>Complete Payment</Text>
                     </>
                   )}
                 </TouchableOpacity>
 
                 {canCancelOrder && (
                   <TouchableOpacity
-                    style={styles.cancelOutlineButton}
+                    style={[styles.cancelButton, isCancelling && { opacity: 0.7 }]}
                     activeOpacity={0.8}
                     disabled={isCancelling || isCompletingPayment}
                     onPress={handleCancelOrder}>
                     {isCancelling ? (
-                      <ActivityIndicator size="small" color="#64748B" />
+                      <ActivityIndicator size="small" color="#EF4444" />
                     ) : (
-                      <Text style={styles.cancelOutlineButtonText}>Cancel Order</Text>
+                      <Text style={styles.cancelButtonText}>Cancel Order</Text>
                     )}
                   </TouchableOpacity>
                 )}
@@ -850,9 +927,10 @@ export default function OrderDetailScreen({ navigation, route }) {
             ) : canReturnOrder ? (
               <TouchableOpacity
                 style={styles.returnButton}
-                activeOpacity={0.8}
+                activeOpacity={0.85}
                 onPress={handleReturnOrder}>
-                <Text style={styles.actionButtonText}>Return Order</Text>
+                <RotateCcw size={16} color="#FFFFFF" style={{ marginRight: 8 }} />
+                <Text style={styles.returnButtonText}>Return Order</Text>
               </TouchableOpacity>
             ) : canCancelOrder ? (
               <TouchableOpacity
@@ -861,9 +939,9 @@ export default function OrderDetailScreen({ navigation, route }) {
                 disabled={isCancelling}
                 onPress={handleCancelOrder}>
                 {isCancelling ? (
-                  <ActivityIndicator size="small" color="#FFFFFF" />
+                  <ActivityIndicator size="small" color="#EF4444" />
                 ) : (
-                  <Text style={styles.actionButtonText}>Cancel Order</Text>
+                  <Text style={styles.cancelButtonText}>Cancel Order</Text>
                 )}
               </TouchableOpacity>
             ) : null}
@@ -1308,112 +1386,199 @@ const styles = StyleSheet.create({
     fontSize: moderateScale(11),
     fontFamily: fonts.medium,
   },
-  receiptContainer: {
-    shadowColor: '#64748B',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.02,
-    shadowRadius: 6,
-    elevation: 1.5,
-    backgroundColor: 'transparent',
-  },
-  receiptContent: {
-    backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    borderWidth: 1,
-    borderColor: '#F1F5F9',
-    borderBottomWidth: 0,
-    padding: 16,
-    paddingBottom: 24,
-  },
-  receiptJaggedEdgeContainer: {
+  priceDetailsHeaderRow: {
     flexDirection: 'row',
-    height: 8,
-    overflow: 'hidden',
-    marginTop: -1,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
   },
-  jaggedTooth: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
+  priceDetailsMainTitle: {
+    fontSize: moderateScale(18),
+    fontFamily: fonts.big,
+    color: '#1A1C1E',
+  },
+  collapseToggleBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    backgroundColor: '#F1F5F9',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  priceDetailsBoxCard: {
     backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    padding: 16,
+    gap: 12,
+  },
+  priceRowItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  priceRowLabel: {
+    fontSize: moderateScale(14),
+    fontFamily: fonts.medium,
+    color: '#1A1C1E',
+  },
+  labelWithInfoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  labelWithChevronRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  priceRowValue: {
+    fontSize: moderateScale(14),
+    fontFamily: fonts.big,
+    color: '#1A1C1E',
+  },
+  priceRowValueStrikethrough: {
+    fontSize: moderateScale(14),
+    fontFamily: fonts.big,
+    color: '#64748B',
+    textDecorationLine: 'line-through',
+  },
+  priceRowDiscountGreen: {
+    fontSize: moderateScale(14),
+    fontFamily: fonts.big,
+    color: '#16A34A',
+  },
+  breakdownSubBox: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 8,
+    padding: 10,
+    marginTop: -4,
+    marginBottom: 4,
+    gap: 6,
+  },
+  breakdownRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  breakdownLabel: {
+    fontSize: moderateScale(12),
+    fontFamily: fonts.medium,
+    color: '#64748B',
+  },
+  breakdownValue: {
+    fontSize: moderateScale(12),
+    fontFamily: fonts.big,
+    color: '#1A1C1E',
+  },
+  breakdownValueGreen: {
+    fontSize: moderateScale(12),
+    fontFamily: fonts.big,
+    color: '#16A34A',
+  },
+  dashedDividerLine: {
+    borderBottomWidth: 1,
+    borderBottomColor: '#CBD5E1',
+    borderStyle: 'dashed',
+    marginVertical: 4,
+  },
+  totalAmountRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 2,
+  },
+  totalAmountLabel: {
+    fontSize: moderateScale(15),
+    fontFamily: fonts.big,
+    color: '#1A1C1E',
+  },
+  totalAmountValue: {
+    fontSize: moderateScale(17),
+    fontFamily: fonts.big,
+    color: '#1A1C1E',
+  },
+  paidByCard: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: '#F1F5F9',
-    marginTop: -6,
-    marginRight: -2,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  paidByLabel: {
+    fontSize: moderateScale(14),
+    fontFamily: fonts.medium,
+    color: '#1A1C1E',
+  },
+  paidByMethodBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  paidByMethodText: {
+    fontSize: moderateScale(13),
+    fontFamily: fonts.big,
+    color: '#1A1C1E',
+  },
+  downloadInvoiceBtnOutline: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1.2,
+    borderColor: '#CBD5E1',
+    borderRadius: 12,
+    paddingVertical: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 4,
+  },
+  downloadInvoiceBtnOutlineText: {
+    fontSize: moderateScale(15),
+    fontFamily: fonts.big,
+    color: '#1A1C1E',
   },
   actionButtonContainer: {
-    marginTop: 24,
-    marginBottom: 8,
-    paddingHorizontal: 4,
+    marginTop: 18,
+    marginBottom: 28,
   },
   cancelButton: {
-    backgroundColor: '#EF4444',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1.5,
+    borderColor: '#EF4444',
     borderRadius: 12,
     paddingVertical: 14,
     alignItems: 'center',
-    shadowColor: '#EF4444',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 3,
+    justifyContent: 'center',
+  },
+  cancelButtonText: {
+    fontSize: moderateScale(15),
+    fontFamily: fonts.big,
+    color: '#EF4444',
   },
   returnButton: {
     backgroundColor: colors.primary,
     borderRadius: 12,
     paddingVertical: 14,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     shadowColor: colors.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
     elevation: 3,
   },
-  actionButtonText: {
-    fontSize: moderateScale(14),
+  returnButtonText: {
+    fontSize: moderateScale(15),
     fontFamily: fonts.big,
     color: '#FFFFFF',
   },
-  invoiceCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#F1F5F9',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    shadowColor: '#64748B',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.04,
-    shadowRadius: 10,
-    elevation: 2,
-  },
-  invoiceCardContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  invoiceIconContainer: {
-    width: 38,
-    height: 38,
-    borderRadius: 10,
-    backgroundColor: colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  invoiceTitle: {
-    flex: 1,
-    fontSize: moderateScale(14),
+  completePaymentPrimaryBtnText: {
+    fontSize: moderateScale(15),
     fontFamily: fonts.big,
-    color: '#0F172A',
-  },
-  downloadIconContainer: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: colors.primary + '12',
-    alignItems: 'center',
-    justifyContent: 'center',
+    color: '#FFFFFF',
   },
   sheetContent: {
     paddingTop: 10,

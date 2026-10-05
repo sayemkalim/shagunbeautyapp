@@ -64,7 +64,7 @@ import fonts from '../theme/typography';
 import { moderateScale } from '../theme/responsive';
 import { getImageSource } from '../utils/imageOptimizer';
 import { getProductById } from '../api/product';
-import { getProductStock, isProductOutOfStock } from '../utils/productUtils';
+import { getProductStock, isProductOutOfStock, getItemVariantSku } from '../utils/productUtils';
 
 const { width, height } = Dimensions.get('window');
 const DUMMY_IMG = require('../../assets/dummy_product.png');
@@ -828,7 +828,7 @@ export default function CartScreen({ navigation }) {
       await removeFromCartApi({
         type: 'product',
         productId: item.productId,
-        variantSku: item.variant?.sku,
+        variantSku: getItemVariantSku(item),
       });
       await refreshCart(selectedAddress?.id, appliedCoupon);
     } catch (err) {
@@ -929,13 +929,13 @@ export default function CartScreen({ navigation }) {
         if (newQty <= 0) {
           await removeFromCartApi({
             productId: item.productId,
-            variantSku: item.variant?.sku,
+            variantSku: getItemVariantSku(item),
           });
         } else {
           await addToCartApi({
             productId: item.productId,
             quantity: newQty,
-            variantSku: item.variant?.sku,
+            variantSku: getItemVariantSku(item),
           });
         }
 
@@ -981,7 +981,7 @@ export default function CartScreen({ navigation }) {
               setUpdatingCartItemId(cartItemId);
               await removeFromCartApi({
                 productId: item.productId,
-                variantSku: item.variant?.sku,
+                variantSku: getItemVariantSku(item),
               });
               await refreshCart(selectedAddress?.id, appliedCoupon);
             } catch (err) {
@@ -1021,6 +1021,7 @@ export default function CartScreen({ navigation }) {
             text: `Proceed with In-Stock (${inCount})`,
             onPress: () => {
               navigation.navigate('Checkout', {
+                cartId: backendCartData?._id,
                 selectedAddress,
                 couponCode: appliedCoupon,
                 totalAmount: finalTotal,
@@ -1053,6 +1054,7 @@ export default function CartScreen({ navigation }) {
     }
 
     navigation.navigate('Checkout', {
+      cartId: backendCartData?._id,
       selectedAddress,
       couponCode: appliedCoupon,
       totalAmount: finalTotal,
@@ -1166,7 +1168,7 @@ export default function CartScreen({ navigation }) {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
+    <SafeAreaView style={styles.safeArea} edges={['top']}>
       <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
 
       {/* ── Top Address Header ── */}
@@ -1753,15 +1755,18 @@ export default function CartScreen({ navigation }) {
 
       {/* ── Fixed Bottom Sticky Action Bar (Matching User Screenshots) ── */}
       {cartItems.length > 0 && (
-        <View style={[styles.fixedBottomContainer, { paddingBottom: insets.bottom }]}>
+        <View style={styles.fixedBottomContainer}>
           <View style={[
             styles.selectedCountBanner,
             inStockCartItems.length === 0 && { backgroundColor: '#FEF2F2' },
           ]}>
-            <Text style={[
-              styles.selectedCountText,
-              inStockCartItems.length === 0 && { color: '#DC2626' },
-            ]}>
+            <Text
+              numberOfLines={1}
+              maxFontSizeMultiplier={1.2}
+              style={[
+                styles.selectedCountText,
+                inStockCartItems.length === 0 && { color: '#DC2626' },
+              ]}>
               {inStockCartItems.length === 0
                 ? 'All items in your bag are out of stock'
                 : `${selectedCartItems.length} Item${selectedCartItems.length !== 1 ? 's' : ''} in your order${
@@ -1790,7 +1795,12 @@ export default function CartScreen({ navigation }) {
                   handlePlaceOrder();
                 }
               }}>
-              <Text style={styles.placeOrderBtnText}>
+              <Text
+                numberOfLines={1}
+                maxFontSizeMultiplier={1.2}
+                adjustsFontSizeToFit
+                minimumFontScale={0.85}
+                style={styles.placeOrderBtnText}>
                 {inStockCartItems.length === 0
                   ? 'Items Out of Stock'
                   : !selectedAddress
@@ -2323,7 +2333,7 @@ const styles = StyleSheet.create({
   navTabPill: {
     paddingHorizontal: 14,
     paddingVertical: 6,
-    borderRadius: 20,
+    borderRadius: 2,
     backgroundColor: '#F8FAFC',
     borderWidth: 1,
     borderColor: '#E2E8F0',
@@ -2348,7 +2358,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: 16,
-    paddingBottom: 120,
+    paddingBottom: 130,
     gap: 14,
   },
 
@@ -3157,46 +3167,53 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: '#F1F5F9',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    elevation: 10,
+    shadowOffset: { width: 0, height: -3 },
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    elevation: 8,
   },
   selectedCountBanner: {
     backgroundColor: '#FAF5FF',
-    paddingVertical: 6,
-    paddingHorizontal: 16,
+    paddingVertical: 5,
+    paddingHorizontal: 12,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   selectedCountText: {
-    fontSize: moderateScale(12),
+    fontSize: moderateScale(11.5),
     fontFamily: fonts.big,
     color: colors.primary,
+    textAlign: 'center',
   },
   bottomBarActionInner: {
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingTop: 8,
+    paddingBottom: 8,
   },
   placeOrderBtn: {
-    height: 50,
+    minHeight: 46,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
     backgroundColor: colors.primary,
-    borderRadius: 14,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: colors.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 8,
-    elevation: 4,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
   },
   placeOrderBtnDisabled: {
     backgroundColor: '#CBD5E1',
     shadowOpacity: 0,
+    elevation: 0,
   },
   placeOrderBtnText: {
     color: '#FFFFFF',
-    fontSize: moderateScale(16),
+    fontSize: moderateScale(15),
     fontFamily: fonts.big,
+    textAlign: 'center',
   },
 
   /* Empty State */

@@ -18,7 +18,7 @@ const DUMMY_IMG = require('../../assets/dummy_product.png');
 
 export default function BrandMarqueeBanner({
   brands = [],
-  speed = 28, // pixels per second for smooth, readable scrolling
+  speed = 52, // increased scrolling speed for faster marquee
   gradientColors = ['#FAF5FF', '#F3E8FF', '#FAF5FF'],
   borderColor = '#E9D5FF',
   style,

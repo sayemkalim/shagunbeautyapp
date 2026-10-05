@@ -146,6 +146,7 @@ export default function CheckoutScreen({ navigation, route }) {
     }
     // Navigate to Payment Options Screen
     navigation.navigate('Payment', {
+      cartId: route.params?.cartId,
       addressId: selectedAddr._id || selectedAddr.id,
       address: selectedAddr,
       couponCode: route.params?.couponCode,

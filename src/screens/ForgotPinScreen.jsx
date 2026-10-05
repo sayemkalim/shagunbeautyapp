@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import {
   ActivityIndicator,
   Image,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -353,9 +354,13 @@ export default function ForgotPinScreen({ navigation, route }) {
                   placeholderTextColor={colors.inputPlaceholder}
                   value={phone}
                   onChangeText={(val) => {
-                    setPhone(val.replace(/[^0-9]/g, ''));
+                    const digits = val.replace(/[^0-9]/g, '');
+                    setPhone(digits);
                     setPhoneError('');
                     setNoEmailFound(false);
+                    if (digits.length === 10) {
+                      Keyboard.dismiss();
+                    }
                   }}
                   keyboardType="number-pad"
                   maxLength={10}

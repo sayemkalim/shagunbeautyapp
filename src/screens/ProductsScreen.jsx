@@ -28,6 +28,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import LinearGradient from 'react-native-linear-gradient';
 import { useProducts } from '../hooks/useProducts';
 import { useBrands } from '../hooks/useBrands';
+import { useCartStore } from '../store/cartStore';
 import { ProductCardSkeleton } from '../components/Skeleton';
 import ProductCard from '../components/ProductCard';
 import MarqueeText from '../components/MarqueeText';
@@ -93,6 +94,10 @@ export default function ProductsScreen({ route, navigation }) {
   });
   const [brandSearch, setBrandSearch] = useState('');
   const [favorites, setFavorites] = useState({});
+
+  const cartTotalQuantity = useCartStore((state) => state.totalQuantity);
+  const cartItems = useCartStore((state) => state.items);
+  const effectiveCartCount = cartTotalQuantity || (cartItems?.reduce((sum, item) => sum + (Number(item.quantity) || 1), 0) || 0);
 
   const isFocused = useIsFocused();
   const queryClient = useQueryClient();
@@ -440,7 +445,14 @@ export default function ProductsScreen({ route, navigation }) {
             style={styles.headerIconButton}
             activeOpacity={0.7}
             onPress={() => navigation.navigate('BottomTabs', { screen: 'Bag' })}>
-            <Handbag size={22} color="#1A1C1E" />
+            <View style={styles.cartIconWrapper}>
+              <Handbag size={22} color="#1A1C1E" />
+              {effectiveCartCount > 0 && (
+                <View style={styles.cartHeaderBadge}>
+                  <Text style={styles.cartHeaderBadgeText}>{effectiveCartCount}</Text>
+                </View>
+              )}
+            </View>
           </TouchableOpacity>
         </View>
       </View>
@@ -666,6 +678,26 @@ const styles = StyleSheet.create({
   },
   headerIconButton: {
     padding: 4,
+  },
+  cartIconWrapper: {
+    position: 'relative',
+  },
+  cartHeaderBadge: {
+    position: 'absolute',
+    top: -5,
+    right: -7,
+    backgroundColor: colors.primary,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 3,
+  },
+  cartHeaderBadgeText: {
+    color: '#FFFFFF',
+    fontSize: moderateScale(9),
+    fontFamily: fonts.big,
   },
   backButton: {
     padding: 4,

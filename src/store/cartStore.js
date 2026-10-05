@@ -338,6 +338,8 @@ export const parseCartItemFromApi = (item) => {
   const vColorName = variantObj?.color_name || variantObj?.colorName || product.color_name || product.colorName || parsedShade || null;
 
   return {
+    _id: item._id,
+    backendCartItemId: item._id,
     cartItemId: `${pId}_${variantKey}`,
     productId: pId,
     name: itemName,
@@ -575,9 +577,17 @@ export const useCartStore = create(
         set(recalculateCartTotals(newItems));
       },
 
-      removeFromCart: (cartItemId) => {
+      removeFromCart: (targetId) => {
+        if (!targetId) return;
         const currentItems = get().items || [];
-        const newItems = currentItems.filter((item) => item.cartItemId !== cartItemId);
+        const newItems = currentItems.filter((item) => {
+          if (item.cartItemId === targetId) return false;
+          if (item._id && String(item._id) === String(targetId)) return false;
+          if (item.backendCartItemId && String(item.backendCartItemId) === String(targetId)) return false;
+          const fallbackKey = `${item.productId}_${item.variant?.sku || 'base'}`;
+          if (fallbackKey === targetId) return false;
+          return true;
+        });
         set(recalculateCartTotals(newItems));
       },
 
@@ -590,24 +600,34 @@ export const useCartStore = create(
       },
 
       setCartData: (payload) => {
-        if (!payload) return;
-        const cartData = (payload.data && Array.isArray(payload.data.items)) ? payload.data : payload;
-        if (!cartData || !Array.isArray(cartData.items)) return;
+        if (!payload) {
+          set({ items: [], totalQuantity: 0, totalAmount: 0 });
+          return;
+        }
+
+        const cartData = (payload.data && Array.isArray(payload.data.items))
+          ? payload.data
+          : (payload.items ? payload : (payload.data || payload));
+
+        if (!cartData || !Array.isArray(cartData.items) || cartData.items.length === 0) {
+          set({ items: [], totalQuantity: 0, totalAmount: 0 });
+          return;
+        }
 
         const currentItems = get().items || [];
         const existingMap = new Map();
         currentItems.forEach((it) => {
+          const vKey = it.variant?.sku || (typeof it.variant === 'string' ? it.variant : null) || it.variant_sku || it.sku || (it.cartItemId?.split('_')[1] !== 'base' ? it.cartItemId?.split('_')[1] : 'base');
+          const exactKey = it.cartItemId || `${it.productId}_${vKey}`;
+          existingMap.set(exactKey, it);
           if (it.cartItemId) existingMap.set(it.cartItemId, it);
-          if (it.productId) existingMap.set(`${it.productId}_${it.variant?.sku || 'base'}`, it);
-          if (it.productId) existingMap.set(String(it.productId), it);
         });
 
         const apiItems = cartData.items.map((rawItem) => {
           const parsed = parseCartItemFromApi(rawItem);
-          const existing =
-            existingMap.get(parsed.cartItemId) ||
-            existingMap.get(`${parsed.productId}_${parsed.variant?.sku || 'base'}`) ||
-            existingMap.get(String(parsed.productId));
+          const vKey = parsed.variant?.sku || (typeof parsed.variant === 'string' ? parsed.variant : null) || parsed.variant_sku || parsed.sku || (parsed.cartItemId?.split('_')[1] !== 'base' ? parsed.cartItemId?.split('_')[1] : 'base');
+          const exactKey = parsed.cartItemId || `${parsed.productId}_${vKey}`;
+          const existing = existingMap.get(exactKey) || existingMap.get(parsed.cartItemId);
 
           if (existing) {
             if (!parsed.image && existing.image) {
@@ -660,8 +680,12 @@ export const useCartStore = create(
           if (token) {
             const res = await getCart();
             const cartData = res?.data?.data || res?.data || res || {};
-            if (Array.isArray(cartData?.items)) {
+            if (Array.isArray(cartData?.items) && cartData.items.length > 0) {
               get().setCartData(cartData);
+              set({ isInitialized: true });
+              return;
+            } else if (res?.data === null || cartData === null || !cartData?.items || cartData.items.length === 0) {
+              get().clearCart();
               set({ isInitialized: true });
               return;
             }

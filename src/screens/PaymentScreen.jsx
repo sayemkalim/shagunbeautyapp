@@ -42,10 +42,11 @@ import { useCartStore } from '../store/cartStore';
 import colors from '../theme/colors';
 import fonts from '../theme/typography';
 import { moderateScale } from '../theme/responsive';
-import { getCart, removeFromCartApi } from '../api/cart';
+import { getCart, removeFromCartApi, deleteCartApi } from '../api/cart';
+import { getUser } from '../api/authStorage';
 import { createOrder, createRazorpayOrder, verifyRazorpayPayment, getRazorpayConfig } from '../api/order';
 import { getImageSource } from '../utils/imageOptimizer';
-import { isProductOutOfStock, getProductStock } from '../utils/productUtils';
+import { isProductOutOfStock, getProductStock, getItemVariantSku } from '../utils/productUtils';
 
 const CONFETTI_PARTICLES = [
   { dx: -70, dy: -90, color: '#10B981', size: 10, rotate: '-25deg' },
@@ -73,7 +74,8 @@ export default function PaymentScreen({ navigation, route }) {
   const clearCart = useCartStore((state) => state.clearCart);
   const removeFromCart = useCartStore((state) => state.removeFromCart);
 
-  const { addressId, address, couponCode, totalAmount: paramTotalAmount } = route.params || {};
+  const { addressId, address, couponCode, totalAmount: paramTotalAmount, cartId: paramCartId } = route.params || {};
+  const [cartId, setCartId] = useState(paramCartId || null);
   
   // Calculate final total amount (including the ₹50 delivery charge fallback if total is < ₹2000)
   const totalAmount = useMemo(() => {
@@ -101,20 +103,26 @@ export default function PaymentScreen({ navigation, route }) {
         if (addressId) {
           const cartRes = await getCart(addressId, couponCode);
           const cartData = cartRes?.data?.data || cartRes?.data || cartRes;
-          if (isMounted && cartData && !paramTotalAmount) {
-            if (typeof cartData.final_price === 'number' && cartData.final_price > 0) {
-              setDisplayAmount(Math.round(cartData.final_price));
-            } else if (typeof cartData.final_total === 'number' && cartData.final_total > 0) {
-              setDisplayAmount(Math.round(cartData.final_total));
-            } else {
-              const rawTotal = cartData.total_price || 0;
-              const cDiscount = cartData.coupon_discount_amount ?? cartData.coupon?.discount_amount ?? 0;
-              const sCharge = (typeof cartData.shipping_charge === 'number')
-                ? cartData.shipping_charge
-                : ((rawTotal > 0 && rawTotal < 2000) ? 50 : 0);
-              const calcFinal = Math.max(0, rawTotal - cDiscount) + sCharge;
-              if (calcFinal > 0) {
-                setDisplayAmount(Math.round(calcFinal));
+          if (isMounted && cartData) {
+            const fetchedCartId = cartData?._id || cartData?.data?._id;
+            if (fetchedCartId) {
+              setCartId(fetchedCartId);
+            }
+            if (!paramTotalAmount) {
+              if (typeof cartData.final_price === 'number' && cartData.final_price > 0) {
+                setDisplayAmount(Math.round(cartData.final_price));
+              } else if (typeof cartData.final_total === 'number' && cartData.final_total > 0) {
+                setDisplayAmount(Math.round(cartData.final_total));
+              } else {
+                const rawTotal = cartData.total_price || 0;
+                const cDiscount = cartData.coupon_discount_amount ?? cartData.coupon?.discount_amount ?? 0;
+                const sCharge = (typeof cartData.shipping_charge === 'number')
+                  ? cartData.shipping_charge
+                  : ((rawTotal > 0 && rawTotal < 2000) ? 50 : 0);
+                const calcFinal = Math.max(0, rawTotal - cDiscount) + sCharge;
+                if (calcFinal > 0) {
+                  setDisplayAmount(Math.round(calcFinal));
+                }
               }
             }
           }
@@ -283,9 +291,16 @@ export default function PaymentScreen({ navigation, route }) {
     try {
       setIsPlacingOrder(true);
 
-      const cartRes = await getCart(addressId, couponCode);
-      const cartId = cartRes?.data?.data?._id || cartRes?.data?._id;
-      if (!cartId) {
+      let effectiveCartId = cartId || route.params?.cartId;
+      if (!effectiveCartId) {
+        const cartRes = await getCart(addressId, couponCode);
+        effectiveCartId = cartRes?.data?.data?._id || cartRes?.data?._id;
+        if (effectiveCartId) {
+          setCartId(effectiveCartId);
+        }
+      }
+
+      if (!effectiveCartId) {
         Alert.alert('Error', 'Your cart is empty or not found.');
         return;
       }
@@ -308,14 +323,14 @@ export default function PaymentScreen({ navigation, route }) {
       }
 
       const inStockItemIds = finalOrderedItems.map((i) => i.cartItemId);
-      const selectedItemIds = (route.params?.selectedItemIds || inStockItemIds).filter((id) => inStockItemIds.includes(id));
+      const isOrderingAll = finalOrderedItems.length >= cartItems.length;
 
       const orderRes = await createOrder({
-        cartId,
+        cartId: effectiveCartId,
         addressId,
         couponCode,
         paymentMode: mode,
-        selectedItemIds,
+        ...(isOrderingAll ? {} : { selectedItemIds: inStockItemIds }),
       });
 
       const orderData = orderRes?.data || orderRes?.order || orderRes;
@@ -327,29 +342,38 @@ export default function PaymentScreen({ navigation, route }) {
       setOrderedItems([...finalOrderedItems]);
       setShowSuccessOverlay(true);
 
-      if (finalOrderedItems.length === cartItems.length) {
+      if (isOrderingAll) {
         clearCart();
       } else {
         finalOrderedItems.forEach((item) => {
-          if (item.cartItemId) {
-            removeFromCart(item.cartItemId);
-          }
+          if (item.cartItemId) removeFromCart(item.cartItemId);
+          if (item._id) removeFromCart(item._id);
+          if (item.backendCartItemId) removeFromCart(item.backendCartItemId);
+          removeFromCart(`${item.productId}_${getItemVariantSku(item) || 'base'}`);
         });
       }
 
-      // Proactively remove ordered items from backend cart and refresh query cache
-      try {
-        await Promise.all(
-          finalOrderedItems.map((item) =>
-            removeFromCartApi({
-              productId: item.productId,
-              variantSku: item.variant?.sku,
-            }).catch(() => {})
-          )
-        );
-      } catch (_) {}
+      // Background cache invalidation and non-blocking sync
       queryClient.invalidateQueries({ queryKey: ['cart'] });
       queryClient.invalidateQueries({ queryKey: ['products'] });
+
+      Promise.all(
+        finalOrderedItems.map((item) =>
+          removeFromCartApi({
+            productId: item.productId || item.product?._id || item.id,
+            variantSku: getItemVariantSku(item),
+          }).catch(() => {})
+        )
+      ).catch(() => {});
+
+      if (isOrderingAll) {
+        getUser().then((user) => {
+          const uId = user?.id || user?._id;
+          if (uId) {
+            deleteCartApi(uId).catch(() => {});
+          }
+        }).catch(() => {});
+      }
     } catch (e) {
       console.log('Order creation failed:', e);
       const errMsg = e?.message || 'Something went wrong. Please try again.';
@@ -402,22 +426,29 @@ export default function PaymentScreen({ navigation, route }) {
     try {
       setIsPlacingOrder(true);
 
-      const cartRes = await getCart(addressId, couponCode);
-      const cartId = cartRes?.data?.data?._id || cartRes?.data?._id;
-      if (!cartId) {
+      let effectiveCartId = cartId || route.params?.cartId;
+      if (!effectiveCartId) {
+        const cartRes = await getCart(addressId, couponCode);
+        effectiveCartId = cartRes?.data?.data?._id || cartRes?.data?._id;
+        if (effectiveCartId) {
+          setCartId(effectiveCartId);
+        }
+      }
+
+      if (!effectiveCartId) {
         Alert.alert('Error', 'Your cart is empty or not found.');
         setIsPlacingOrder(false);
         return;
       }
 
       const inStockItemIds = finalOrderedItems.map((i) => i.cartItemId);
-      const selectedItemIds = (route.params?.selectedItemIds || inStockItemIds).filter((id) => inStockItemIds.includes(id));
+      const isOrderingAll = finalOrderedItems.length >= cartItems.length;
 
       const rzpRes = await createRazorpayOrder({
-        cartId,
+        cartId: effectiveCartId,
         addressId,
         couponCode,
-        selectedItemIds,
+        ...(isOrderingAll ? {} : { selectedItemIds: inStockItemIds }),
       });
       const rzpData = rzpRes?.data || rzpRes;
 
@@ -459,10 +490,10 @@ export default function PaymentScreen({ navigation, route }) {
           try {
             setIsPlacingOrder(true);
             const verifiedRes = await verifyRazorpayPayment({
-              cartId,
+              cartId: effectiveCartId,
               addressId,
               couponCode,
-              selectedItemIds,
+              ...(isOrderingAll ? {} : { selectedItemIds: inStockItemIds }),
               razorpay_order_id: data.razorpay_order_id,
               razorpay_payment_id: data.razorpay_payment_id,
               razorpay_signature: data.razorpay_signature,
@@ -476,29 +507,38 @@ export default function PaymentScreen({ navigation, route }) {
             setOrderedItems([...finalOrderedItems]);
             setShowSuccessOverlay(true);
 
-            if (finalOrderedItems.length === cartItems.length) {
+            if (isOrderingAll) {
               clearCart();
             } else {
               finalOrderedItems.forEach((item) => {
-                if (item.cartItemId) {
-                  removeFromCart(item.cartItemId);
-                }
+                if (item.cartItemId) removeFromCart(item.cartItemId);
+                if (item._id) removeFromCart(item._id);
+                if (item.backendCartItemId) removeFromCart(item.backendCartItemId);
+                removeFromCart(`${item.productId}_${getItemVariantSku(item) || 'base'}`);
               });
             }
 
-            // Proactively remove ordered items from backend cart and refresh query cache
-            try {
-              await Promise.all(
-                finalOrderedItems.map((item) =>
-                  removeFromCartApi({
-                    productId: item.productId,
-                    variantSku: item.variant?.sku,
-                  }).catch(() => {})
-                )
-              );
-            } catch (_) {}
+            // Non-blocking query invalidation & background cleanup
             queryClient.invalidateQueries({ queryKey: ['cart'] });
             queryClient.invalidateQueries({ queryKey: ['products'] });
+
+            Promise.all(
+              finalOrderedItems.map((item) =>
+                removeFromCartApi({
+                  productId: item.productId || item.product?._id || item.id,
+                  variantSku: getItemVariantSku(item),
+                }).catch(() => {})
+              )
+            ).catch(() => {});
+
+            if (isOrderingAll) {
+              getUser().then((user) => {
+                const uId = user?.id || user?._id;
+                if (uId) {
+                  deleteCartApi(uId).catch(() => {});
+                }
+              }).catch(() => {});
+            }
           } catch (verifyErr) {
             console.log('Payment verification error:', verifyErr);
             Alert.alert(

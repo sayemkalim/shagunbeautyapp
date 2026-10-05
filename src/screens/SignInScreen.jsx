@@ -2,6 +2,7 @@ import React, { useState, useRef } from 'react';
 import {
   ActivityIndicator,
   Image,
+  Keyboard,
   KeyboardAvoidingView,
   Linking,
   Platform,
@@ -99,9 +100,13 @@ export default function SignInScreen({ navigation, route }) {
     newPin[index] = cleanText.substring(0, 1);
     setPin(newPin);
 
-    // Auto-focus next cell
-    if (cleanText && index < 3) {
-      pinRefs[index + 1].current?.focus();
+    // Auto-focus next cell or dismiss keyboard if complete
+    if (cleanText) {
+      if (index < 3) {
+        pinRefs[index + 1].current?.focus();
+      } else if (index === 3) {
+        Keyboard.dismiss();
+      }
     }
   };
 
@@ -213,8 +218,12 @@ export default function SignInScreen({ navigation, route }) {
                   placeholderTextColor={colors.inputPlaceholder}
                   value={phone}
                   onChangeText={(val) => {
-                    setPhone(val.replace(/[^0-9]/g, ''));
+                    const digits = val.replace(/[^0-9]/g, '');
+                    setPhone(digits);
                     setErrorMessage('');
+                    if (digits.length === 10) {
+                      Keyboard.dismiss();
+                    }
                   }}
                   keyboardType="number-pad"
                   maxLength={10}
@@ -335,8 +344,12 @@ export default function SignInScreen({ navigation, route }) {
                       placeholderTextColor={colors.inputPlaceholder}
                       value={pincode}
                       onChangeText={(val) => {
-                        setPincode(val.replace(/[^0-9]/g, ''));
+                        const digits = val.replace(/[^0-9]/g, '');
+                        setPincode(digits);
                         setErrorMessage('');
+                        if (digits.length === 6) {
+                          Keyboard.dismiss();
+                        }
                       }}
                       keyboardType="number-pad"
                       maxLength={6}
